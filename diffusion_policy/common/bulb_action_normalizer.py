@@ -92,3 +92,78 @@ def load_hand_joint_stat(path: str) -> Dict[str, np.ndarray]:
 
 def hand_joint_normalizer_from_stat(stat: Dict[str, np.ndarray]) -> SingleFieldLinearNormalizer:
     return get_range_normalizer_from_stat(stat)
+
+
+def streaming_minmax(array, chunk_size: int = 65536):
+    n = int(array.shape[0])
+    if n == 0:
+        raise ValueError("cannot compute min/max on empty array")
+    running_min = None
+    running_max = None
+    for start in range(0, n, chunk_size):
+        block = np.asarray(array[start : start + chunk_size], dtype=np.float32)
+        block = block.reshape(block.shape[0], -1)
+        bmin = block.min(axis=0)
+        bmax = block.max(axis=0)
+        running_min = bmin if running_min is None else np.minimum(running_min, bmin)
+        running_max = bmax if running_max is None else np.maximum(running_max, bmax)
+    return running_min.astype(np.float32), running_max.astype(np.float32)
+
+
+def _hand_array_from_buffer(replay, key: str):
+    arr = replay[key]
+    tail = arr.shape[-1]
+    if tail == HAND_DIM:
+        return arr
+    if tail == ACTION_DIM:
+        return arr[..., EE_DIM:]
+    raise ValueError(f"{key} last dim must be 22 or 31, got {tail}")
+
+
+def _open_replay_buffer(zarr_path: str, mode: str = "r"):
+    import zarr
+    from zarr.storage import LocalStore
+
+    from diffusion_policy.common.replay_buffer import ReplayBuffer
+
+    zarr_path = os.path.expanduser(zarr_path)
+    if int(zarr.__version__.split(".", maxsplit=1)[0]) >= 3:
+
+        class _ZarrReplayView:
+            def __init__(self, group):
+                self._data = group["data"]
+
+            def keys(self):
+                return self._data.keys()
+
+            def __getitem__(self, key):
+                return self._data[key]
+
+        group = zarr.open(store=LocalStore(zarr_path), mode=mode)
+        return _ZarrReplayView(group)
+    return ReplayBuffer.create_from_path(zarr_path, mode=mode)
+
+
+def collect_hand_joint_stat(zarr_path: str, chunk_size: int = 65536) -> Dict[str, np.ndarray]:
+    replay = _open_replay_buffer(zarr_path, mode="r")
+    keys = []
+    if "hand_joint" in replay.keys():
+        keys.append("hand_joint")
+    if "action" in replay.keys():
+        keys.append("action")
+    if "state" in replay.keys() and "hand_joint" not in replay.keys():
+        keys.append("state")
+    if not keys:
+        raise KeyError("replay buffer needs hand_joint, action, or state")
+    running_min = None
+    running_max = None
+    for key in keys:
+        mn, mx = streaming_minmax(_hand_array_from_buffer(replay, key), chunk_size=chunk_size)
+        running_min = mn if running_min is None else np.minimum(running_min, mn)
+        running_max = mx if running_max is None else np.maximum(running_max, mx)
+    return {
+        "min": running_min,
+        "max": running_max,
+        "mean": (running_min + running_max) / 2,
+        "std": np.maximum(running_max - running_min, 1e-6) / np.sqrt(12.0),
+    }
