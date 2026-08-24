@@ -97,21 +97,26 @@ def capture_obs(obs: dict) -> dict:
     }
 
 
-def build_policy_obs(obs_history, device: torch.device):
+def obs_keys_from_cfg(cfg) -> list[str]:
+    return list(cfg.shape_meta.obs.keys())
+
+
+def build_policy_obs(obs_history, device: torch.device, obs_keys: list[str]):
     observations = list(obs_history)
     base_ee_pose = observations[-1]["ee_pose"]
-    absolute_ee = np.stack([obs["ee_pose"] for obs in observations])
-    relative_ee = ee_pose_relative_to(absolute_ee, base_ee_pose)
+    policy_obs = {}
+    if "ee_pose" in obs_keys:
+        absolute_ee = np.stack([obs["ee_pose"] for obs in observations])
+        relative_ee = ee_pose_relative_to(absolute_ee, base_ee_pose)
+        policy_obs["ee_pose"] = torch.from_numpy(relative_ee[None]).float().to(device)
 
-    def tensor(values):
-        return torch.from_numpy(np.stack(values)[None]).float().to(device)
+    def tensor(key):
+        return torch.from_numpy(np.stack([obs[key] for obs in observations])[None]).float().to(device)
 
-    policy_obs = {
-        "front_image": tensor([obs["front_image"] for obs in observations]),
-        "wrist_image": tensor([obs["wrist_image"] for obs in observations]),
-        "ee_pose": torch.from_numpy(relative_ee[None]).float().to(device),
-        "hand_joint": tensor([obs["hand_joint"] for obs in observations]),
-    }
+    for key in obs_keys:
+        if key == "ee_pose":
+            continue
+        policy_obs[key] = tensor(key)
     return policy_obs, base_ee_pose
 
 
@@ -131,6 +136,17 @@ def mixed_actions_to_absolute(actions: np.ndarray, base_ee_pose: np.ndarray) -> 
     result[..., 3:9] = matrix_to_rotation_6d(absolute_rotation)
     # result[..., 9:31] is already an absolute SharpA joint target.
     return result
+
+
+def policy_action_to_robot(action: np.ndarray, base_ee_pose: np.ndarray) -> np.ndarray:
+    action = np.asarray(action, dtype=np.float32)
+    if action.shape[-1] == ACTION_DIM:
+        return mixed_actions_to_absolute(action, base_ee_pose)
+    if action.shape[-1] == ACTION_DIM - EE_DIM:
+        out = np.repeat(base_ee_pose[None, :], action.shape[0], axis=0)
+        result = np.concatenate([out, action], axis=-1)
+        return result
+    raise ValueError(f"policy action last dim must be 22 or 31, got {action.shape[-1]}")
 
 
 def parse_args():
@@ -209,6 +225,8 @@ def main():
 
     print(f"[policy] loading {checkpoint}")
     cfg, policy = load_policy(checkpoint, device, args.num_inference_steps)
+    obs_keys = obs_keys_from_cfg(cfg)
+    print(f"[policy] obs_keys={obs_keys} action_dim={int(policy.action_dim)}")
     n_obs_steps = int(cfg.n_obs_steps)
     trained_action_steps = int(cfg.n_action_steps)
     action_chunk_steps = args.action_chunk_steps or trained_action_steps
@@ -224,26 +242,29 @@ def main():
     )
     if n_obs_steps <= 0:
         raise ValueError(f"Checkpoint has invalid n_obs_steps={n_obs_steps}")
-    if int(policy.action_dim) != ACTION_DIM:
+    if int(policy.action_dim) not in (ACTION_DIM - EE_DIM, ACTION_DIM):
         raise ValueError(
-            f"Direct robot expects action_dim={ACTION_DIM}, got {policy.action_dim}"
+            f"policy action_dim must be {ACTION_DIM - EE_DIM} or {ACTION_DIM}, "
+            f"got {policy.action_dim}"
         )
     if args.check_only:
-        dummy_obs = {
-            "front_image": torch.zeros(
-                1, n_obs_steps, 3, IMAGE_HEIGHT, IMAGE_WIDTH, device=device
-            ),
-            "wrist_image": torch.zeros(
-                1, n_obs_steps, 3, IMAGE_HEIGHT, IMAGE_WIDTH, device=device
-            ),
-            "ee_pose": torch.zeros(1, n_obs_steps, EE_DIM, device=device),
-            "hand_joint": torch.zeros(
-                1, n_obs_steps, ACTION_DIM - EE_DIM, device=device
-            ),
-        }
+        dummy_obs = {}
+        for key in obs_keys:
+            if key in ("front_image", "wrist_image"):
+                dummy_obs[key] = torch.zeros(
+                    1, n_obs_steps, 3, IMAGE_HEIGHT, IMAGE_WIDTH, device=device
+                )
+            elif key == "ee_pose":
+                dummy_obs[key] = torch.zeros(1, n_obs_steps, EE_DIM, device=device)
+            elif key == "hand_joint":
+                dummy_obs[key] = torch.zeros(
+                    1, n_obs_steps, ACTION_DIM - EE_DIM, device=device
+                )
+            else:
+                raise ValueError(f"Unsupported obs key for --check_only dummy: {key}")
         with torch.inference_mode():
             check_action = policy.predict_action(dummy_obs)["action"]
-        expected_shape = (1, trained_action_steps, ACTION_DIM)
+        expected_shape = (1, trained_action_steps, int(policy.action_dim))
         if tuple(check_action.shape) != expected_shape:
             raise ValueError(
                 f"Expected policy action shape {expected_shape}, got "
@@ -305,12 +326,12 @@ def main():
             )
 
         while True:
-            policy_obs, base_ee_pose = build_policy_obs(obs_history, device)
+            policy_obs, base_ee_pose = build_policy_obs(obs_history, device, obs_keys)
             with torch.inference_mode():
                 prediction = policy.predict_action(policy_obs)
-            mixed_actions = prediction["action"][0].detach().cpu().numpy()
-            absolute_actions = mixed_actions_to_absolute(
-                mixed_actions, base_ee_pose
+            mixed_or_hand = prediction["action"][0].detach().cpu().numpy()
+            absolute_actions = policy_action_to_robot(
+                mixed_or_hand, base_ee_pose
             )[:action_chunk_steps]
             if len(absolute_actions) != action_chunk_steps:
                 raise RuntimeError(
@@ -321,7 +342,7 @@ def main():
                 raise RuntimeError("Policy produced NaN or Inf; refusing to execute")
 
             print(
-                f"[chunk {env.chunk_idx:04d}] predicted={tuple(mixed_actions.shape)} "
+                f"[chunk {env.chunk_idx:04d}] predicted={tuple(mixed_or_hand.shape)} "
                 f"executing={tuple(absolute_actions.shape)} "
                 f"first_xyz={np.round(absolute_actions[0, :3], 4).tolist()}"
             )
