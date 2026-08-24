@@ -8,6 +8,14 @@ cd "$SCRIPT_DIR"
 
 PYTHON="${PYTHON:-/home/wangtianyu/miniconda3/envs/dp/bin/python}"
 DATASET_PATH="${DATASET_PATH:-/home/wangtianyu/workspace/TacMP/data/bulb_tac_80_dp}"
+NORMALIZER_ARGS=()
+if [[ -n "${BULB_HAND_NORMALIZER:-}" ]]; then
+  if [[ ! -f "$BULB_HAND_NORMALIZER" ]]; then
+    echo "BULB_HAND_NORMALIZER file not found: $BULB_HAND_NORMALIZER" >&2
+    exit 1
+  fi
+  NORMALIZER_ARGS+=(task.normalizer_path="$BULB_HAND_NORMALIZER")
+fi
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 export WANDB_MODE="${WANDB_MODE:-online}"
 export WANDB_DIR="${WANDB_DIR:-$SCRIPT_DIR/data/wandb}"
@@ -28,6 +36,7 @@ exec "$PYTHON" train.py \
     --config-name=train_diffusion_unet_dino_image_workspace \
     task=bulb_image \
     task.dataset_path="$DATASET_PATH" \
+    "${NORMALIZER_ARGS[@]}" \
     training.device=cuda:0 \
     training.num_epochs=200 \
     training.rollout_every=1000000 \

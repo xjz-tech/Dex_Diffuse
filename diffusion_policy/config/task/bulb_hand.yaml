@@ -1,27 +1,14 @@
-name: bulb_image
-dataset_path: /home/wty/wangtianyu/TacMP/data/bulb_0705_dp
+name: bulb_hand
+dataset_path: /path/to/sim_bulb_hand_dp
 normalizer_path: ${oc.env:BULB_HAND_NORMALIZER,null}
 
-image_shape: &image_shape [3, 240, 320]
 shape_meta: &shape_meta
   obs:
-    front_image:
-      shape: *image_shape
-      type: rgb
-    wrist_image:
-      shape: *image_shape
-      type: rgb
-    # Relative to the latest observed EE frame.
-    ee_pose:
-      shape: [9]
-      type: low_dim
-    # Absolute Allegro-hand joint positions.
     hand_joint:
       shape: [22]
       type: low_dim
-  # [relative EE xyz + relative EE rotation-6D + absolute hand joints]
   action:
-    shape: [31]
+    shape: [22]
 
 env_runner:
   _target_: diffusion_policy.env_runner.null_image_runner.NullImageRunner
