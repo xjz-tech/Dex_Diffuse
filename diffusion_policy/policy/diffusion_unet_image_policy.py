@@ -11,6 +11,7 @@ from diffusion_policy.model.diffusion.conditional_unet1d import ConditionalUnet1
 from diffusion_policy.model.diffusion.mask_generator import LowdimMaskGenerator
 from diffusion_policy.model.vision.multi_image_obs_encoder import MultiImageObsEncoder
 from diffusion_policy.common.pytorch_util import dict_apply
+from diffusion_policy.common.bulb_action_normalizer import normalize_action, unnormalize_action
 
 class DiffusionUnetImagePolicy(BaseImagePolicy):
     def __init__(self, 
@@ -27,9 +28,12 @@ class DiffusionUnetImagePolicy(BaseImagePolicy):
             kernel_size=5,
             n_groups=8,
             cond_predict_scale=True,
+            pred_action_steps_only=False,
             # parameters passed to step
             **kwargs):
         super().__init__()
+        if pred_action_steps_only:
+            assert obs_as_global_cond
 
         # parse shapes
         action_shape = shape_meta['action']['shape']
@@ -73,6 +77,7 @@ class DiffusionUnetImagePolicy(BaseImagePolicy):
         self.n_action_steps = n_action_steps
         self.n_obs_steps = n_obs_steps
         self.obs_as_global_cond = obs_as_global_cond
+        self.pred_action_steps_only = pred_action_steps_only
         self.kwargs = kwargs
 
         if num_inference_steps is None:
@@ -119,6 +124,19 @@ class DiffusionUnetImagePolicy(BaseImagePolicy):
 
         return trajectory
 
+    def encode_obs(self, obs_dict: Dict[str, torch.Tensor]) -> torch.Tensor:
+        nobs = self.normalizer.normalize(obs_dict)
+        value = next(iter(nobs.values()))
+        B = value.shape[0]
+        To = self.n_obs_steps
+        this_nobs = dict_apply(nobs, lambda x: x[:, :To, ...].reshape(-1, *x.shape[2:]))
+        nobs_features = self.obs_encoder(this_nobs)
+        if self.obs_as_global_cond:
+            return nobs_features.reshape(B, -1)
+        return nobs_features.reshape(B, To, -1)
+
+    def predict_eps(self, x_t, t, global_cond, local_cond=None):
+        return self.model(x_t, t, local_cond=local_cond, global_cond=global_cond)
 
     def predict_action(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
@@ -144,12 +162,9 @@ class DiffusionUnetImagePolicy(BaseImagePolicy):
         global_cond = None
         if self.obs_as_global_cond:
             # condition through global feature
-            this_nobs = dict_apply(nobs, lambda x: x[:,:To,...].reshape(-1,*x.shape[2:]))
-            nobs_features = self.obs_encoder(this_nobs)
-            # reshape back to B, Do
-            global_cond = nobs_features.reshape(B, -1)
-            # empty data for action
-            cond_data = torch.zeros(size=(B, T, Da), device=device, dtype=dtype)
+            global_cond = self.encode_obs(obs_dict)
+            Ta = self.n_action_steps if self.pred_action_steps_only else self.horizon
+            cond_data = torch.zeros(size=(B, Ta, Da), device=device, dtype=dtype)
             cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
         else:
             # condition through impainting
@@ -172,12 +187,15 @@ class DiffusionUnetImagePolicy(BaseImagePolicy):
         
         # unnormalize prediction
         naction_pred = nsample[...,:Da]
-        action_pred = self.normalizer['action'].unnormalize(naction_pred)
+        action_pred = unnormalize_action(self.normalizer, naction_pred)
 
         # get action
-        start = To - 1
-        end = start + self.n_action_steps
-        action = action_pred[:,start:end]
+        if self.pred_action_steps_only:
+            action = action_pred
+        else:
+            start = To - 1
+            end = start + self.n_action_steps
+            action = action_pred[:,start:end]
         
         result = {
             'action': action,
@@ -192,8 +210,7 @@ class DiffusionUnetImagePolicy(BaseImagePolicy):
     def compute_loss(self, batch):
         # normalize input
         assert 'valid_mask' not in batch
-        nobs = self.normalizer.normalize(batch['obs'])
-        nactions = self.normalizer['action'].normalize(batch['action'])
+        nactions = normalize_action(self.normalizer, batch['action'])
         batch_size = nactions.shape[0]
         horizon = nactions.shape[1]
 
@@ -203,13 +220,13 @@ class DiffusionUnetImagePolicy(BaseImagePolicy):
         trajectory = nactions
         cond_data = trajectory
         if self.obs_as_global_cond:
-            # reshape B, T, ... to B*T
-            this_nobs = dict_apply(nobs, 
-                lambda x: x[:,:self.n_obs_steps,...].reshape(-1,*x.shape[2:]))
-            nobs_features = self.obs_encoder(this_nobs)
-            # reshape back to B, Do
-            global_cond = nobs_features.reshape(batch_size, -1)
+            global_cond = self.encode_obs(batch['obs'])
+            if self.pred_action_steps_only:
+                start = self.n_obs_steps - 1
+                trajectory = nactions[:, start:start+self.n_action_steps]
+                cond_data = trajectory
         else:
+            nobs = self.normalizer.normalize(batch['obs'])
             # reshape B, T, ... to B*T
             this_nobs = dict_apply(nobs, lambda x: x.reshape(-1, *x.shape[2:]))
             nobs_features = self.obs_encoder(this_nobs)
@@ -219,7 +236,10 @@ class DiffusionUnetImagePolicy(BaseImagePolicy):
             trajectory = cond_data.detach()
 
         # generate impainting mask
-        condition_mask = self.mask_generator(trajectory.shape)
+        if self.pred_action_steps_only:
+            condition_mask = torch.zeros_like(trajectory, dtype=torch.bool)
+        else:
+            condition_mask = self.mask_generator(trajectory.shape)
 
         # Sample noise that we'll add to the images
         noise = torch.randn(trajectory.shape, device=trajectory.device)
