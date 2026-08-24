@@ -103,3 +103,25 @@ def test_compute_loss_raises_on_unet_t_mismatch():
     }
     with pytest.raises(AssertionError):
         policy.compute_loss(batch)
+
+
+def _assert_action_pred_matches_compute_loss_gt_slice(n_action_steps, horizon):
+    """Workspace sample MSE must slice batch['action'] the same way as compute_loss."""
+    policy = _hand_policy(True, n_action_steps, horizon)
+    to = policy.n_obs_steps
+    ta = policy.n_action_steps
+    batch_action = torch.zeros(2, horizon, 22)
+    obs = {"hand_joint": torch.zeros(2, to, 22)}
+    pred_action = policy.predict_action(obs)["action_pred"]
+    start = to - 1
+    sliced_gt = batch_action[:, start:start + ta]
+    assert pred_action.shape == sliced_gt.shape
+    assert pred_action.shape != batch_action.shape
+
+
+def test_chunk_action_pred_matches_sliced_gt_not_full_horizon():
+    _assert_action_pred_matches_compute_loss_gt_slice(n_action_steps=8, horizon=16)
+
+
+def test_step_action_pred_matches_sliced_gt_not_full_horizon():
+    _assert_action_pred_matches_compute_loss_gt_slice(n_action_steps=1, horizon=2)
