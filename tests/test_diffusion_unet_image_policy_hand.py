@@ -1,4 +1,5 @@
 import torch
+import pytest
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
 
 from diffusion_policy.common.normalize_util import get_range_normalizer_from_stat
@@ -8,7 +9,7 @@ from diffusion_policy.model.vision.multi_image_obs_encoder import MultiImageObsE
 from diffusion_policy.policy.diffusion_unet_image_policy import DiffusionUnetImagePolicy
 
 
-def _hand_policy(pred_action_steps_only, n_action_steps, horizon):
+def _hand_policy(pred_action_steps_only, n_action_steps, horizon, down_dims=(32,)):
     shape_meta = {
         "obs": {"hand_joint": {"shape": [22], "type": "low_dim"}},
         "action": {"shape": [22]},
@@ -34,8 +35,8 @@ def _hand_policy(pred_action_steps_only, n_action_steps, horizon):
         num_inference_steps=2,
         obs_as_global_cond=True,
         diffusion_step_embed_dim=32,
-        # Single-scale UNet: (32, 64) down/up-samples T=1 to T=2.
-        down_dims=(32,),
+        # Default single-scale UNet: (32, 64) down/up-samples T=1 to T=2.
+        down_dims=down_dims,
         kernel_size=5,
         n_groups=8,
         cond_predict_scale=True,
@@ -91,3 +92,14 @@ def test_compute_loss_step_runs():
     }
     loss = policy.compute_loss(batch)
     assert torch.isfinite(loss)
+
+
+def test_compute_loss_raises_on_unet_t_mismatch():
+    # Multi-scale UNet upsamples T=1 -> T=2; assert must catch silent broadcast.
+    policy = _hand_policy(True, 1, 2, down_dims=(32, 64))
+    batch = {
+        "obs": {"hand_joint": torch.zeros(3, 2, 22)},
+        "action": torch.zeros(3, 2, 22),
+    }
+    with pytest.raises(AssertionError):
+        policy.compute_loss(batch)

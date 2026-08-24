@@ -272,6 +272,7 @@ class DiffusionUnetImagePolicy(BaseImagePolicy):
         else:
             raise ValueError(f"Unsupported prediction type {pred_type}")
 
+        assert pred.shape == target.shape
         loss = F.mse_loss(pred, target, reduction='none')
         loss = loss * loss_mask.type(loss.dtype)
         loss = reduce(loss, 'b ... -> b (...)', 'mean')
