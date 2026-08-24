@@ -122,12 +122,12 @@ def _hand_array_from_buffer(replay, key: str):
 
 def _open_replay_buffer(zarr_path: str, mode: str = "r"):
     import zarr
-    from zarr.storage import LocalStore
 
     from diffusion_policy.common.replay_buffer import ReplayBuffer
 
     zarr_path = os.path.expanduser(zarr_path)
     if int(zarr.__version__.split(".", maxsplit=1)[0]) >= 3:
+        from zarr.storage import LocalStore
 
         class _ZarrReplayView:
             def __init__(self, group):
