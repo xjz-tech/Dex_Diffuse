@@ -81,11 +81,11 @@ def load_hand_joint_stat(path: str) -> Dict[str, np.ndarray]:
         raise KeyError(f"{path} must contain 'min' and 'max'")
     mn = np.asarray(data["min"], dtype=np.float32).reshape(HAND_DIM)
     mx = np.asarray(data["max"], dtype=np.float32).reshape(HAND_DIM)
-    mean = np.asarray(data["mean"], dtype=np.float32).reshape(HAND_DIM) if "mean" in data.files else (mn + mx) / 2
+    mean = np.asarray(data["mean"], dtype=np.float32).reshape(HAND_DIM) if "mean" in data.files else ((mn + mx) / 2).astype(np.float32)
     std = (
         np.asarray(data["std"], dtype=np.float32).reshape(HAND_DIM)
         if "std" in data.files
-        else np.maximum(mx - mn, 1e-6) / np.sqrt(12.0)
+        else (np.maximum(mx - mn, 1e-6) / np.sqrt(12.0)).astype(np.float32)
     )
     return {"min": mn, "max": mx, "mean": mean, "std": std}
 
@@ -164,6 +164,6 @@ def collect_hand_joint_stat(zarr_path: str, chunk_size: int = 65536) -> Dict[str
     return {
         "min": running_min,
         "max": running_max,
-        "mean": (running_min + running_max) / 2,
-        "std": np.maximum(running_max - running_min, 1e-6) / np.sqrt(12.0),
+        "mean": ((running_min + running_max) / 2).astype(np.float32),
+        "std": (np.maximum(running_max - running_min, 1e-6) / np.sqrt(12.0)).astype(np.float32),
     }

@@ -24,8 +24,8 @@ def _stat(lo, hi):
     return {
         "min": lo,
         "max": hi,
-        "mean": (lo + hi) / 2,
-        "std": np.maximum(hi - lo, 1e-6) / np.sqrt(12.0),
+        "mean": ((lo + hi) / 2).astype(np.float32),
+        "std": (np.maximum(hi - lo, 1e-6) / np.sqrt(12.0)).astype(np.float32),
     }
 
 
