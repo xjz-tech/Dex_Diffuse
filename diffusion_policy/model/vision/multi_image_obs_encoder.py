@@ -11,7 +11,7 @@ from diffusion_policy.common.pytorch_util import dict_apply, replace_submodules
 class MultiImageObsEncoder(ModuleAttrMixin):
     def __init__(self,
             shape_meta: dict,
-            rgb_model: Union[nn.Module, Dict[str,nn.Module]],
+            rgb_model: Union[nn.Module, Dict[str,nn.Module], None]=None,
             resize_shape: Union[Tuple[int,int], Dict[str,tuple], None]=None,
             crop_shape: Union[Tuple[int,int], Dict[str,tuple], None]=None,
             random_crop: bool=True,
@@ -37,6 +37,8 @@ class MultiImageObsEncoder(ModuleAttrMixin):
 
         # handle sharing vision backbone
         if share_rgb_model:
+            if rgb_model is None:
+                raise RuntimeError("share_rgb_model=True requires rgb_model")
             assert isinstance(rgb_model, nn.Module)
             key_model_map['rgb'] = rgb_model
 
@@ -46,6 +48,8 @@ class MultiImageObsEncoder(ModuleAttrMixin):
             type = attr.get('type', 'low_dim')
             key_shape_map[key] = shape
             if type == 'rgb':
+                if rgb_model is None:
+                    raise RuntimeError(f"rgb key {key} requires rgb_model")
                 rgb_keys.append(key)
                 # configure model for this key
                 this_model = None
