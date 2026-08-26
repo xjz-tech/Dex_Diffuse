@@ -1,0 +1,20 @@
+name: sim_hand_lowdim
+
+# These 22 channels must preserve TAM hand joint ordering, units, absolute
+# target convention, and control timing in the future simulation converter.
+obs_dim: 22
+action_dim: 22
+dataset_path: data/sim_hand
+
+env_runner:
+  _target_: diffusion_policy.env_runner.null_lowdim_runner.NullLowdimRunner
+
+dataset:
+  _target_: diffusion_policy.dataset.sim_hand_lowdim_dataset.SimHandLowdimDataset
+  dataset_path: ${task.dataset_path}
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1'}
+  pad_after: ${eval:'${n_pred_action_steps}-1'}
+  seed: 42
+  val_ratio: 0.1
+  max_train_episodes: null
