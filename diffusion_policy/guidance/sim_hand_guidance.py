@@ -33,7 +33,18 @@ def default_noise_factory(
     dtype: torch.dtype,
     generator: torch.Generator | None,
 ) -> torch.Tensor:
-    return torch.randn(shape, device=device, dtype=dtype, generator=generator)
+    # torch.randn requires generator.device == sample device. Keep CPU-seeded
+    # generators valid for CUDA targets by drawing on the generator device,
+    # then moving (also keeps seeds reproducible across CPU/CUDA).
+    if generator is None:
+        return torch.randn(shape, device=device, dtype=dtype)
+    noise = torch.randn(
+        shape,
+        device=generator.device,
+        dtype=torch.float32,
+        generator=generator,
+    )
+    return noise.to(device=device, dtype=dtype)
 
 
 class SimHandGuidance:

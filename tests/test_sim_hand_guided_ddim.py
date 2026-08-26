@@ -19,7 +19,7 @@ from diffusion_policy.guidance.guided_ddim import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-GUIDED_DTIM_PATH = REPO_ROOT / "diffusion_policy" / "guidance" / "guided_ddim.py"
+GUIDED_DDIM_PATH = REPO_ROOT / "diffusion_policy" / "guidance" / "guided_ddim.py"
 
 EXPECTED_CURRENT_TIMESTEPS = (88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8, 0)
 
@@ -108,7 +108,7 @@ def test_factory_rejects_thresholding() -> None:
 
 
 def test_factory_production_has_no_hardcoded_timesteps() -> None:
-    source = GUIDED_DTIM_PATH.read_text()
+    source = GUIDED_DDIM_PATH.read_text()
     assert "EXPECTED_CURRENT_TIMESTEPS" not in source
     assert str(EXPECTED_CURRENT_TIMESTEPS) not in source
 

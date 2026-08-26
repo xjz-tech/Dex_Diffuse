@@ -257,7 +257,6 @@ def verify_zero_guidance_equivalence(
 
     with torch.no_grad():
         for timestep in custom.timesteps:
-            t = int(timestep)
             official_epsilon = model(
                 official_sample,
                 timestep,

@@ -129,6 +129,7 @@ def run_check(loaded: LoadedGuidedPolicies, *, seed: int) -> CheckReport:
         device=device, dtype=dtype
     )
 
+    # CPU generator: default_noise_factory draws on generator.device then .to().
     guide_generator = torch.Generator(device="cpu").manual_seed(seed)
     guided_hand = loaded.guidance.guide_segment(
         history,
@@ -165,6 +166,7 @@ def run_dry_run(loaded: LoadedGuidedPolicies, *, seed: int) -> DryRunReport:
     history = _seeded_history(loaded.sim_adapter, seed=seed)
     executor = FakeSegmentExecutor(history)
     coordinator = GuidedCoordinator(loaded.guidance)
+    # CPU generator shared across segments; noise factory moves to policy device.
     generator = torch.Generator(device="cpu").manual_seed(seed + 1)
     guided = coordinator.run(
         check.real_action_proposal,

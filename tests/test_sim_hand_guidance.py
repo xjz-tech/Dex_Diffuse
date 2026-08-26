@@ -100,6 +100,14 @@ class TrackingSimPolicy(nn.Module):
         )
         self.predict_action_calls = 0
 
+    @property
+    def device(self):
+        return next(self.parameters()).device
+
+    @property
+    def dtype(self):
+        return next(self.parameters()).dtype
+
     def predict_action(self, obs_dict):
         self.predict_action_calls += 1
         raise AssertionError("SimHandGuidance must never call policy.predict_action")
@@ -461,3 +469,51 @@ def test_verify_zero_guidance_uses_normalized_inputs_and_configured_steps():
     # verify path should not unnormalize / sample
     assert adapter.unnormalize_action_calls == 0
     assert adapter.policy.predict_action_calls == 0
+
+
+def test_default_noise_factory_cpu_generator_to_cuda():
+    from diffusion_policy.guidance.sim_hand_guidance import default_noise_factory
+
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA not available")
+
+    gen = torch.Generator(device="cpu").manual_seed(123)
+    noise = default_noise_factory(
+        (1, 12, 22),
+        torch.device("cuda"),
+        torch.float32,
+        gen,
+    )
+    assert noise.device.type == "cuda"
+    assert noise.shape == (1, 12, 22)
+    assert torch.isfinite(noise).all()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_guide_segment_cuda_smoke_with_cpu_generator():
+    from diffusion_policy.guidance.sim_hand_guidance import SimHandGuidance
+
+    loaded = make_sim_policy(
+        n_obs_steps=4,
+        horizon=12,
+        n_pred_action_steps=9,
+        usable_start=3,
+    )
+    loaded.policy.to("cuda")
+    adapter = SimPolicyAdapter(loaded)
+    guidance = SimHandGuidance(
+        adapter,
+        _default_config(
+            execution_steps=5,
+            guidance_scale=0.0,
+            num_inference_steps=2,
+        ),
+    )
+    history = torch.zeros(1, 4, 22, device="cuda")
+    reference = torch.zeros(1, 5, 22, device="cuda")
+    generator = torch.Generator(device="cpu").manual_seed(0)
+
+    result = guidance.guide_segment(history, reference, generator=generator)
+    assert result.device.type == "cuda"
+    assert result.shape == (1, 5, 22)
+    assert torch.isfinite(result).all()

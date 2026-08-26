@@ -154,6 +154,14 @@ class TrackingSimPolicy(nn.Module):
         )
         self.predict_action_calls = 0
 
+    @property
+    def device(self):
+        return next(self.parameters()).device
+
+    @property
+    def dtype(self):
+        return next(self.parameters()).dtype
+
     def predict_action(self, obs_dict):
         self.predict_action_calls += 1
         raise AssertionError("runtime must never call Sim policy.predict_action")
@@ -557,3 +565,31 @@ assert "multi_realsense" not in sys.modules
         check=True,
         cwd=repo_root,
     )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_run_check_cuda_smoke_with_cpu_seeded_generators():
+    from diffusion_policy.guidance.runtime import run_check
+
+    loaded = _build_loaded(
+        config=SimHandGuidanceConfig(
+            execution_steps=5,
+            guidance_scale=0.0,
+            num_inference_steps=2,
+            eta=0.0,
+        ),
+        record=True,
+    )
+    loaded.real.policy.to("cuda")
+    loaded.sim.policy.to("cuda")
+    assert loaded.sim.policy.device.type == "cuda"
+
+    report = run_check(loaded, seed=0)
+
+    assert report.real_action_shape[0] == 1
+    assert report.guided_hand_shape == (1, 5, HAND_DIM)
+    assert len(report.timesteps) == 2
+    assert len(loaded.guidance.guide_calls) == 1
+    assert loaded.guidance.guide_calls[0]["history"].device.type == "cuda"
+    assert loaded.guidance.guide_calls[0]["reference"].device.type == "cuda"
+    assert loaded.guidance.guide_calls[0]["generator"].device.type == "cpu"
