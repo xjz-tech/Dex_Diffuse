@@ -21,10 +21,12 @@
 - Runtime Diffusers must be exactly 0.11.1. The accepted DDIM contract is epsilon prediction, eta=0.0, thresholding=False, set_alpha_to_one=True, steps_offset=0, and twelve timesteps [88,80,72,64,56,48,40,32,24,16,8,0].
 - Official clipping produces x0_base. Analytic guidance updates x0_base[:,3:8] without a second clip and uses raw DDIM variance before eta scaling.
 - guidance_scale=0 uses the same custom arithmetic path and must match official DDIM pred_original_sample and prev_sample at every step and through the full chain.
+- The low-level sampler accepts scale zero for its oracle. SimHandGuidance check/dry-run configuration requires guidance_scale>0 so the configured chain is genuinely nonzero and separate from that oracle.
 - No U-Net backpropagation is used. MSE gradient reduction is per sample over exactly 5*22 elements and never crosses the batch.
 - Each segment consumes fresh initial noise. After five returned states, the next condition is the latest four states.
 - Coordinator and executor support B=1 only. Partial execution terminates the run and never fabricates a state history.
 - Check and dry-run must not import inference_dp.py, DirectRobotEnv, ViTacFormer, or any hardware/controller module.
+- DDIM alphas_cumprod must exactly match the restored training DDPM schedule. Raw DDIM variance is verified independently from the official zero-scale oracle and must not be replaced by its square root.
 - Remove the hard-coded Sim horizon modulo-four validator. Actual U-Net compatibility remains enforced by the existing no-gradient forward shape probe.
 - Do not add a requirement that Real horizon 64, Sim horizon 12, or Sim prediction length 9 be divisible by execution length 5.
 - Apply TDD for every production change and commit after each independently reviewable task.
@@ -355,8 +357,89 @@ test_guidance_package_import_has_no_hardware_side_effects
 ~~~
 
 The final import test runs a subprocess importing
-diffusion_policy.guidance.checkpoint_loader and asserts that inference_dp and
-direct_robot_env are absent from sys.modules.
+diffusion_policy.guidance.checkpoint_loader and rejects any loaded module whose
+name is inference_dp, direct_robot_env, starts with diffusion_policy.real_world,
+contains vitacformer, or starts with pyrealsense2 or ur_rtde.
+
+Also add an actual Sim Workspace checkpoint round-trip, not only a fake linear
+module test. Compose train_diffusion_unet_sim_hand_workspace, set
+training.use_ema=True and small model down_dims, construct
+TrainDiffusionUnetSimHandWorkspace, then install distinct non-identity obs and
+action statistics before saving synchronously:
+
+~~~python
+def make_small_sim_workspace_cfg():
+    OmegaConf.register_new_resolver("eval", eval, replace=True)
+    config_dir = (
+        Path(__file__).resolve().parents[1]
+        / "diffusion_policy"
+        / "config"
+    )
+    with initialize_config_dir(
+        version_base=None,
+        config_dir=str(config_dir),
+    ):
+        cfg = compose(
+            config_name="train_diffusion_unet_sim_hand_workspace"
+        )
+    OmegaConf.resolve(cfg)
+    with open_dict(cfg):
+        cfg.training.use_ema = True
+        cfg.policy.model.down_dims = [32, 64, 128]
+        cfg.policy.model.diffusion_step_embed_dim = 32
+        cfg.policy.model.kernel_size = 3
+    return cfg
+
+
+cfg = make_small_sim_workspace_cfg()
+workspace = TrainDiffusionUnetSimHandWorkspace(
+    cfg,
+    output_dir=str(tmp_path / "workspace"),
+)
+normalizer = LinearNormalizer()
+normalizer.fit(
+    {
+        "obs": torch.stack((
+            torch.full((22,), -2.0),
+            torch.full((22,), 4.0),
+        )),
+        "action": torch.stack((
+            torch.arange(22, dtype=torch.float32),
+            torch.arange(22, dtype=torch.float32) + 20.0,
+        )),
+    },
+    last_n_dims=1,
+    mode="limits",
+)
+workspace.model.set_normalizer(normalizer)
+workspace.ema_model.set_normalizer(normalizer)
+checkpoint = workspace.save_checkpoint(
+    path=tmp_path / "sim-normalizer.ckpt",
+    use_thread=False,
+)
+expected = workspace.ema_model.normalizer.state_dict()
+
+loaded = load_workspace_policy(Path(checkpoint), torch.device("cpu"))
+actual = loaded.policy.normalizer.state_dict()
+
+assert actual.keys() == expected.keys()
+for key in expected:
+    torch.testing.assert_close(actual[key], expected[key])
+    assert actual[key].device == next(loaded.policy.parameters()).device
+
+known_action = torch.linspace(1.0, 18.0, 22).reshape(1, 22)
+restored_action_normalizer = loaded.policy.normalizer["action"]
+torch.testing.assert_close(
+    restored_action_normalizer.unnormalize(
+        restored_action_normalizer.normalize(known_action)
+    ),
+    known_action,
+    rtol=1e-5,
+    atol=1e-6,
+)
+~~~
+
+No dataset or workspace.run call is used.
 
 - [ ] **Step 2: Run the loader test and verify the red state**
 
@@ -833,6 +916,12 @@ def test_factory_preserves_training_schedule_and_pins_ddim_fields():
     assert scheduler.config.steps_offset == 0
     assert tuple(int(t) for t in scheduler.timesteps) == EXPECTED_TIMESTEPS
     torch.testing.assert_close(
+        scheduler.alphas_cumprod,
+        training.alphas_cumprod,
+        rtol=0.0,
+        atol=0.0,
+    )
+    torch.testing.assert_close(
         scheduler.final_alpha_cumprod,
         torch.tensor(1.0, dtype=scheduler.final_alpha_cumprod.dtype),
     )
@@ -959,6 +1048,7 @@ git commit -m "feat: add pinned sim-hand DDIM primitives"
 ~~~python
 @dataclass(frozen=True)
 class GuidedDDIMStepOutput:
+    timestep: int
     prev_sample: torch.Tensor
     pred_original_sample: torch.Tensor
     base_pred_original_sample: torch.Tensor
@@ -1011,6 +1101,28 @@ def run_controlled_guided_step(timestep, guidance_scale):
         guidance_slice=slice(3, 8),
         eta=0.0,
     )
+
+
+def expected_ddim_terms(timestep):
+    scheduler = make_ddim_scheduler()
+    scheduler.set_timesteps(12)
+    timestep = int(timestep)
+    prev_timestep = timestep - (
+        scheduler.config.num_train_timesteps
+        // scheduler.num_inference_steps
+    )
+    alpha_t = scheduler.alphas_cumprod[timestep]
+    alpha_prev = (
+        scheduler.alphas_cumprod[prev_timestep]
+        if prev_timestep >= 0
+        else scheduler.final_alpha_cumprod
+    )
+    variance = (
+        (1.0 - alpha_prev)
+        / (1.0 - alpha_t)
+        * (1.0 - alpha_t / alpha_prev)
+    )
+    return alpha_t, alpha_prev, variance
 ~~~
 
 - [ ] **Step 1: Write the twelve-timestep zero-guidance oracle test**
@@ -1046,6 +1158,7 @@ def test_zero_scale_step_matches_official_with_clipping(timestep):
         eta=0.0,
     )
 
+    assert custom.timestep == int(timestep)
     assert torch.any(custom.raw_pred_original_sample.abs() > 1.0)
     torch.testing.assert_close(
         custom.pred_original_sample,
@@ -1095,6 +1208,40 @@ def test_final_step_has_zero_raw_variance_and_direct_guidance_is_noop():
     torch.testing.assert_close(
         result.pred_original_sample,
         result.base_pred_original_sample,
+    )
+
+@pytest.mark.parametrize("timestep", EXPECTED_TIMESTEPS)
+def test_step_reports_raw_ddim_variance_not_standard_deviation(timestep):
+    result = run_controlled_guided_step(
+        timestep=timestep,
+        guidance_scale=0.0,
+    )
+
+    alpha_t, alpha_prev, expected_variance = expected_ddim_terms(timestep)
+    torch.testing.assert_close(result.alpha_bar_t, alpha_t)
+    torch.testing.assert_close(result.alpha_bar_prev, alpha_prev)
+    torch.testing.assert_close(result.raw_variance, expected_variance)
+
+def test_guided_x0_multiplies_gradient_by_raw_variance():
+    scale = 1.0
+    result = run_controlled_guided_step(
+        timestep=88,
+        guidance_scale=scale,
+    )
+    _, _, expected_variance = expected_ddim_terms(88)
+    reference = torch.ones(1, 5, 22)
+    expected_gradient = mse_guidance_gradient(
+        result.base_pred_original_sample,
+        reference,
+        slice(3, 8),
+    )
+    expected_guided = (
+        result.base_pred_original_sample
+        - scale * expected_variance * expected_gradient
+    )
+    torch.testing.assert_close(
+        result.pred_original_sample,
+        expected_guided,
     )
 ~~~
 
@@ -1174,6 +1321,7 @@ loss_after = (
     .mean(dim=(1, 2))
 )
 return GuidedDDIMStepOutput(
+    timestep=timestep_int,
     prev_sample=prev_sample,
     pred_original_sample=x0_guided,
     base_pred_original_sample=x0_base,
@@ -1314,6 +1462,13 @@ test_zero_guidance_verifier_reports_first_mismatching_timestep
 test_full_chain_does_not_create_an_autograd_graph
 ~~~
 
+For test_sample_chain_returns_twelve_diagnostic_steps, assert the executed
+sequence comes from the outputs themselves:
+
+~~~python
+assert tuple(step.timestep for step in result.steps) == EXPECTED_TIMESTEPS
+~~~
+
 For the mismatch test, wrap the custom model so that exactly the sixth custom
 call adds 1e-2 to epsilon and assert the error names timestep 48.
 
@@ -1437,6 +1592,12 @@ class SimHandGuidanceConfig:
     def guidance_slice(self) -> slice:
         return slice(self.oa_start, self.oa_start + self.execution_steps)
 
+@dataclass(frozen=True)
+class GuidedSegmentOutput:
+    hand_action: torch.Tensor
+    terminal_shape: tuple[int, ...]
+    timesteps: tuple[int, ...]
+
 class SimHandGuidance:
     __init__(
         adapter: SimHandModelAdapter,
@@ -1452,6 +1613,14 @@ class SimHandGuidance:
         generator: torch.Generator | None = None,
     ) -> torch.Tensor
 
+    def guide_segment_detailed(
+        self,
+        hand_state_history: torch.Tensor,
+        hand_reference: torch.Tensor,
+        *,
+        generator: torch.Generator | None = None,
+    ) -> GuidedSegmentOutput
+
     def verify_zero_guidance(
         self,
         hand_state_history: torch.Tensor,
@@ -1461,9 +1630,12 @@ class SimHandGuidance:
     ) -> ZeroGuidanceReport
 ~~~
 
-guide_segment returns physical Sim-unnormalized hand action with shape
-(1,5,22). The class accepts an injectable noise_factory in its constructor for
-deterministic tests; the default uses torch.randn.
+guide_segment is the stable hand-only API and returns physical Sim-unnormalized
+hand action with shape (1,5,22). It delegates to guide_segment_detailed and
+returns only hand_action. The detailed form executes the same single chain and
+additionally reports its terminal (1,12,22) shape and twelve timesteps for check
+mode; it never samples twice. The class accepts an injectable noise_factory in
+its constructor for deterministic tests; the default uses torch.randn.
 
 - [ ] **Step 1: Write failing normalization and slice tests**
 
@@ -1521,7 +1693,13 @@ def install_fake_sampler(monkeypatch):
         captured.update(kwargs)
         timeline = torch.arange(12, dtype=torch.float32).reshape(1, 12, 1)
         trajectory = timeline.expand(1, 12, 22).clone()
-        return GuidedDDIMSampleOutput(trajectory=trajectory, steps=())
+        return GuidedDDIMSampleOutput(
+            trajectory=trajectory,
+            steps=tuple(
+                SimpleNamespace(timestep=timestep)
+                for timestep in EXPECTED_TIMESTEPS
+            ),
+        )
 
     monkeypatch.setattr(
         sim_hand_guidance,
@@ -1564,6 +1742,13 @@ def test_guide_segment_normalizes_both_inputs_and_returns_physical_1_5_22(monkey
 Require terminal trajectory [3:8], not public policy.action, to be passed to
 Sim action unnormalization.
 
+Add test_guide_segment_detailed_reports_the_actual_nonzero_full_chain. It calls
+the detailed method and asserts hand_action.shape==(1,5,22),
+terminal_shape==(1,12,22), timesteps==EXPECTED_TIMESTEPS, and exactly one
+sampler call. Make the fake sampler return eleven steps once and a NaN terminal
+once; both must raise instead of returning diagnostics. Also return twelve
+steps with one duplicated/reordered timestep and require a descriptive error.
+
 - [ ] **Step 2: Write failing fresh-noise and legacy-checkpoint tests**
 
 Add:
@@ -1576,6 +1761,7 @@ test_guidance_does_not_mutate_sim_policy_n_action_steps_or_temporal_slice
 test_execution_five_requires_no_divisibility_of_sim_horizon_twelve_or_prediction_nine
 test_guide_segment_rejects_wrong_shapes_devices_dtypes_and_nonfinite_values
 test_verify_zero_guidance_delegates_to_the_full_oracle
+test_guidance_service_rejects_zero_or_negative_configured_scale
 ~~~
 
 For fresh noise, make noise_factory return tensors filled with an incrementing
@@ -1608,6 +1794,8 @@ if config.num_inference_steps != 12:
     raise ValueError("first-version Sim inference steps must be 12")
 if config.eta != 0.0:
     raise ValueError("first-version eta must be 0.0")
+if config.guidance_scale <= 0.0:
+    raise ValueError("guided check/dry-run scale must be positive")
 ~~~
 
 For the target runtime, execution_steps is 5 and the derived slice is [3:8].
@@ -1654,13 +1842,41 @@ sample = sample_guided_trajectory(
     eta=0.0,
 )
 sim_inference_latency = time.perf_counter() - started_at
+if sample.trajectory.shape != (1, 12, 22):
+    raise ValueError("Sim DDIM terminal trajectory must have shape (1,12,22)")
+if len(sample.steps) != self.config.num_inference_steps:
+    raise ValueError("Sim DDIM chain did not execute exactly twelve steps")
+if not torch.isfinite(sample.trajectory).all():
+    raise ValueError("Sim DDIM terminal trajectory is non-finite")
+executed_timesteps = tuple(step.timestep for step in sample.steps)
+if executed_timesteps != EXPECTED_TIMESTEPS:
+    raise ValueError("Sim DDIM chain executed an unexpected timestep sequence")
+
 guided_norm = sample.trajectory[:, self.config.guidance_slice, :]
 logger.debug(
     "sim_guidance latency_s=%.6f reference_error_norm=%.6f",
     sim_inference_latency,
     float((guided_norm - reference_norm).norm()),
 )
-return self.adapter.unnormalize_action(guided_norm)
+hand_action = self.adapter.unnormalize_action(guided_norm)
+if hand_action.shape != (1, 5, 22) or not torch.isfinite(hand_action).all():
+    raise ValueError("Guided hand action must be finite with shape (1,5,22)")
+return GuidedSegmentOutput(
+    hand_action=hand_action,
+    terminal_shape=tuple(sample.trajectory.shape),
+    timesteps=executed_timesteps,
+)
+~~~
+
+The code above is guide_segment_detailed. Keep guide_segment a one-line
+non-resampling wrapper:
+
+~~~python
+return self.guide_segment_detailed(
+    hand_state_history,
+    hand_reference,
+    generator=generator,
+).hand_action
 ~~~
 
 Record at debug level each step's timestep, alphas, raw variance, direction
@@ -2057,6 +2273,7 @@ class LoadedGuidedPolicies:
 class CheckReport:
     real_action_proposal: torch.Tensor
     real_action_shape: tuple[int, ...]
+    guided_hand_shape: tuple[int, ...]
     sim_terminal_shape: tuple[int, ...]
     sim_timesteps: tuple[int, ...]
     segment_count: int
@@ -2102,12 +2319,22 @@ def test_run_check_calls_real_policy_once_and_returns_exact_contract():
 
     assert real_policy.predict_calls == 1
     assert report.real_action_shape == (1, 50, 31)
+    assert report.guided_hand_shape == (1, 5, 22)
     assert report.sim_terminal_shape == (1, 12, 22)
     assert report.sim_timesteps == EXPECTED_TIMESTEPS
     assert report.segment_count == 10
     assert report.max_x0_error <= 1e-5
     assert report.max_prev_error <= 1e-5
 ~~~
+
+Assert guidance.guide_segment_detailed was called exactly once with the
+configured nonzero guidance scale, the first five Real hand targets, and the
+seeded (1,4,22) history. Its fake GuidedSegmentOutput contains hand shape
+(1,5,22), terminal shape (1,12,22), and EXPECTED_TIMESTEPS. Make the fake
+return a wrong terminal shape, eleven timesteps, and NaN hand action in separate
+cases; each must fail. This proves check is not satisfied by the zero-guidance
+oracle alone and that its full-chain fields come from the nonzero run.
+Add test_run_check_rejects_zero_configured_guidance_scale_before_real_inference.
 
 Also reject a wrong Diffusers version, a non-target Real cfg, malformed Real
 prediction, a failed U-Net/DDIM equivalence report, and shared Real/Sim
@@ -2206,30 +2433,53 @@ run_check:
 
 ~~~python
 assert_pinned_diffusers_version()
+if loaded.guidance.config.guidance_scale <= 0.0:
+    raise ValueError("check requires a positive configured guidance scale")
 proposal = loaded.real_adapter.predict_proposal()
 
 sim_parameter = next(loaded.sim.policy.parameters())
-generator = torch.Generator(device=sim_parameter.device)
-generator.manual_seed(seed)
 history = _seeded_initial_history(loaded.sim.policy, seed)
 reference = proposal[:, :5, 9:31]
+
+guided_generator = torch.Generator(device=sim_parameter.device)
+guided_generator.manual_seed(seed + 1)
+guided_result = loaded.guidance.guide_segment_detailed(
+    history,
+    reference,
+    generator=guided_generator,
+)
+guided_hand = guided_result.hand_action
+if guided_hand.shape != (1, 5, 22) or not torch.isfinite(guided_hand).all():
+    raise ValueError("Configured Sim guidance returned invalid hand actions")
+if guided_result.terminal_shape != (1, 12, 22):
+    raise ValueError("Configured Sim guidance returned invalid terminal shape")
+if guided_result.timesteps != EXPECTED_TIMESTEPS:
+    raise ValueError("Configured Sim guidance returned invalid timesteps")
+
+zero_generator = torch.Generator(device=sim_parameter.device)
+zero_generator.manual_seed(seed + 2)
 initial_noise = torch.randn(
     (1, 12, 22),
     device=sim_parameter.device,
     dtype=sim_parameter.dtype,
-    generator=generator,
+    generator=zero_generator,
 )
 zero_report = loaded.guidance.verify_zero_guidance(
     history,
     reference,
     initial_noise=initial_noise,
 )
+if zero_report.terminal_shape != guided_result.terminal_shape:
+    raise ValueError("Nonzero and zero-guidance terminal shapes differ")
+if zero_report.timesteps != guided_result.timesteps:
+    raise ValueError("Nonzero and zero-guidance timesteps differ")
 
 return CheckReport(
     real_action_proposal=proposal,
     real_action_shape=tuple(proposal.shape),
-    sim_terminal_shape=zero_report.terminal_shape,
-    sim_timesteps=zero_report.timesteps,
+    guided_hand_shape=tuple(guided_hand.shape),
+    sim_terminal_shape=guided_result.terminal_shape,
+    sim_timesteps=guided_result.timesteps,
     segment_count=proposal.shape[1] // 5,
     max_x0_error=zero_report.max_x0_error,
     max_prev_error=zero_report.max_prev_error,
@@ -2339,6 +2589,7 @@ def test_cli_check_dispatches_and_prints_contract(capsys, checkpoint_paths):
     assert exit_code == 0
     output = capsys.readouterr().out
     assert "real_action_shape=(1, 50, 31)" in output
+    assert "guided_hand_shape=(1, 5, 22)" in output
     assert "segment_count=10" in output
     assert "timesteps=(88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8, 0)" in output
 ~~~
@@ -2349,13 +2600,18 @@ Add:
 test_cli_dry_run_prints_ten_completed_segments
 test_cli_rejects_missing_checkpoint_before_loading
 test_cli_rejects_negative_guidance_scale
+test_cli_rejects_zero_guidance_scale
 test_cli_rejects_execution_steps_other_than_five
 test_cli_rejects_sim_inference_steps_other_than_twelve
 test_cli_runtime_failure_returns_one_and_writes_context_to_stderr
 test_cli_import_does_not_import_inference_dp_or_robot_packages
+test_cli_help_does_not_import_hardware_or_construct_a_workspace
 ~~~
 
-The import test runs a fresh subprocess and examines sys.modules.
+Both independence tests run fresh subprocesses (one imports the module, one
+invokes --help) and examine sys.modules. Reject inference_dp,
+direct_robot_env, every diffusion_policy.real_world prefix, any module name
+containing vitacformer, and pyrealsense2/ur_rtde prefixes.
 
 - [ ] **Step 2: Run CLI tests and verify the red state**
 
@@ -2383,13 +2639,14 @@ parser.add_argument("--sim-inference-steps", type=int, default=12)
 parser.add_argument("--seed", type=int, default=0)
 ~~~
 
-Validate both checkpoint files, CUDA availability, nonnegative guidance scale,
+Validate both checkpoint files, CUDA availability, strictly positive guidance scale,
 execution_steps==5, and sim_inference_steps==12 before loading. Construct
 SimHandGuidanceConfig, call load_guided_policies once, then dispatch:
 
 ~~~python
 def print_check_report(report):
     print(f"real_action_shape={report.real_action_shape}")
+    print(f"guided_hand_shape={report.guided_hand_shape}")
     print(f"sim_terminal_shape={report.sim_terminal_shape}")
     print(f"segment_count={report.segment_count}")
     print(f"timesteps={report.sim_timesteps}")
@@ -2503,7 +2760,7 @@ $GUIDED_TEST_PYTHON inference_sim_hand_guided.py \
   --real-checkpoint "$REAL_CKPT_PATH" \
   --sim-checkpoint "$SIM_CKPT_PATH" \
   --device cuda:0 \
-  --guidance-scale 0.0 \
+  --guidance-scale 1.0 \
   --execution-steps 5 \
   --sim-inference-steps 12 \
   --seed 7
@@ -2519,10 +2776,11 @@ $GUIDED_TEST_PYTHON inference_sim_hand_guided.py \
   --seed 7
 ~~~
 
-Expected check output includes Real shape (1,50,31), Sim terminal shape
-(1,12,22), the twelve pinned timesteps, ten segments, and zero-guidance errors
-within rtol=1e-5/atol=1e-6. Expected dry-run output reports ten completed
-segments and no hardware import or connection.
+Expected check output includes Real shape (1,50,31), a configured nonzero
+guided hand result (1,5,22), Sim zero-oracle terminal shape (1,12,22), the
+twelve pinned timesteps, ten segments, and zero-guidance errors within
+rtol=1e-5/atol=1e-6. Expected dry-run output reports ten completed segments and
+no hardware import or connection.
 
 - [ ] **Step 8: Commit the CLI and final integration gate**
 

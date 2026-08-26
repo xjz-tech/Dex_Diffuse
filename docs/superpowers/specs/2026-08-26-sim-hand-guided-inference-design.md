@@ -201,6 +201,9 @@ betas/alphas、clip_sample、num_train_timesteps 与 prediction_type 来自恢�
 DDPM config。set_alpha_to_one 和 steps_offset 不存在于 DDPM config，因此属于
 本 inference-DDIM 的显式版本契约。check mode 必须打印并验证这两个值及实际
 timestep 序列 [88,80,72,64,56,48,40,32,24,16,8,0]，不能依赖库默认值。
+factory regression 必须逐元素断言 DDIM alphas_cumprod 与恢复的训练 DDPM
+alphas_cumprod 完全一致，避免 custom 与 official 同时使用一张错误 alpha 表而
+产生“自洽但错误”的零 guidance 结果。
 
 ## 8. Custom Guided DDIM
 
@@ -217,8 +220,10 @@ guidance_scale             non-negative scalar
 scheduler state/config
 ~~~
 
-输出至少包含 prev_sample、pred_original_sample、base_pred_original_sample、
-raw_pred_original_sample、raw variance 与 direction coefficient。
+输出至少包含实际执行的整数 timestep、prev_sample、pred_original_sample、
+base_pred_original_sample、raw_pred_original_sample、raw variance 与 direction
+coefficient。full-chain diagnostics 的 timestep 序列必须从这些 step outputs
+提取，不能只回显 scheduler.timesteps。
 pred_original_sample 表示 reverse update 真正使用的 x0_guided；scale=0 时它
 等于官方 clipped/base x0。base_pred_original_sample 始终是 guidance 前的
 x0_base，raw_pred_original_sample 始终是 clipping 前的 x0_raw。
@@ -306,6 +311,8 @@ step 比较：
 使用 torch.testing.assert_close。失败时输出第一个不一致 timestep，以及
 alpha_bar_t、alpha_bar_prev、raw variance、direction coefficient、x0_raw、
 x0_base 和 x_prev。
+这里的“等价”指固定 rtol=1e-5、atol=1e-6 内的浮点数值等价，不要求跨设备或
+不同算子写法 bitwise identical。
 
 ### 9.2 Full-chain regression
 
@@ -371,6 +378,10 @@ mode: check or dry-run
 optional deterministic seed
 ~~~
 
+底层 custom DDIM 必须支持 guidance_scale=0 以完成 oracle regression；面向
+check/dry-run 的 SimHandGuidance 配置则要求 guidance_scale>0，确保实际服务链
+与独立 zero-guidance oracle 是两条不同的验证路径。CLI 对 0 或负值直接失败。
+
 check mode 加载 checkpoint 并检查：
 
 - action dimensions；
@@ -380,7 +391,9 @@ check mode 加载 checkpoint 并检查：
 - 实际 U-Net temporal shape probe；
 - 从 Real checkpoint 的 shape_meta 构造最小合法 synthetic observation，实际
   调用一次 Real predict_action 并验证 finite (1,50,31) 输出；
-- Sim guided path 实际生成 finite (1,12,22)，而不只检查配置；
+- 使用配置中的非零 guidance_scale 实际调用一次 guide_segment_detailed；报告的
+  完整 (1,12,22) chain、12 个 timestep 与返回的物理空间 (1,5,22) hand action
+  都必须 finite；
 - 零 guidance 的逐步和 full-chain 等价性。
 
 任何失败非零退出。
@@ -426,6 +439,7 @@ segment count、slice end 等派生值不在多个模块重复硬编码。
 - normalizer 缺失；
 - action/state dimension 错误；
 - scheduler config 或 prediction_type 不支持；
+- check/dry-run guidance_scale 不是正数；
 - eta 非零；
 - temporal slice 或 execution length 越界；
 - Real 返回长度不能被 segment length 整除；
@@ -444,12 +458,15 @@ segment count、slice end 等派生值不在多个模块重复硬编码。
 - 断言 runtime diffusers version 是 0.11.1；
 - 从 Sim DDPM config 构造 DDIM 后断言 set_alpha_to_one=True、steps_offset=0，
   并断言 100 train steps / 12 inference steps 的实际 timesteps；
+- DDIM 与训练 DDPM 的 alphas_cumprod 逐元素完全一致；
 - 所有 reverse timestep 的 scale=0 x0 与 prev_sample 等价；
 - 完整 scale=0 chain 每一步等价；
 - fixture 主动触发 clip_sample=True clipping；
 - thresholding=True 直接抛错；
 - 分别验证 raw x0 和 clipped x0；
-- 验证 raw variance 及最终 zero-variance；
+- 对全部 12 个 timestep 用闭式公式验证 raw variance，而不是标准差，并在一个
+  非末步直接验证 x0_guided = x0_base - scale * raw_variance * gradient；
+- 验证最终 zero-variance；
 - eta 非零抛错。
 
 ### 13.2 Guidance
@@ -479,7 +496,9 @@ segment count、slice end 等派生值不在多个模块重复硬编码。
 ### 13.4 Normalization 与组合
 
 - Real/Sim normalizer 始终独立；
-- known hand action 可经 Sim normalizer round-trip；
+- 真实 Sim Workspace checkpoint round-trip 后，obs/action 两组非 identity
+  normalizer state 逐项保持且位于 policy device；
+- known hand action 可经恢复后的 Sim normalizer 数值 round-trip；
 - guidance 收到 normalized reference 与 state；
 - 只替换 [9:31]；
 - [0:9] 保持不变。
@@ -498,6 +517,8 @@ segment count、slice end 等派生值不在多个模块重复硬编码。
 - 固定 seed 时全链确定，同时每段独立消费 RNG 获得 fresh noise；
 - 旧 public action count=4 的 Sim checkpoint 仍可生成 full x0 并取 [3:8]；
 - EMA、normalizer 恢复符合 checkpoint；
+- import 新 package 与 CLI --help 时，inference_dp、DirectRobotEnv、
+  diffusion_policy.real_world、ViTacFormer、pyrealsense2 与 ur_rtde 均未加载；
 - 不兼容 dimension/shape 清晰报错。
 
 ## 14. Debug 信息
@@ -543,6 +564,7 @@ production tensor。
 5. 旧 4-step public slice 的 Sim checkpoint 无需重训。
 6. guided path 不含错误的整除 4 或 horizon 整除 5 验证。
 7. scale=0 时 custom sampler 逐步及全链等价于固定版本官方 DDIM。
-8. check mode 和 fake-executor dry-run 均通过。
+8. check mode 同时通过 configured nonzero guidance 与独立 zero-guidance oracle，
+   fake-executor dry-run 完成十段。
 9. 所有 contract violation 都以可定位 error 失败。
 10. 现有 standalone inference 与 training 测试不回归。
