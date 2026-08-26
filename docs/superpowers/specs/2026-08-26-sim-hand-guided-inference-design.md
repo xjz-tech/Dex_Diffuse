@@ -193,6 +193,7 @@ Sim policy 原有 scheduler 是 DDPM。新模块从已加载 scheduler 的 confi
 - eta=0.0；
 - eta 非零直接抛错；
 - prediction_type 必须严格等于 epsilon，其他类型直接抛错；
+- thresholding 必须为 False，首版不支持 dynamic thresholding；
 - 从 DDPM config 构造 DDIM 时显式固定 set_alpha_to_one=True；
 - 显式固定 steps_offset=0。
 
@@ -446,6 +447,7 @@ segment count、slice end 等派生值不在多个模块重复硬编码。
 - 所有 reverse timestep 的 scale=0 x0 与 prev_sample 等价；
 - 完整 scale=0 chain 每一步等价；
 - fixture 主动触发 clip_sample=True clipping；
+- thresholding=True 直接抛错；
 - 分别验证 raw x0 和 clipped x0；
 - 验证 raw variance 及最终 zero-variance；
 - eta 非零抛错。
