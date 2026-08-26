@@ -14,6 +14,8 @@ from diffusion_policy.guidance.guided_ddim import (
     create_ddim_scheduler,
     guided_ddim_step,
     mse_guidance_gradient,
+    sample_guided_trajectory,
+    verify_zero_guidance_equivalence,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -606,3 +608,208 @@ def test_step_rejects_shape_dtype_device_and_finite_violations() -> None:
                 "reference": reference.to(device="cuda"),
             },
         )
+
+
+class _DeterministicEpsilonModel:
+    """Deterministic epsilon predictor for full-chain sampler tests."""
+
+    def __init__(self, *, scale: float = 0.01) -> None:
+        self.scale = scale
+
+    def __call__(
+        self,
+        sample: torch.Tensor,
+        timestep,
+        global_cond: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        t = float(int(timestep))
+        out = sample * self.scale + t * 1e-4
+        if global_cond is not None:
+            out = out + global_cond.mean() * 1e-3
+        return out
+
+
+class _NonFiniteEpsilonModel(_DeterministicEpsilonModel):
+    def __call__(self, sample, timestep, global_cond=None):
+        out = super().__call__(sample, timestep, global_cond)
+        out = out.clone()
+        out[0, 0, 0] = float("nan")
+        return out
+
+
+class _WrongShapeEpsilonModel(_DeterministicEpsilonModel):
+    def __call__(self, sample, timestep, global_cond=None):
+        out = super().__call__(sample, timestep, global_cond)
+        return out[..., :-1]
+
+
+def _assert_sampler_chain(
+    *,
+    num_train_timesteps: int,
+    num_inference_steps: int,
+    shape: tuple[int, int, int],
+    cond_dim: int,
+    guidance_slice: slice,
+) -> None:
+    training = _training_scheduler(num_train_timesteps=num_train_timesteps)
+    scheduler = create_ddim_scheduler(training)
+    torch.manual_seed(num_train_timesteps + num_inference_steps)
+    initial_noise = torch.randn(shape)
+    global_cond = torch.randn(shape[0], cond_dim)
+    reference = torch.randn(
+        shape[0],
+        guidance_slice.stop - guidance_slice.start,
+        shape[2],
+    )
+    model = _DeterministicEpsilonModel()
+    result = sample_guided_trajectory(
+        model=model,
+        scheduler=scheduler,
+        initial_noise=initial_noise,
+        global_cond=global_cond,
+        reference=reference,
+        num_inference_steps=num_inference_steps,
+        guidance_scale=1.5,
+        guidance_slice=guidance_slice,
+        eta=0.0,
+    )
+    assert len(result.steps) == num_inference_steps
+    assert tuple(step.timestep for step in result.steps) == tuple(
+        map(int, scheduler.timesteps)
+    )
+    assert result.trajectory.shape == initial_noise.shape
+    assert all(not step.prev_sample.requires_grad for step in result.steps)
+    torch.testing.assert_close(result.trajectory, result.steps[-1].prev_sample)
+
+
+def test_sampler_chain_matches_dynamic_timesteps_for_100_12() -> None:
+    _assert_sampler_chain(
+        num_train_timesteps=100,
+        num_inference_steps=12,
+        shape=(2, 12, 22),
+        cond_dim=88,
+        guidance_slice=slice(3, 8),
+    )
+
+
+def test_sampler_chain_matches_dynamic_timesteps_for_60_10() -> None:
+    _assert_sampler_chain(
+        num_train_timesteps=60,
+        num_inference_steps=10,
+        shape=(2, 8, 22),
+        cond_dim=44,
+        guidance_slice=slice(1, 4),
+    )
+
+
+def test_sampler_rejects_nonpositive_inference_steps() -> None:
+    training = _training_scheduler(num_train_timesteps=100)
+    scheduler = create_ddim_scheduler(training)
+    shape = (1, 12, 22)
+    kwargs = dict(
+        model=_DeterministicEpsilonModel(),
+        scheduler=scheduler,
+        initial_noise=torch.randn(shape),
+        global_cond=torch.randn(1, 88),
+        reference=torch.zeros(1, 5, 22),
+        guidance_scale=1.0,
+        guidance_slice=slice(3, 8),
+        eta=0.0,
+    )
+    with pytest.raises(ValueError, match="inference"):
+        sample_guided_trajectory(**kwargs, num_inference_steps=0)
+    with pytest.raises(ValueError, match="inference"):
+        sample_guided_trajectory(**kwargs, num_inference_steps=-3)
+
+
+def test_sampler_rejects_non_finite_model_output() -> None:
+    training = _training_scheduler(num_train_timesteps=100)
+    scheduler = create_ddim_scheduler(training)
+    with pytest.raises(ValueError, match="finite"):
+        sample_guided_trajectory(
+            model=_NonFiniteEpsilonModel(),
+            scheduler=scheduler,
+            initial_noise=torch.randn(1, 12, 22),
+            global_cond=torch.randn(1, 88),
+            reference=torch.zeros(1, 5, 22),
+            num_inference_steps=12,
+            guidance_scale=1.0,
+            guidance_slice=slice(3, 8),
+            eta=0.0,
+        )
+
+
+def test_sampler_rejects_wrong_model_output_shape() -> None:
+    training = _training_scheduler(num_train_timesteps=100)
+    scheduler = create_ddim_scheduler(training)
+    with pytest.raises(ValueError, match="shape"):
+        sample_guided_trajectory(
+            model=_WrongShapeEpsilonModel(),
+            scheduler=scheduler,
+            initial_noise=torch.randn(1, 12, 22),
+            global_cond=torch.randn(1, 88),
+            reference=torch.zeros(1, 5, 22),
+            num_inference_steps=12,
+            guidance_scale=1.0,
+            guidance_slice=slice(3, 8),
+            eta=0.0,
+        )
+
+
+def _assert_zero_guidance_full_chain_oracle(
+    *,
+    num_train_timesteps: int,
+    num_inference_steps: int,
+    shape: tuple[int, int, int],
+    cond_dim: int,
+    guidance_slice: slice,
+) -> None:
+    training = _training_scheduler(num_train_timesteps=num_train_timesteps)
+    torch.manual_seed(num_train_timesteps * 10 + num_inference_steps)
+    initial_noise = torch.randn(shape)
+    global_cond = torch.randn(shape[0], cond_dim)
+    reference = torch.randn(
+        shape[0],
+        guidance_slice.stop - guidance_slice.start,
+        shape[2],
+    )
+    model = _DeterministicEpsilonModel(scale=0.02)
+    report = verify_zero_guidance_equivalence(
+        model=model,
+        training_scheduler=training,
+        initial_noise=initial_noise,
+        global_cond=global_cond,
+        reference=reference,
+        guidance_slice=guidance_slice,
+        num_inference_steps=num_inference_steps,
+    )
+    probe = create_ddim_scheduler(training)
+    probe.set_timesteps(num_inference_steps)
+    expected_timesteps = tuple(map(int, probe.timesteps))
+    assert report.timesteps == expected_timesteps
+    assert len(report.timesteps) == num_inference_steps
+    if (num_train_timesteps, num_inference_steps) != (100, 12):
+        assert report.timesteps != EXPECTED_CURRENT_TIMESTEPS
+    assert report.terminal_shape == tuple(shape)
+    assert report.max_x0_error <= 1e-6
+    assert report.max_prev_error <= 1e-6
+
+
+def test_zero_guidance_report_full_official_custom_chain_for_100_12() -> None:
+    _assert_zero_guidance_full_chain_oracle(
+        num_train_timesteps=100,
+        num_inference_steps=12,
+        shape=(2, 12, 22),
+        cond_dim=88,
+        guidance_slice=slice(3, 8),
+    )
+
+
+def test_zero_guidance_report_full_official_custom_chain_for_60_10() -> None:
+    _assert_zero_guidance_full_chain_oracle(
+        num_train_timesteps=60,
+        num_inference_steps=10,
+        shape=(2, 8, 22),
+        cond_dim=44,
+        guidance_slice=slice(1, 4),
+    )

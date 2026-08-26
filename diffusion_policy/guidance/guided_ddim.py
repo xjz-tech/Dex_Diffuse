@@ -170,3 +170,157 @@ def guided_ddim_step(
         guidance_loss_before=_slice_mse(x0_base, reference, guidance_slice),
         guidance_loss_after=_slice_mse(x0_guided, reference, guidance_slice),
     )
+
+
+@dataclass(frozen=True)
+class GuidedDDIMSampleOutput:
+    trajectory: torch.Tensor
+    steps: tuple[GuidedDDIMStepOutput, ...]
+
+
+@dataclass(frozen=True)
+class ZeroGuidanceReport:
+    timesteps: tuple[int, ...]
+    terminal_shape: tuple[int, ...]
+    max_x0_error: float
+    max_prev_error: float
+
+
+def sample_guided_trajectory(
+    model,
+    scheduler: DDIMScheduler,
+    initial_noise: torch.Tensor,
+    global_cond: torch.Tensor,
+    reference: torch.Tensor,
+    num_inference_steps: int,
+    guidance_scale: float,
+    guidance_slice: slice,
+    eta: float = 0.0,
+) -> GuidedDDIMSampleOutput:
+    if num_inference_steps <= 0:
+        raise ValueError(
+            f"num_inference_steps must be positive, got {num_inference_steps}"
+        )
+    scheduler.set_timesteps(
+        num_inference_steps,
+        device=initial_noise.device,
+    )
+    trajectory = initial_noise.clone()
+    outputs: list[GuidedDDIMStepOutput] = []
+    with torch.no_grad():
+        for timestep in scheduler.timesteps:
+            model_output = model(
+                trajectory,
+                timestep,
+                global_cond=global_cond,
+            )
+            output = guided_ddim_step(
+                scheduler=scheduler,
+                model_output=model_output,
+                timestep=timestep,
+                sample=trajectory,
+                reference=reference,
+                guidance_scale=guidance_scale,
+                guidance_slice=guidance_slice,
+                eta=eta,
+            )
+            outputs.append(output)
+            trajectory = output.prev_sample
+    return GuidedDDIMSampleOutput(trajectory, tuple(outputs))
+
+
+def verify_zero_guidance_equivalence(
+    model,
+    training_scheduler: DDPMScheduler,
+    initial_noise: torch.Tensor,
+    global_cond: torch.Tensor,
+    reference: torch.Tensor,
+    guidance_slice: slice,
+    num_inference_steps: int,
+    rtol: float = 1e-5,
+    atol: float = 1e-6,
+) -> ZeroGuidanceReport:
+    if num_inference_steps <= 0:
+        raise ValueError(
+            f"num_inference_steps must be positive, got {num_inference_steps}"
+        )
+    official = create_ddim_scheduler(training_scheduler)
+    custom = create_ddim_scheduler(training_scheduler)
+    official.set_timesteps(num_inference_steps, device=initial_noise.device)
+    custom.set_timesteps(num_inference_steps, device=initial_noise.device)
+
+    official_sample = initial_noise.clone()
+    custom_sample = initial_noise.clone()
+    max_x0_error = 0.0
+    max_prev_error = 0.0
+    step_timesteps: list[int] = []
+
+    with torch.no_grad():
+        for timestep in custom.timesteps:
+            t = int(timestep)
+            official_epsilon = model(
+                official_sample,
+                timestep,
+                global_cond=global_cond,
+            )
+            custom_epsilon = model(
+                custom_sample,
+                timestep,
+                global_cond=global_cond,
+            )
+            official_out = official.step(
+                model_output=official_epsilon,
+                timestep=timestep,
+                sample=official_sample,
+                eta=0.0,
+            )
+            custom_out = guided_ddim_step(
+                scheduler=custom,
+                model_output=custom_epsilon,
+                timestep=timestep,
+                sample=custom_sample,
+                reference=reference,
+                guidance_scale=0.0,
+                guidance_slice=guidance_slice,
+                eta=0.0,
+            )
+            torch.testing.assert_close(
+                custom_out.pred_original_sample,
+                official_out.pred_original_sample,
+                rtol=rtol,
+                atol=atol,
+            )
+            torch.testing.assert_close(
+                custom_out.prev_sample,
+                official_out.prev_sample,
+                rtol=rtol,
+                atol=atol,
+            )
+            max_x0_error = max(
+                max_x0_error,
+                float(
+                    (custom_out.pred_original_sample - official_out.pred_original_sample)
+                    .abs()
+                    .max()
+                    .item()
+                ),
+            )
+            max_prev_error = max(
+                max_prev_error,
+                float(
+                    (custom_out.prev_sample - official_out.prev_sample)
+                    .abs()
+                    .max()
+                    .item()
+                ),
+            )
+            step_timesteps.append(custom_out.timestep)
+            official_sample = official_out.prev_sample
+            custom_sample = custom_out.prev_sample
+
+    return ZeroGuidanceReport(
+        timesteps=tuple(step_timesteps),
+        terminal_shape=tuple(custom_sample.shape),
+        max_x0_error=max_x0_error,
+        max_prev_error=max_prev_error,
+    )
