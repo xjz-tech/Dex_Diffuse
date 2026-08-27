@@ -3,16 +3,17 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a hardware-free guidance path that preserves the existing Real
-and Sim systems, refines only the 22-D hand portion of the Real proposal with a
-custom zero-equivalent DDIM sampler, and executes five-step closed-loop
-segments.
+and Sim model/loss systems, refines the complete nine-step coupled 22-D hand
+trajectory with a custom zero-equivalent DDIM sampler, and executes its first
+five steps in closed-loop segments.
 
 **Architecture:** Restore each checkpoint with the repository's existing
 Workspace payload sequence. Thin adapters expose policy-derived shape and
 normalization contracts; a focused DDIM module owns dynamic scheduling and
 reverse-step-mean guidance; a coordinator composes hand guidance with the untouched Real
-proposal. No existing training, policy, temporal, DINO, or hardware file is
-modified.
+proposal. The Sim training default changes only `n_action_steps` from 4 to 5;
+model architecture, loss, temporal validation, DINO, and hardware code remain
+unchanged.
 
 **Tech Stack:** Python 3.9+, PyTorch, Diffusers 0.11.1, Hydra/OmegaConf, dill,
 dataclasses, argparse, pytest, and the repository's existing Workspace,
@@ -30,8 +31,8 @@ normalizer, Real policy, and Sim-Hand policy.
   format.
 - The new entry point does not import `inference_dp.py`, `DirectRobotEnv`,
   ViTacFormer, or robot/controller modules.
-- Real inference remains `policy.predict_action(obs)["action"]`; guidance
-  begins after that tensor is returned.
+- Real inference calls `policy.predict_action(obs)` once; public `action` is
+  executed and aligned `action_pred` supplies full guidance references.
 - Real temporal length and segment count come from the actual proposal.
 - Sim horizon, observation steps, prediction steps, dimensions, and
   `oa_start` come from the restored policy and
@@ -39,8 +40,8 @@ normalizer, Real policy, and Sim-Hand policy.
 - Guidance configuration contains only `execution_steps`,
   `guidance_scale`, `num_inference_steps`, and `eta`.
 - The current target produces `(1,50,31)`, ten five-step segments, Sim
-  `4/12/9/4`, and guided slice `[3:8]`; these are integration-test
-  expectations, not duplicated production model configuration.
+  `4/12/9/5`, guidance slice `[3:12]`, and execution slice `[3:8]`; these are
+  integration-test expectations, not duplicated production model configuration.
 - Production DDIM never requires 100 train steps and never imports a fixed
   timestep array. `scheduler.set_timesteps(num_inference_steps)` is the
   authority.
@@ -254,6 +255,10 @@ class RealPolicyAdapter:
         self,
         observation: dict[str, torch.Tensor] | None = None,
     ) -> torch.Tensor
+    def predict_for_guidance(
+        self,
+        observation: dict[str, torch.Tensor] | None = None,
+    ) -> RealGuidancePrediction
 
 class SimPolicyAdapter:
     def __init__(self, loaded: LoadedPolicy) -> None
@@ -267,7 +272,9 @@ class SimPolicyAdapter:
     def action_dim(self) -> int
     @property
     def oa_start(self) -> int
-    def guided_slice(self, execution_steps: int) -> slice
+    @property
+    def guidance_slice(self) -> slice
+    def execution_slice(self, execution_steps: int) -> slice
     def normalize_history(self, value: torch.Tensor) -> torch.Tensor
     def normalize_reference(self, value: torch.Tensor) -> torch.Tensor
     def unnormalize_action(self, value: torch.Tensor) -> torch.Tensor
@@ -293,7 +300,9 @@ assert obs["hand_joint"].shape == (1, policy.n_obs_steps, 22)
 
 `predict_proposal` must call the original policy once, return finite
 `(1,T,31)`, and reject wrong batch/rank/action dimension without constraining
-`T` to 50 in production.
+`T` to 50 in production. `predict_for_guidance` additionally retains
+`action_pred`, aligns it from `n_obs_steps-1`, verifies that its prefix equals
+the public proposal, and exposes its 22-D hand slice.
 
 Sim tests create two fake policies:
 
@@ -315,8 +324,10 @@ alternate = make_sim_policy(
 Assert values and slices come from each policy:
 
 ~~~python
-assert SimPolicyAdapter(current).guided_slice(5) == slice(3, 8)
-assert SimPolicyAdapter(alternate).guided_slice(3) == slice(1, 4)
+assert SimPolicyAdapter(current).guidance_slice == slice(3, 12)
+assert SimPolicyAdapter(current).execution_slice(5) == slice(3, 8)
+assert SimPolicyAdapter(alternate).guidance_slice == slice(1, 8)
+assert SimPolicyAdapter(alternate).execution_slice(3) == slice(1, 4)
 ~~~
 
 Also test independent obs/action normalization, dynamic global-cond flattening,
@@ -351,6 +362,9 @@ if not torch.isfinite(proposal).all():
 return proposal
 ~~~
 
+The guidance path requires `result["action_pred"]`; missing, misaligned, or
+too-short full predictions fail loudly instead of padding or repeating actions.
+
 - [ ] **Step 4: Implement Sim adapter without copied temporal constants**
 
 Use:
@@ -364,9 +378,9 @@ self.obs_dim = int(policy.obs_dim)
 self.oa_start = int(policy.temporal.usable_action_slice.start)
 ~~~
 
-Require `obs_dim == action_dim == 22`. `guided_slice(E)` checks
-`E>0`, `E<=n_pred_action_steps`, and
-`oa_start+E<=horizon`. Global condition is:
+Require `obs_dim == action_dim == 22`. `guidance_slice` covers all
+`n_pred_action_steps`; `execution_slice(E)` checks `E>0`,
+`E<=n_pred_action_steps`, and `oa_start+E<=horizon`. Global condition is:
 
 ~~~python
 normalized = self.normalize_history(history)
@@ -796,7 +810,8 @@ class SimHandGuidance:
 With the current fake adapter assert:
 
 ~~~python
-assert guidance.guidance_slice == slice(3, 8)
+assert guidance.guidance_slice == slice(3, 12)
+assert guidance.execution_slice == slice(3, 8)
 assert guidance.trajectory_shape == (1, 12, 22)
 ~~~
 
@@ -812,7 +827,8 @@ Use recording adapter and sampler stubs. Assert each call:
 - normalizes history and reference once;
 - requests fresh `(1,adapter.horizon,adapter.action_dim)` noise;
 - passes adapter-derived slice and configured inference-step count;
-- takes terminal `[:,guided_slice,:]`;
+- guides terminal `[:,guidance_slice,:]` against all nine reference steps;
+- takes only terminal `[:,execution_slice,:]` for execution;
 - unnormalizes exactly that tensor;
 - returns finite `(1,execution_steps,22)`;
 - never calls `policy.predict_action`;
@@ -834,7 +850,8 @@ Expected: FAIL because the service module is missing.
 In `__init__`:
 
 ~~~python
-self.guidance_slice = adapter.guided_slice(config.execution_steps)
+self.guidance_slice = adapter.guidance_slice
+self.execution_slice = adapter.execution_slice(config.execution_steps)
 self.trajectory_shape = (1, adapter.horizon, adapter.action_dim)
 ~~~
 
@@ -861,7 +878,7 @@ sample = sample_guided_trajectory(
     guidance_slice=self.guidance_slice,
     eta=config.eta,
 )
-guided_norm = sample.trajectory[:, self.guidance_slice, :]
+guided_norm = sample.trajectory[:, self.execution_slice, :]
 return adapter.unnormalize_action(guided_norm)
 ~~~
 
@@ -935,22 +952,24 @@ class GuidedCoordinator:
         proposal: torch.Tensor,
         executor: SegmentExecutor,
         *,
+        hand_reference: torch.Tensor,
         generator: torch.Generator | None = None,
     ) -> GuidedRunResult
 ~~~
 
 - [ ] **Step 1: Write failing dynamic segmentation tests**
 
-Use a recording guidance stub. For `(1,50,31)` and `E=5` assert ten exact
-boundaries. Also use `(1,15,31)` and assert three boundaries, proving no
-production constant 50/10.
+Use a recording guidance stub. For `(1,50,31)`, `P=9`, and `E=5` assert ten
+exact execution boundaries plus overlapping reference windows `[5i:5i+9]`.
+The hand reference therefore covers at least 54 steps. Also use `(1,15,31)`
+and assert three boundaries, proving no production constant 50/10.
 
 For every segment:
 
 ~~~python
 torch.testing.assert_close(
     record.real_hand_reference,
-    proposal[:, record.start:record.stop, 9:31],
+    hand_reference[:, record.start:record.start + 9],
 )
 torch.testing.assert_close(
     record.executed_action[:, :, :9],
@@ -958,8 +977,9 @@ torch.testing.assert_close(
 )
 ~~~
 
-Reject wrong rank/batch/action dim, non-finite input, and proposal length not
-divisible by `execution_steps`.
+Reject wrong rank/batch/action dim, non-finite input, proposal length not
+divisible by `execution_steps`, and a full hand reference shorter than
+`T-E+P`.
 
 - [ ] **Step 2: Write failing closed-loop/executor tests**
 
@@ -997,6 +1017,8 @@ if total_steps % execution_steps != 0:
         f"execution_steps {execution_steps}"
     )
 segment_count = total_steps // execution_steps
+guidance_steps = guidance.adapter.n_pred_action_steps
+required_reference_steps = total_steps - execution_steps + guidance_steps
 ~~~
 
 Clone proposal once, iterate dynamic boundaries, replace only the hand slice,
@@ -1034,13 +1056,16 @@ class LoadedGuidedPolicies:
 @dataclass(frozen=True)
 class CheckReport:
     real_action_proposal: torch.Tensor
+    real_hand_reference: torch.Tensor
     real_action_shape: tuple[int, ...]
+    real_hand_reference_shape: tuple[int, ...]
     guided_hand_shape: tuple[int, ...]
     segment_count: int
     sim_horizon: int
     sim_obs_steps: int
     sim_pred_action_steps: int
-    guided_slice: tuple[int, int]
+    guidance_slice: tuple[int, int]
+    execution_slice: tuple[int, int]
     timesteps: tuple[int, ...]
     max_x0_error: float
     max_prev_error: float
@@ -1083,7 +1108,8 @@ assert report.guided_hand_shape == (1, 5, 22)
 assert report.sim_horizon == 12
 assert report.sim_obs_steps == 4
 assert report.sim_pred_action_steps == 9
-assert report.guided_slice == (3, 8)
+assert report.guidance_slice == (3, 12)
+assert report.execution_slice == (3, 8)
 assert report.timesteps == EXPECTED_CURRENT_TIMESTEPS
 ~~~
 
@@ -1116,12 +1142,12 @@ sim_adapter = SimPolicyAdapter(sim)
 guidance = SimHandGuidance(sim_adapter, guidance_config)
 ~~~
 
-`run_check` retains the one Real proposal, uses a policy-derived seeded
-`(1,n_obs_steps,22)` history, runs the first reference segment, creates a
-separate seeded full-trajectory noise tensor for the zero oracle, and returns
-actual policy/scheduler values.
+`run_check` retains the public Real proposal and aligned full hand reference,
+uses a policy-derived seeded `(1,n_obs_steps,22)` history, runs the first
+nine-step reference window, creates a separate seeded full-trajectory noise
+tensor for the zero oracle, and returns actual policy/scheduler values.
 
-`run_dry_run` reuses the report proposal, creates `FakeSegmentExecutor`, and
+`run_dry_run` reuses both report tensors, creates `FakeSegmentExecutor`, and
 runs `GuidedCoordinator` with a separate `seed+1` generator.
 
 - [ ] **Step 5: Verify GREEN and commit**
@@ -1183,11 +1209,13 @@ then `run_check` or `run_dry_run`. Print actual report values:
 
 ~~~python
 print(f"real_action_shape={report.real_action_shape}")
+print(f"real_hand_reference_shape={report.real_hand_reference_shape}")
 print(f"segment_count={report.segment_count}")
 print(f"sim_horizon={report.sim_horizon}")
 print(f"sim_obs_steps={report.sim_obs_steps}")
 print(f"sim_pred_action_steps={report.sim_pred_action_steps}")
-print(f"guided_slice={report.guided_slice}")
+print(f"guidance_slice={report.guidance_slice}")
+print(f"execution_slice={report.execution_slice}")
 print(f"timesteps={report.timesteps}")
 ~~~
 
@@ -1233,9 +1261,10 @@ $GUIDED_TEST_PYTHON inference_sim_hand_guided.py +  --mode check +  --real-check
 $GUIDED_TEST_PYTHON inference_sim_hand_guided.py +  --mode dry-run +  --real-checkpoint "$REAL_CKPT_PATH" +  --sim-checkpoint "$SIM_CKPT_PATH" +  --device cuda:0 +  --execution-steps 5 +  --guidance-scale 1.0 +  --num-inference-steps 12 +  --eta 0.0 +  --seed 7
 ~~~
 
-Expected current-checkpoint output includes Real `(1,50,31)`, ten segments,
-Sim `4/12/9`, guided slice `(3,8)`, the current twelve generated timesteps,
-zero-oracle errors within tolerance, and ten completed fake segments.
+Expected current-checkpoint output includes Real `(1,50,31)`, a full hand
+reference covering at least 54 steps, ten segments, Sim `4/12/9`, guidance
+slice `(3,12)`, execution slice `(3,8)`, the current twelve generated
+timesteps, zero-oracle errors within tolerance, and ten completed fake segments.
 
 - [ ] **Step 8: Commit the CLI**
 

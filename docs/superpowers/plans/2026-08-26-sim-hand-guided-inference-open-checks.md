@@ -79,7 +79,9 @@
       --eta 0.0 \
       --seed 7
     ```
-    期望当前 target：Real `(1,50,31)`、10 段、Sim `4/12/9`、guided slice `(3,8)`、12 个动态 timesteps、zero-oracle 误差在容差内。
+    期望当前 target：Real `(1,50,31)`、full hand reference 至少 54 步、
+    10 段、Sim `4/12/9`、guidance slice `(3,12)`、execution slice
+    `(3,8)`、12 个动态 timesteps、zero-oracle 误差在容差内。
 
 ---
 

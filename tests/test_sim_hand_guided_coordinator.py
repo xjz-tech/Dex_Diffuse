@@ -30,6 +30,7 @@ class RecordingGuidance:
     adapter: Any
     calls: list[dict[str, Any]] = field(default_factory=list)
     guided_offset: float = 100.0
+    output_dtype: torch.dtype | None = None
 
     def guide_segment(
         self,
@@ -47,11 +48,14 @@ class RecordingGuidance:
         )
         # Deterministic guided hand that differs from the Real reference.
         execution_steps = int(self.config.execution_steps)
-        return (
+        output = (
             hand_reference[:, :execution_steps]
             + self.guided_offset
             + float(len(self.calls))
         )
+        if self.output_dtype is not None:
+            output = output.to(dtype=self.output_dtype)
+        return output
 
 
 @dataclass
@@ -341,6 +345,18 @@ def test_coordinator_rejects_proposal_length_not_divisible_by_execution_steps():
             make_proposal(12),
             FakeSegmentExecutor(history),
             hand_reference=make_hand_reference(12),
+        )
+
+
+def test_coordinator_rejects_guided_hand_dtype_before_assignment():
+    guidance = make_guidance(execution_steps=5)
+    guidance.output_dtype = torch.float64
+
+    with pytest.raises(ValueError, match="guided_hand.*dtype"):
+        GuidedCoordinator(guidance).run(
+            make_proposal(10),
+            FakeSegmentExecutor(make_history()),
+            hand_reference=make_hand_reference(10),
         )
 
 

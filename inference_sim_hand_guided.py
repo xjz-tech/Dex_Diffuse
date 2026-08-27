@@ -50,7 +50,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--execution-steps",
         type=int,
         default=5,
-        help="Hand reference / execution horizon per segment (default: 5)",
+        help="Executed hand actions per segment (default: 5)",
     )
     parser.add_argument(
         "--guidance-scale",
@@ -109,6 +109,7 @@ def _validate_args(args: argparse.Namespace) -> None:
 
 def _print_check_fields(report: CheckReport) -> None:
     print(f"real_action_shape={report.real_action_shape}")
+    print(f"real_hand_reference_shape={report.real_hand_reference_shape}")
     print(f"segment_count={report.segment_count}")
     print(f"sim_horizon={report.sim_horizon}")
     print(f"sim_obs_steps={report.sim_obs_steps}")

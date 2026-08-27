@@ -371,6 +371,7 @@ def test_run_check_current_target_shapes_and_timesteps():
     assert len(loaded.guidance.guide_calls) == 1
     assert len(loaded.guidance.verify_calls) == 1
     assert report.real_action_shape == (1, 50, 31)
+    assert report.real_hand_reference_shape == (1, 54, 22)
     assert report.segment_count == 10
     assert report.guided_hand_shape == (1, 5, 22)
     assert report.sim_horizon == 12
@@ -404,6 +405,16 @@ def test_run_check_calls_guide_segment_even_when_scale_is_zero():
     assert len(loaded.guidance.verify_calls) == 1
     assert report.guided_hand_shape == (1, 5, 22)
     assert report.timesteps == EXPECTED_CURRENT_TIMESTEPS
+
+
+def test_run_check_rejects_real_sim_dtype_mismatch_without_casting():
+    from diffusion_policy.guidance.runtime import run_check
+
+    loaded = _build_loaded(record=True)
+    loaded.real.policy.to(dtype=torch.float64)
+
+    with pytest.raises(ValueError, match="Real proposal.*dtype"):
+        run_check(loaded, seed=0)
 
 
 def test_run_check_uses_seeded_synthetic_history_not_real_hand_joint():

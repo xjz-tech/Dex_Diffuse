@@ -16,6 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 @dataclass(frozen=True)
 class FakeCheckReport:
     real_action_shape: tuple[int, ...] = (1, 50, 31)
+    real_hand_reference_shape: tuple[int, ...] = (1, 54, 22)
     segment_count: int = 10
     sim_horizon: int = 12
     sim_obs_steps: int = 4
@@ -77,6 +78,7 @@ def test_main_check_dispatches_and_prints_report(capsys):
     dry_run.assert_not_called()
     out = capsys.readouterr().out
     assert "real_action_shape=(1, 50, 31)" in out
+    assert "real_hand_reference_shape=(1, 54, 22)" in out
     assert "segment_count=10" in out
     assert "sim_horizon=12" in out
     assert "sim_obs_steps=4" in out

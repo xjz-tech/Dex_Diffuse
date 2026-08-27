@@ -1,0 +1,39 @@
+{
+  "os": "Linux-7.0.0-28-generic-x86_64-with-glibc2.39",
+  "python": "CPython 3.11.15",
+  "startedAt": "2026-08-27T11:38:39.399687Z",
+  "program": "<stdin>",
+  "git": {
+    "remote": "git@github.com:xjz-tech/Dex_Diffuse.git",
+    "commit": "58a78070628b76fbd8e3d6056ed7a8bcd38b32df"
+  },
+  "root": "/home/carus/Program/Dexterous_Manipulation/Dex_diffuse",
+  "host": "carus-System-Product-Name",
+  "executable": "/home/carus/miniforge3/envs/isaaclab/bin/python",
+  "cpu_count": 24,
+  "cpu_count_logical": 32,
+  "gpu": "NVIDIA GeForce RTX 4090",
+  "gpu_count": 1,
+  "disk": {
+    "/": {
+      "total": "1966736678912",
+      "used": "124554276864"
+    }
+  },
+  "memory": {
+    "total": "67189293056"
+  },
+  "cpu": {
+    "count": 24,
+    "countLogical": 32
+  },
+  "gpu_nvidia": [
+    {
+      "name": "NVIDIA GeForce RTX 4090",
+      "memoryTotal": "25757220864",
+      "cudaCores": 16384,
+      "architecture": "Ada"
+    }
+  ],
+  "cudaVersion": "13.2"
+}

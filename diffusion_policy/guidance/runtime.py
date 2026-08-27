@@ -20,7 +20,6 @@ from diffusion_policy.guidance.sim_hand_guidance import (
     SimHandGuidanceConfig,
 )
 
-HAND_SLICE = slice(9, 31)
 HAND_DIM = 22
 
 
@@ -38,6 +37,7 @@ class CheckReport:
     real_action_proposal: torch.Tensor
     real_hand_reference: torch.Tensor
     real_action_shape: tuple[int, ...]
+    real_hand_reference_shape: tuple[int, ...]
     guided_hand_shape: tuple[int, ...]
     segment_count: int
     sim_horizon: int
@@ -127,7 +127,16 @@ def run_check(loaded: LoadedGuidedPolicies, *, seed: int) -> CheckReport:
 
     adapter = loaded.sim_adapter
     device, dtype = _policy_device_dtype(adapter)
-    hand_reference = real_prediction.hand_reference.to(
+    _validate_sim_boundary(
+        proposal,
+        name="Real proposal",
+        device=device,
+        dtype=dtype,
+    )
+    hand_reference = real_prediction.hand_reference
+    _validate_sim_boundary(
+        hand_reference,
+        name="Real hand reference",
         device=device,
         dtype=dtype,
     )
@@ -164,6 +173,9 @@ def run_check(loaded: LoadedGuidedPolicies, *, seed: int) -> CheckReport:
         real_action_proposal=proposal,
         real_hand_reference=hand_reference,
         real_action_shape=tuple(int(v) for v in proposal.shape),
+        real_hand_reference_shape=tuple(
+            int(v) for v in hand_reference.shape
+        ),
         guided_hand_shape=tuple(int(v) for v in guided_hand.shape),
         segment_count=segment_count,
         sim_horizon=int(adapter.horizon),
@@ -197,3 +209,22 @@ def run_dry_run(loaded: LoadedGuidedPolicies, *, seed: int) -> DryRunReport:
         generator=generator,
     )
     return DryRunReport(check=check, guided=guided)
+
+
+def _validate_sim_boundary(
+    value: torch.Tensor,
+    *,
+    name: str,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> None:
+    if value.device != device:
+        raise ValueError(
+            f"{name} device {value.device} does not match "
+            f"Sim policy device {device}"
+        )
+    if value.dtype != dtype:
+        raise ValueError(
+            f"{name} dtype {value.dtype} does not match "
+            f"Sim policy dtype {dtype}"
+        )

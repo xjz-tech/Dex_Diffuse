@@ -79,6 +79,8 @@ class GuidedCoordinator:
             hand_reference,
             required_steps=required_reference_steps,
             hand_dim=hand_dim,
+            expected_device=proposal.device,
+            expected_dtype=proposal.dtype,
         )
 
         guided_action = proposal.clone()
@@ -105,6 +107,8 @@ class GuidedCoordinator:
                 guided_hand,
                 execution_steps=execution_steps,
                 hand_dim=hand_dim,
+                expected_device=proposal.device,
+                expected_dtype=proposal.dtype,
             )
 
             # Replace only Real [9:31]; keep [0:9] elementwise.
@@ -165,6 +169,8 @@ def _validate_hand_reference(
     *,
     required_steps: int,
     hand_dim: int,
+    expected_device: torch.device,
+    expected_dtype: torch.dtype,
 ) -> None:
     if (
         hand_reference.ndim != 3
@@ -182,6 +188,12 @@ def _validate_hand_reference(
         )
     if not torch.isfinite(hand_reference).all():
         raise ValueError("hand_reference is non-finite")
+    _validate_tensor_contract(
+        hand_reference,
+        name="hand_reference",
+        expected_device=expected_device,
+        expected_dtype=expected_dtype,
+    )
 
 
 def _validate_history(
@@ -204,6 +216,8 @@ def _validate_guided_hand(
     *,
     execution_steps: int,
     hand_dim: int,
+    expected_device: torch.device,
+    expected_dtype: torch.dtype,
 ) -> None:
     expected = (1, execution_steps, hand_dim)
     if tuple(guided_hand.shape) != expected:
@@ -212,6 +226,31 @@ def _validate_guided_hand(
         )
     if not torch.isfinite(guided_hand).all():
         raise ValueError("guided_hand is non-finite")
+    _validate_tensor_contract(
+        guided_hand,
+        name="guided_hand",
+        expected_device=expected_device,
+        expected_dtype=expected_dtype,
+    )
+
+
+def _validate_tensor_contract(
+    value: torch.Tensor,
+    *,
+    name: str,
+    expected_device: torch.device,
+    expected_dtype: torch.dtype,
+) -> None:
+    if value.device != expected_device:
+        raise ValueError(
+            f"{name} device {value.device} does not match "
+            f"proposal device {expected_device}"
+        )
+    if value.dtype != expected_dtype:
+        raise ValueError(
+            f"{name} dtype {value.dtype} does not match "
+            f"proposal dtype {expected_dtype}"
+        )
 
 
 def _validate_post_states(

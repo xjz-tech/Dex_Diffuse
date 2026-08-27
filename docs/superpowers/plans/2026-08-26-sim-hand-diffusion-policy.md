@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Observation and action dimensions are exactly 22; no arm, image, object, language, or tactile inputs.
-- Defaults are n_obs_steps=4, n_pred_action_steps=9, n_action_steps=4, and derived horizon=12.
+- Defaults are n_obs_steps=4, n_pred_action_steps=9, n_action_steps=5, and derived horizon=12.
 - Derive horizon as n_obs_steps + n_pred_action_steps - 1; reject inconsistent or non-multiple-of-four horizons without padding or cropping.
 - Normalization uses every timestep in the complete replay buffer, including training and validation episodes.
 - Read only replay_buffer.zarr/data/{hand_joint,action} and meta/episode_ends; add no HDF5 converter.
@@ -51,13 +51,13 @@ def test_default_temporal_config():
     config = validate_sim_hand_temporal_config(
         n_obs_steps=4,
         n_pred_action_steps=9,
-        n_action_steps=4,
+        n_action_steps=5,
         horizon=12,
         obs_dim=22,
         action_dim=22,
     )
     assert config.usable_action_slice == slice(3, 12)
-    assert config.execution_action_slice == slice(3, 7)
+    assert config.execution_action_slice == slice(3, 8)
 ~~~
 
 - [ ] **Step 2: Write failing invalid-config tests**
@@ -83,7 +83,7 @@ def test_invalid_temporal_config(overrides, message):
     values = dict(
         n_obs_steps=4,
         n_pred_action_steps=9,
-        n_action_steps=4,
+        n_action_steps=5,
         horizon=12,
         obs_dim=22,
         action_dim=22,
@@ -276,7 +276,7 @@ def test_rejects_unet_temporal_mismatch(scheduler):
             action_dim=22,
             n_obs_steps=4,
             n_pred_action_steps=9,
-            n_action_steps=4,
+            n_action_steps=5,
         )
 ~~~
 
@@ -335,7 +335,7 @@ git commit -m "feat: add sim-hand diffusion policy"
 ~~~python
 assert cfg.n_obs_steps == 4
 assert cfg.n_pred_action_steps == 9
-assert cfg.n_action_steps == 4
+assert cfg.n_action_steps == 5
 assert cfg.horizon == 12
 assert cfg.obs_dim == cfg.action_dim == 22
 assert cfg.training.checkpoint_every == 100
@@ -364,7 +364,7 @@ assert (output_dir / "checkpoints/latest.ckpt").is_file()
 ~~~yaml
 n_obs_steps: 4
 n_pred_action_steps: 9
-n_action_steps: 4
+n_action_steps: 5
 horizon: ${eval:'${n_obs_steps}+${n_pred_action_steps}-1'}
 obs_as_global_cond: true
 ~~~

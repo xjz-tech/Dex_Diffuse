@@ -277,7 +277,7 @@ def test_guidance_rejects_slice_beyond_horizon():
             usable_start=4,
         )
     )
-    with pytest.raises(ValueError, match="horizon|guided slice"):
+    with pytest.raises(ValueError, match="horizon|guidance slice"):
         SimHandGuidance(adapter, _default_config(execution_steps=9))
 
 
