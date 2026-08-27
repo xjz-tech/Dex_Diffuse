@@ -13,6 +13,10 @@ import wandb
 from omegaconf import OmegaConf
 from torch.utils.data import DataLoader
 
+from diffusion_policy.common.bounded_sampler import (
+    EpochRandomSampler,
+    EvenlySpacedSampler,
+)
 from diffusion_policy.common.json_logger import JsonLogger
 from diffusion_policy.common.pytorch_util import dict_apply, optimizer_to
 from diffusion_policy.common.sim_hand_temporal_util import (
@@ -50,6 +54,10 @@ class TrainDiffusionUnetSimHandWorkspace(BaseWorkspace):
         print(format_sim_hand_temporal_config(temporal))
         if int(cfg.training.checkpoint_every) <= 0:
             raise ValueError("training.checkpoint_every must be positive")
+        if int(cfg.training.steps_per_epoch) <= 0:
+            raise ValueError("training.steps_per_epoch must be positive")
+        if int(cfg.training.validation_steps) <= 0:
+            raise ValueError("training.validation_steps must be positive")
 
         seed = int(cfg.training.seed)
         torch.manual_seed(seed)
@@ -84,9 +92,24 @@ class TrainDiffusionUnetSimHandWorkspace(BaseWorkspace):
         dataset: BaseLowdimDataset = hydra.utils.instantiate(cfg.task.dataset)
         if not isinstance(dataset, BaseLowdimDataset):
             raise TypeError("Sim-Hand dataset must inherit BaseLowdimDataset")
-        train_dataloader = DataLoader(dataset, **cfg.dataloader)
+        train_samples = int(cfg.training.steps_per_epoch) * int(cfg.dataloader.batch_size)
+        train_sampler = EpochRandomSampler(
+            dataset,
+            num_samples=train_samples,
+            seed=int(cfg.training.seed),
+        )
+        train_dataloader = DataLoader(dataset, sampler=train_sampler, **cfg.dataloader)
         val_dataset = dataset.get_validation_dataset()
-        val_dataloader = DataLoader(val_dataset, **cfg.val_dataloader)
+        val_samples = (
+            int(cfg.training.validation_steps)
+            * int(cfg.val_dataloader.batch_size)
+        )
+        val_sampler = EvenlySpacedSampler(val_dataset, num_samples=val_samples)
+        val_dataloader = DataLoader(
+            val_dataset,
+            sampler=val_sampler,
+            **cfg.val_dataloader,
+        )
         normalizer = dataset.get_normalizer()
         self.model.set_normalizer(normalizer)
         if self.ema_model is not None:
@@ -145,6 +168,7 @@ class TrainDiffusionUnetSimHandWorkspace(BaseWorkspace):
             with JsonLogger(str(log_path)) as json_logger:
                 while self.epoch < int(cfg.training.num_epochs):
                     local_epoch_idx = self.epoch
+                    train_sampler.set_epoch(self.epoch)
                     step_log = self._train_epoch(
                         cfg,
                         train_dataloader,

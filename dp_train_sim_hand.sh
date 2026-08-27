@@ -16,8 +16,11 @@ if ! command -v "$PYTHON" >/dev/null 2>&1; then
     echo "Python interpreter not found: $PYTHON" >&2
     exit 1
 fi
-if [[ ! -d "$DATASET_PATH/replay_buffer.zarr" && ! -f "$DATASET_PATH/manifest.json" ]]; then
-    echo "Dataset not found: expected $DATASET_PATH/replay_buffer.zarr or $DATASET_PATH/manifest.json" >&2
+CACHE_READY="$DATASET_PATH/exp_data_mmap/READY"
+if [[ ! -f "$CACHE_READY" ]]; then
+    echo "Completed Sim-Hand mmap cache not found: $CACHE_READY" >&2
+    echo "Build it first:" >&2
+    echo "python -m diffusion_policy.scripts.prepare_sim_hand_mmap --dataset-path $DATASET_PATH" >&2
     exit 1
 fi
 mkdir -p "$WANDB_DIR" "$MPLCONFIGDIR"

@@ -6,10 +6,10 @@ from pathlib import Path
 
 import h5py
 import numpy as np
-import zarr
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf, open_dict
 
+from diffusion_policy.dataset.sim_hand_mmap_converter import build_sim_hand_mmap_cache
 from diffusion_policy.workspace.train_diffusion_unet_sim_hand_workspace import (
     TrainDiffusionUnetSimHandWorkspace,
 )
@@ -29,40 +29,6 @@ def _compose_config():
         config = compose(config_name="train_diffusion_unet_sim_hand_workspace")
     OmegaConf.resolve(config)
     return config
-
-
-def _write_synthetic_dataset(dataset_dir: Path):
-    lengths = np.array([14, 15, 16, 17, 18], dtype=np.int64)
-    episode_ends = np.cumsum(lengths)
-    n_steps = int(episode_ends[-1])
-    rng = np.random.default_rng(8)
-    hand_joint = rng.normal(size=(n_steps, HAND_DIM)).astype(np.float32)
-    action = (
-        0.8 * hand_joint
-        + rng.normal(scale=0.05, size=(n_steps, HAND_DIM)).astype(np.float32)
-    ).astype(np.float32)
-
-    root = zarr.open_group(str(dataset_dir / "replay_buffer.zarr"), mode="w")
-    data = root.create_group("data")
-    meta = root.create_group("meta")
-    data.create_dataset(
-        "hand_joint",
-        data=hand_joint,
-        shape=hand_joint.shape,
-        chunks=(16, HAND_DIM),
-    )
-    data.create_dataset(
-        "action",
-        data=action,
-        shape=action.shape,
-        chunks=(16, HAND_DIM),
-    )
-    meta.create_dataset(
-        "episode_ends",
-        data=episode_ends,
-        shape=episode_ends.shape,
-        dtype="int64",
-    )
 
 
 def _write_synthetic_hdf5_dataset(dataset_dir: Path):
@@ -148,6 +114,8 @@ def _small_cpu_config(dataset_dir: Path):
         config.training.device = "cpu"
         config.training.resume = False
         config.training.num_epochs = 1
+        config.training.steps_per_epoch = 1
+        config.training.validation_steps = 1
         config.training.max_train_steps = 1
         config.training.max_val_steps = 1
         config.training.checkpoint_every = 1
@@ -157,9 +125,13 @@ def _small_cpu_config(dataset_dir: Path):
         config.dataloader.batch_size = 2
         config.dataloader.num_workers = 0
         config.dataloader.pin_memory = False
+        config.dataloader.persistent_workers = False
+        config.dataloader.prefetch_factor = None
         config.val_dataloader.batch_size = 2
         config.val_dataloader.num_workers = 0
         config.val_dataloader.pin_memory = False
+        config.val_dataloader.persistent_workers = False
+        config.val_dataloader.prefetch_factor = None
         config.policy.model.down_dims = [32, 64, 128]
         config.policy.model.diffusion_step_embed_dim = 32
         config.policy.model.kernel_size = 3
@@ -179,7 +151,14 @@ def test_hydra_defaults_have_one_consistent_temporal_configuration():
     assert config.horizon == 12
     assert config.obs_dim == HAND_DIM
     assert config.action_dim == HAND_DIM
-    assert config.training.checkpoint_every == 100
+    assert config.task.dataset._target_.endswith("SimHandMmapDataset")
+    assert config.training.num_epochs == 10000
+    assert config.training.steps_per_epoch == 2000
+    assert config.training.validation_steps == 200
+    assert config.training.checkpoint_every == 50
+    assert config.dataloader.shuffle is False
+    assert config.dataloader.persistent_workers is True
+    assert config.dataloader.prefetch_factor == 2
     assert config.policy.return_full_prediction is False
     assert config.task.dataset.pad_before == 3
     assert config.task.dataset.pad_after == 8
@@ -213,35 +192,19 @@ def test_workspace_prints_dynamic_temporal_report(tmp_path, capsys):
     assert "execute       : a[t:t+3]" in output
 
 
-def test_one_step_train_validation_and_periodic_checkpoint(tmp_path):
-    dataset_dir = tmp_path / "dataset"
-    dataset_dir.mkdir()
-    _write_synthetic_dataset(dataset_dir)
-    output_dir = tmp_path / "output"
-    config = _small_cpu_config(dataset_dir)
-    workspace = TrainDiffusionUnetSimHandWorkspace(
-        config,
-        output_dir=str(output_dir),
-    )
-
-    workspace.run()
-
-    records = [
-        json.loads(line)
-        for line in (output_dir / "logs.json.txt").read_text().splitlines()
-    ]
-    assert records
-    final_record = records[-1]
-    assert math.isfinite(final_record["train_loss"])
-    assert math.isfinite(final_record["val_loss"])
-    assert (output_dir / "checkpoints" / "epoch_0001.ckpt").is_file()
-    assert (output_dir / "checkpoints" / "latest.ckpt").is_file()
-
-
-def test_one_step_train_from_hdf5_dataset(tmp_path):
+def test_one_step_train_validation_and_periodic_checkpoint_from_mmap(tmp_path):
     dataset_dir = tmp_path / "dataset"
     dataset_dir.mkdir()
     _write_synthetic_hdf5_dataset(dataset_dir)
+    build_sim_hand_mmap_cache(
+        dataset_dir,
+        horizon=12,
+        pad_before=3,
+        pad_after=8,
+        val_ratio=0.1,
+        seed=42,
+        chunk_rows=8,
+    )
     output_dir = tmp_path / "output"
     config = _small_cpu_config(dataset_dir)
     workspace = TrainDiffusionUnetSimHandWorkspace(

@@ -10,7 +10,7 @@ env_runner:
   _target_: diffusion_policy.env_runner.null_lowdim_runner.NullLowdimRunner
 
 dataset:
-  _target_: diffusion_policy.dataset.sim_hand_lowdim_dataset.SimHandLowdimDataset
+  _target_: diffusion_policy.dataset.sim_hand_mmap_dataset.SimHandMmapDataset
   dataset_path: ${task.dataset_path}
   horizon: ${horizon}
   pad_before: ${eval:'${n_obs_steps}-1'}

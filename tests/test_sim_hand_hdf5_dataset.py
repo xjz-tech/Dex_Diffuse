@@ -308,19 +308,17 @@ def test_hdf5_rejects_wrong_training_field_shape(tmp_path):
         _make_dataset(tmp_path)
 
 
-def test_train_script_accepts_hdf5_manifest_dataset(tmp_path):
-    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+def _run_train_script_with_true_python(dataset_path):
     env = os.environ.copy()
     env.update(
         {
             "PYTHON": "/bin/true",
-            "DATASET_PATH": str(tmp_path),
-            "WANDB_DIR": str(tmp_path / "wandb"),
-            "MPLCONFIGDIR": str(tmp_path / "matplotlib"),
+            "DATASET_PATH": str(dataset_path),
+            "WANDB_DIR": str(dataset_path / "wandb"),
+            "MPLCONFIGDIR": str(dataset_path / "matplotlib"),
         }
     )
-
-    result = subprocess.run(
+    return subprocess.run(
         ["bash", str(REPO_ROOT / "dp_train_sim_hand.sh")],
         cwd=REPO_ROOT,
         env=env,
@@ -329,6 +327,20 @@ def test_train_script_accepts_hdf5_manifest_dataset(tmp_path):
         check=False,
     )
 
+
+def test_train_script_requires_completed_mmap_cache(tmp_path):
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    result = _run_train_script_with_true_python(tmp_path)
+    assert result.returncode != 0
+    assert "exp_data_mmap/READY" in result.stderr
+    assert "python -m diffusion_policy.scripts.prepare_sim_hand_mmap" in result.stderr
+
+
+def test_train_script_accepts_ready_mmap_cache(tmp_path):
+    cache_dir = tmp_path / "exp_data_mmap"
+    cache_dir.mkdir()
+    (cache_dir / "READY").touch()
+    result = _run_train_script_with_true_python(tmp_path)
     assert result.returncode == 0, result.stderr
 
 
