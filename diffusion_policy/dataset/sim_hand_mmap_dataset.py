@@ -181,7 +181,11 @@ class SimHandMmapDataset(BaseLowdimDataset):
     def _set_selected_episodes(self, episode_mask: np.ndarray, *, role: str) -> None:
         selected = np.flatnonzero(episode_mask).astype(np.int64, copy=False)
         if selected.size == 0:
-            raise ValueError(f"no {role} episodes selected")
+            if role == "training":
+                raise ValueError(f"no {role} episodes selected")
+            self.selected_episode_indices = selected
+            self.sample_ends = np.empty(0, dtype=np.int64)
+            return
 
         window_counts = np.empty(selected.shape, dtype=np.int64)
         for position, episode_index in enumerate(selected):

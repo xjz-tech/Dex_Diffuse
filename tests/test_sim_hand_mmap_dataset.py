@@ -276,6 +276,25 @@ def test_mmap_dataset_rejects_temporal_and_split_mismatch(cache_fixture):
         )
 
 
+def test_mmap_validation_view_empty_when_val_ratio_zero(cache_fixture):
+    from diffusion_policy.dataset.sim_hand_mmap_dataset import SimHandMmapDataset
+
+    dataset_path, _ = cache_fixture(val_ratio=0.0)
+    dataset = SimHandMmapDataset(
+        str(dataset_path),
+        horizon=HORIZON,
+        pad_before=PAD_BEFORE,
+        pad_after=PAD_AFTER,
+        seed=42,
+        val_ratio=0.0,
+    )
+    validation = dataset.get_validation_dataset()
+
+    assert len(validation) == 0
+    assert validation.selected_episode_indices.size == 0
+    assert validation.sample_ends.size == 0
+
+
 def test_mmap_dataset_rejects_zero_selected_training_episodes(cache_fixture):
     from diffusion_policy.dataset.sim_hand_mmap_dataset import SimHandMmapDataset
 
