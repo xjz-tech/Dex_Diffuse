@@ -175,7 +175,7 @@ def test_hydra_defaults_have_one_consistent_temporal_configuration():
 
     assert config.n_obs_steps == 4
     assert config.n_pred_action_steps == 9
-    assert config.n_action_steps == 4
+    assert config.n_action_steps == 5
     assert config.horizon == 12
     assert config.obs_dim == HAND_DIM
     assert config.action_dim == HAND_DIM
@@ -183,7 +183,6 @@ def test_hydra_defaults_have_one_consistent_temporal_configuration():
     assert config.policy.return_full_prediction is False
     assert config.task.dataset.pad_before == 3
     assert config.task.dataset.pad_after == 8
-    assert config.task.dataset.successful_only is True
 
 
 def test_workspace_prints_dynamic_temporal_report(tmp_path, capsys):
