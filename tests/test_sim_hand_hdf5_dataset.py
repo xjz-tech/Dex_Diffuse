@@ -429,6 +429,31 @@ def test_hdf5_rejects_empty_rollout(tmp_path):
         _make_dataset(tmp_path)
 
 
+def test_hdf5_manifest_and_shard_validation_are_reusable(tmp_path):
+    _write_rollout(
+        tmp_path,
+        shards=[[
+            _row(10, 2, 0),
+            _row(10, 2, 1),
+            _row(10, 2, 2),
+        ]],
+    )
+    from diffusion_policy.dataset.sim_hand_hdf5 import (
+        read_sim_hand_manifest,
+        validate_sim_hand_shards,
+    )
+
+    manifest = read_sim_hand_manifest(tmp_path)
+    validate_sim_hand_shards(manifest)
+
+    assert manifest.dataset_path == tmp_path
+    assert manifest.schema_version == 1
+    assert manifest.dof == HAND_DIM
+    assert manifest.total_transitions == 3
+    assert manifest.shards[0].relative_path == "shards/shard_000000.h5"
+    assert manifest.shards[0].num_transitions == 3
+
+
 def test_hdf5_rejects_unknown_manifest_schema_version(tmp_path):
     _write_rollout(
         tmp_path,

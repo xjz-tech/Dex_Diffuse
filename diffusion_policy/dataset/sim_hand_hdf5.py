@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 import h5py
@@ -37,17 +38,24 @@ HDF5_FIELD_DTYPES = {
 }
 
 
-def load_sim_hand_hdf5(
-    dataset_path: str | Path,
-    *,
-    min_episode_length: int,
-) -> ReplayBuffer:
-    """Load HDF5 rollout shards and make every episode contiguous in memory."""
-    if type(min_episode_length) is not int or min_episode_length < 1:
-        raise ValueError(
-            "min_episode_length must be an integer >= 1, "
-            f"got {min_episode_length!r}"
-        )
+@dataclass(frozen=True)
+class SimHandShardSpec:
+    relative_path: str
+    path: Path
+    num_transitions: int
+
+
+@dataclass(frozen=True)
+class SimHandManifest:
+    dataset_path: Path
+    manifest_path: Path
+    schema_version: int
+    dof: int
+    total_transitions: int
+    shards: tuple[SimHandShardSpec, ...]
+
+
+def read_sim_hand_manifest(dataset_path: str | Path) -> SimHandManifest:
     root_path = Path(dataset_path).expanduser()
     manifest_path = root_path / "manifest.json"
     if not manifest_path.is_file():
@@ -101,7 +109,7 @@ def load_sim_hand_hdf5(
     if not isinstance(shards, list) or not shards:
         raise ValueError("Sim-Hand HDF5 manifest must contain at least one shard")
 
-    shard_specs: list[tuple[Path, int]] = []
+    shard_specs: list[SimHandShardSpec] = []
     for shard_index, shard in enumerate(shards):
         if not isinstance(shard, dict):
             raise ValueError(
@@ -136,21 +144,38 @@ def load_sim_hand_hdf5(
         shard_path = root_path / shard_relative_path
         if not shard_path.is_file():
             raise FileNotFoundError(f"Sim-Hand HDF5 shard not found: {shard_path}")
-        shard_specs.append((shard_path, expected_rows))
+        shard_specs.append(
+            SimHandShardSpec(
+                relative_path=shard_relative_path,
+                path=shard_path,
+                num_transitions=expected_rows,
+            )
+        )
 
-    shard_total = sum(expected_rows for _, expected_rows in shard_specs)
+    shard_total = sum(shard.num_transitions for shard in shard_specs)
     if declared_total != shard_total:
         raise ValueError(
             "Sim-Hand HDF5 manifest total_transitions mismatch: "
             f"declared {declared_total}, shard metadata {shard_total}"
         )
 
-    for shard_path, expected_rows in shard_specs:
-        with h5py.File(shard_path, "r") as f:
+    return SimHandManifest(
+        dataset_path=root_path,
+        manifest_path=manifest_path,
+        schema_version=schema_version,
+        dof=dof,
+        total_transitions=declared_total,
+        shards=tuple(shard_specs),
+    )
+
+
+def validate_sim_hand_shards(manifest: SimHandManifest) -> None:
+    for shard in manifest.shards:
+        with h5py.File(shard.path, "r") as f:
             missing = [key for key in HDF5_FIELDS if key not in f]
             if missing:
                 raise KeyError(
-                    f"Missing Sim-Hand HDF5 fields in {shard_path}: {missing}"
+                    f"Missing Sim-Hand HDF5 fields in {shard.path}: {missing}"
                 )
             for key in HDF5_FIELDS:
                 dataset = f[key]
@@ -173,11 +198,30 @@ def load_sim_hand_hdf5(
                         f"got {dataset.shape}"
                     )
                 dataset_rows = int(dataset.shape[0])
-                if dataset_rows != expected_rows:
+                if dataset_rows != shard.num_transitions:
                     raise ValueError(
-                        f"HDF5 field {key} in {shard_path} has "
-                        f"{dataset_rows} rows; expected {expected_rows}"
+                        f"HDF5 field {key} in {shard.path} has "
+                        f"{dataset_rows} rows; expected {shard.num_transitions}"
                     )
+
+
+def load_sim_hand_hdf5(
+    dataset_path: str | Path,
+    *,
+    min_episode_length: int,
+) -> ReplayBuffer:
+    """Load HDF5 rollout shards and make every episode contiguous in memory."""
+    if type(min_episode_length) is not int or min_episode_length < 1:
+        raise ValueError(
+            "min_episode_length must be an integer >= 1, "
+            f"got {min_episode_length!r}"
+        )
+    manifest = read_sim_hand_manifest(dataset_path)
+    validate_sim_hand_shards(manifest)
+    declared_total = manifest.total_transitions
+    shard_specs = [
+        (shard.path, shard.num_transitions) for shard in manifest.shards
+    ]
 
     if declared_total == 0:
         raise ValueError("Sim-Hand HDF5 dataset contains no transitions")
