@@ -12,7 +12,7 @@ exp_name: default
 
 n_obs_steps: 4
 n_pred_action_steps: 9
-n_action_steps: 4
+n_action_steps: 5
 horizon: ${eval:'${n_obs_steps}+${n_pred_action_steps}-1'}
 obs_as_global_cond: True
 oa_step_convention: True
