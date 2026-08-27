@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, List
 
 import h5py
 import numpy as np
@@ -41,47 +40,117 @@ HDF5_FIELD_DTYPES = {
 def load_sim_hand_hdf5(
     dataset_path: str | Path,
     *,
-    successful_only: bool = True,
+    min_episode_length: int,
 ) -> ReplayBuffer:
     """Load HDF5 rollout shards and make every episode contiguous in memory."""
+    if type(min_episode_length) is not int or min_episode_length < 1:
+        raise ValueError(
+            "min_episode_length must be an integer >= 1, "
+            f"got {min_episode_length!r}"
+        )
     root_path = Path(dataset_path).expanduser()
     manifest_path = root_path / "manifest.json"
     if not manifest_path.is_file():
         raise FileNotFoundError(f"Sim-Hand HDF5 manifest not found: {manifest_path}")
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    schema_version = manifest.get("schema_version")
+    if not isinstance(manifest, dict):
+        raise ValueError("Sim-Hand HDF5 manifest must be a JSON object")
+    required_manifest_fields = (
+        "schema_version",
+        "dof",
+        "total_transitions",
+        "shards",
+    )
+    missing_manifest_fields = [
+        key for key in required_manifest_fields if key not in manifest
+    ]
+    if missing_manifest_fields:
+        raise ValueError(
+            "Sim-Hand HDF5 manifest is missing required fields: "
+            f"{missing_manifest_fields}"
+        )
+    schema_version = manifest["schema_version"]
+    if type(schema_version) is not int:
+        raise ValueError(
+            "Sim-Hand HDF5 manifest schema_version must be an integer"
+        )
     if schema_version != SCHEMA_VERSION:
         raise ValueError(
             f"Sim-Hand HDF5 manifest requires schema_version={SCHEMA_VERSION}, "
             f"got {schema_version}"
         )
-    if int(manifest.get("dof", HAND_DIM)) != HAND_DIM:
+    dof = manifest["dof"]
+    if type(dof) is not int:
+        raise ValueError("Sim-Hand HDF5 manifest dof must be an integer")
+    if dof != HAND_DIM:
         raise ValueError(
             f"Sim-Hand HDF5 manifest must declare dof={HAND_DIM}, "
-            f"got {manifest.get('dof')}"
+            f"got {dof}"
         )
-    shards = manifest.get("shards")
+    declared_total = manifest["total_transitions"]
+    if type(declared_total) is not int:
+        raise ValueError(
+            "Sim-Hand HDF5 manifest total_transitions must be an integer"
+        )
+    if declared_total < 0:
+        raise ValueError(
+            "Sim-Hand HDF5 manifest total_transitions must be non-negative"
+        )
+    shards = manifest["shards"]
     if not isinstance(shards, list) or not shards:
         raise ValueError("Sim-Hand HDF5 manifest must contain at least one shard")
 
-    chunks: Dict[str, List[np.ndarray]] = {key: [] for key in HDF5_FIELDS}
-    for shard in shards:
-        shard_path = root_path / shard["path"]
+    shard_specs: list[tuple[Path, int]] = []
+    for shard_index, shard in enumerate(shards):
+        if not isinstance(shard, dict):
+            raise ValueError(
+                f"Sim-Hand HDF5 manifest shard {shard_index} must be a JSON object"
+            )
+        missing_shard_fields = [
+            key for key in ("path", "num_transitions") if key not in shard
+        ]
+        if missing_shard_fields:
+            raise ValueError(
+                "Sim-Hand HDF5 manifest shard "
+                f"{shard_index} is missing required fields: "
+                f"{missing_shard_fields}"
+            )
+        shard_relative_path = shard["path"]
+        if not isinstance(shard_relative_path, str) or not shard_relative_path:
+            raise ValueError(
+                "Sim-Hand HDF5 manifest shard "
+                f"{shard_index} path must be a non-empty string"
+            )
+        expected_rows = shard["num_transitions"]
+        if type(expected_rows) is not int:
+            raise ValueError(
+                "Sim-Hand HDF5 manifest shard "
+                f"{shard_index} num_transitions must be an integer"
+            )
+        if expected_rows < 0:
+            raise ValueError(
+                "Sim-Hand HDF5 manifest shard "
+                f"{shard_index} num_transitions must be non-negative"
+            )
+        shard_path = root_path / shard_relative_path
         if not shard_path.is_file():
             raise FileNotFoundError(f"Sim-Hand HDF5 shard not found: {shard_path}")
+        shard_specs.append((shard_path, expected_rows))
+
+    shard_total = sum(expected_rows for _, expected_rows in shard_specs)
+    if declared_total != shard_total:
+        raise ValueError(
+            "Sim-Hand HDF5 manifest total_transitions mismatch: "
+            f"declared {declared_total}, shard metadata {shard_total}"
+        )
+
+    for shard_path, expected_rows in shard_specs:
         with h5py.File(shard_path, "r") as f:
             missing = [key for key in HDF5_FIELDS if key not in f]
             if missing:
                 raise KeyError(
                     f"Missing Sim-Hand HDF5 fields in {shard_path}: {missing}"
-                )
-            shard_rows = int(f["index/episode_id"].shape[0])
-            expected_rows = int(shard.get("num_transitions", shard_rows))
-            if shard_rows != expected_rows:
-                raise ValueError(
-                    f"Shard row count mismatch for {shard_path}: "
-                    f"manifest={expected_rows}, actual={shard_rows}"
                 )
             for key in HDF5_FIELDS:
                 dataset = f[key]
@@ -103,33 +172,55 @@ def load_sim_hand_hdf5(
                         f"HDF5 field {key} must have shape (N,), "
                         f"got {dataset.shape}"
                     )
-                value = np.asarray(dataset[:])
-                if value.shape[0] != shard_rows:
+                dataset_rows = int(dataset.shape[0])
+                if dataset_rows != expected_rows:
                     raise ValueError(
-                        f"HDF5 field {key} has {value.shape[0]} rows; "
-                        f"expected {shard_rows}"
+                        f"HDF5 field {key} in {shard_path} has "
+                        f"{dataset_rows} rows; expected {expected_rows}"
                     )
-                chunks[key].append(value)
 
-    arrays = {
-        key: np.concatenate(value, axis=0)
-        for key, value in chunks.items()
-    }
-    actual_total = int(arrays["index/episode_id"].shape[0])
-    declared_total = int(manifest.get("total_transitions", actual_total))
-    if declared_total != actual_total:
-        raise ValueError(
-            "Sim-Hand HDF5 manifest total_transitions mismatch: "
-            f"declared {declared_total}, loaded {actual_total}"
-        )
-    if actual_total == 0:
+    if declared_total == 0:
         raise ValueError("Sim-Hand HDF5 dataset contains no transitions")
-    episode_id = arrays["index/episode_id"]
-    env_id = arrays["index/env_id"]
-    step = arrays["index/step"]
-    order = np.lexsort((step, env_id, episode_id))
-    episode_id = episode_id[order]
-    env_id = env_id[order]
+
+    arrays = {}
+    for key in HDF5_FIELDS:
+        shape = (
+            (declared_total, HAND_DIM)
+            if key in ("robot/qpos", "robot/target_after")
+            else (declared_total,)
+        )
+        arrays[key] = np.empty(shape, dtype=HDF5_FIELD_DTYPES[key])
+
+    offset = 0
+    for shard_path, shard_rows in shard_specs:
+        if shard_rows == 0:
+            continue
+        end = offset + shard_rows
+        with h5py.File(shard_path, "r") as f:
+            for key in HDF5_FIELDS:
+                destination = arrays[key]
+                destination_selection = (
+                    np.s_[offset:end, :]
+                    if destination.ndim == 2
+                    else np.s_[offset:end]
+                )
+                f[key].read_direct(
+                    destination,
+                    dest_sel=destination_selection,
+                )
+        offset = end
+
+    order = np.lexsort(
+        (
+            arrays["index/step"],
+            arrays["index/env_id"],
+            arrays["index/episode_id"],
+        )
+    )
+    qpos = arrays.pop("robot/qpos")
+    target_after = arrays.pop("robot/target_after")
+    episode_id = arrays["index/episode_id"][order]
+    env_id = arrays["index/env_id"][order]
 
     episode_starts = np.flatnonzero(
         np.r_[
@@ -138,12 +229,8 @@ def load_sim_hand_hdf5(
         ]
     )
     episode_ends = np.r_[episode_starts[1:], len(order)].astype(np.int64)
-    ordered_step = step[order]
-    done = arrays["index/done"][order]
-    success = arrays["index/success"][order]
-    failure = arrays["index/failure"][order]
-    timeout = arrays["index/timeout"][order]
-    reset_reason = arrays["index/reset_reason"][order]
+    ordered_step = arrays["index/step"][order]
+    del arrays
     for start, end in zip(episode_starts, episode_ends):
         episode_steps = ordered_step[start:end]
         expected_steps = np.arange(end - start, dtype=episode_steps.dtype)
@@ -154,78 +241,38 @@ def load_sim_hand_hdf5(
                 f"env_id={int(env_id[start])}) steps must be contiguous "
                 "and start at zero"
             )
-        if end - start > 1:
-            non_terminal = slice(start, end - 1)
-            has_early_marker = (
-                np.any(done[non_terminal])
-                or np.any(success[non_terminal])
-                or np.any(failure[non_terminal])
-                or np.any(timeout[non_terminal])
-                or np.any(reset_reason[non_terminal] != 0)
-            )
-            if has_early_marker:
-                raise ValueError(
-                    "HDF5 episode "
-                    f"(episode_id={int(episode_id[start])}, "
-                    f"env_id={int(env_id[start])}) has a non-terminal row "
-                    "with a done, outcome, or reset marker"
-                )
-        if not bool(done[end - 1]):
-            raise ValueError(
-                "HDF5 episode "
-                f"(episode_id={int(episode_id[start])}, "
-                f"env_id={int(env_id[start])}) has no terminal done=True "
-                "marker at its final step"
-            )
-        terminal_outcomes = int(success[end - 1]) + int(failure[end - 1]) + int(
-            timeout[end - 1]
-        )
-        terminal_reset_reason = int(reset_reason[end - 1])
-        if terminal_reset_reason == 4 and terminal_outcomes == 0:
-            continue
-        if terminal_outcomes != 1:
-            raise ValueError(
-                "HDF5 episode "
-                f"(episode_id={int(episode_id[start])}, "
-                f"env_id={int(env_id[start])}) must have exactly one terminal "
-                "outcome among success, failure, and timeout"
-            )
-        if success[end - 1]:
-            expected_reset_reason = 1
-        elif failure[end - 1]:
-            expected_reset_reason = 2
-        else:
-            expected_reset_reason = 3
-        if terminal_reset_reason != expected_reset_reason:
-            raise ValueError(
-                "HDF5 episode "
-                f"(episode_id={int(episode_id[start])}, "
-                f"env_id={int(env_id[start])}) terminal outcome requires "
-                f"reset_reason={expected_reset_reason}, got "
-                f"{terminal_reset_reason}"
-            )
 
-    keep_episodes = np.ones(len(episode_starts), dtype=bool)
-    if successful_only:
-        keep_episodes = success[episode_ends - 1].astype(bool)
+    keep_episodes = (episode_ends - episode_starts) >= min_episode_length
     if not np.any(keep_episodes):
-        raise ValueError("Sim-Hand HDF5 dataset contains no successful episodes")
+        raise ValueError(
+            "Sim-Hand HDF5 dataset contains no episodes with length >= "
+            f"min_episode_length={min_episode_length}"
+        )
 
     kept_episode_starts = episode_starts[keep_episodes]
     kept_episode_ends = episode_ends[keep_episodes]
-    kept_rows = np.concatenate(
-        [
-            np.arange(start, end)
-            for start, end in zip(kept_episode_starts, kept_episode_ends)
-        ]
-    )
     kept_lengths = kept_episode_ends - kept_episode_starts
+    kept_rows = np.empty(int(kept_lengths.sum()), dtype=np.int64)
+    kept_offset = 0
+    for start, end in zip(kept_episode_starts, kept_episode_ends):
+        episode_length = int(end - start)
+        kept_rows[kept_offset : kept_offset + episode_length] = np.arange(
+            start,
+            end,
+            dtype=np.int64,
+        )
+        kept_offset += episode_length
     replay_episode_ends = np.cumsum(kept_lengths, dtype=np.int64)
+    source_rows = order[kept_rows]
+    hand_joint = qpos[source_rows]
+    del qpos
+    action = target_after[source_rows]
+    del target_after
 
     replay_root = {
         "data": {
-            "hand_joint": arrays["robot/qpos"][order][kept_rows],
-            "action": arrays["robot/target_after"][order][kept_rows],
+            "hand_joint": hand_joint,
+            "action": action,
         },
         "meta": {
             "episode_ends": replay_episode_ends,
