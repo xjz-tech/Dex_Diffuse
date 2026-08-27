@@ -98,7 +98,7 @@ training:
   rollout_every: 1000000
   checkpoint_every: 50
   val_every: 1
-  sample_every: 50
+  sample_every: 5
   max_train_steps: null
   max_val_steps: null
   tqdm_interval_sec: 1.0
