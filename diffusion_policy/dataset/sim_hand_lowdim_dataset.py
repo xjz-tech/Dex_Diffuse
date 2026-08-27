@@ -16,6 +16,7 @@ from diffusion_policy.common.sampler import (
     get_val_mask,
 )
 from diffusion_policy.dataset.base_dataset import BaseLowdimDataset
+from diffusion_policy.dataset.sim_hand_hdf5 import load_sim_hand_hdf5
 from diffusion_policy.model.common.normalizer import LinearNormalizer
 
 
@@ -24,11 +25,11 @@ REQUIRED_KEYS = ("hand_joint", "action")
 
 
 class SimHandLowdimDataset(BaseLowdimDataset):
-    """Standardized hand-only simulation trajectories.
+    """Hand-only trajectories loaded from standardized Zarr or rollout HDF5.
 
-    The conversion layer is responsible for mapping simulator-specific fields
-    to absolute 22-D hand joint states and action targets before this Dataset
-    reads them.
+    HDF5 inputs map ``robot/qpos`` to observations and
+    ``robot/target_after`` to absolute 22-D action targets. HDF5 episodes are
+    validated and reconstructed from ``episode_id``, ``env_id``, and ``step``.
     """
 
     def __init__(
@@ -40,20 +41,26 @@ class SimHandLowdimDataset(BaseLowdimDataset):
         seed: int = 42,
         val_ratio: float = 0.1,
         max_train_episodes: int | None = None,
+        successful_only: bool = True,
     ):
         super().__init__()
-        zarr_path = os.path.join(
-            os.path.expanduser(dataset_path),
-            "replay_buffer.zarr",
-        )
-        if not os.path.isdir(zarr_path):
-            raise FileNotFoundError(
-                f"Sim-Hand replay buffer not found: {zarr_path}"
+        expanded_path = os.path.expanduser(dataset_path)
+        zarr_path = os.path.join(expanded_path, "replay_buffer.zarr")
+        manifest_path = os.path.join(expanded_path, "manifest.json")
+        if os.path.isdir(zarr_path):
+            root = zarr.open_group(zarr_path, mode="r")
+            self._validate_replay_group(root)
+            replay_buffer = ReplayBuffer.create_from_group(root)
+        elif os.path.isfile(manifest_path):
+            replay_buffer = load_sim_hand_hdf5(
+                expanded_path,
+                successful_only=successful_only,
             )
-
-        root = zarr.open_group(zarr_path, mode="r")
-        self._validate_replay_group(root)
-        replay_buffer = ReplayBuffer.create_from_group(root)
+        else:
+            raise FileNotFoundError(
+                "Sim-Hand dataset not found; expected either "
+                f"{zarr_path} or {manifest_path}"
+            )
 
         val_mask = get_val_mask(
             n_episodes=replay_buffer.n_episodes,

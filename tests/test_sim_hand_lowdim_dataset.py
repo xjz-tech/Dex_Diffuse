@@ -30,16 +30,19 @@ def _write_replay_buffer(
     data.create_dataset(
         "hand_joint",
         data=hand_joint,
+        shape=hand_joint.shape,
         chunks=(min(16, len(hand_joint)), HAND_DIM),
     )
     data.create_dataset(
         "action",
         data=action,
+        shape=action.shape,
         chunks=(min(16, len(action)), HAND_DIM),
     )
     meta.create_dataset(
         "episode_ends",
         data=episode_ends,
+        shape=episode_ends.shape,
         dtype=episode_ends_dtype,
     )
 
