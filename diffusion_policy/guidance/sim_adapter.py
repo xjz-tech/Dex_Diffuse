@@ -44,7 +44,17 @@ class SimPolicyAdapter:
     def oa_start(self) -> int:
         return self._oa_start
 
-    def guided_slice(self, execution_steps: int) -> slice:
+    @property
+    def guidance_slice(self) -> slice:
+        stop = self.oa_start + self.n_pred_action_steps
+        if stop > self.horizon:
+            raise ValueError(
+                f"guidance slice [{self.oa_start}:{stop}] exceeds "
+                f"horizon={self.horizon}"
+            )
+        return slice(self.oa_start, stop)
+
+    def execution_slice(self, execution_steps: int) -> slice:
         if execution_steps <= 0:
             raise ValueError(
                 f"execution_steps must be positive, got {execution_steps}"
@@ -57,7 +67,7 @@ class SimPolicyAdapter:
         stop = self.oa_start + execution_steps
         if stop > self.horizon:
             raise ValueError(
-                f"guided slice [{self.oa_start}:{stop}] exceeds "
+                f"execution slice [{self.oa_start}:{stop}] exceeds "
                 f"horizon={self.horizon}"
             )
         return slice(self.oa_start, stop)

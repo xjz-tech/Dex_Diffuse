@@ -33,40 +33,47 @@ def create_ddim_scheduler(training_scheduler: DDPMScheduler) -> DDIMScheduler:
 
 
 def mse_guidance_gradient(
-    x0_base: torch.Tensor,
+    base_sample: torch.Tensor,
     reference: torch.Tensor,
     guidance_slice: slice,
 ) -> torch.Tensor:
-    if x0_base.shape[0] != reference.shape[0]:
+    if base_sample.shape[0] != reference.shape[0]:
         raise ValueError(
-            f"batch mismatch: x0_base batch {x0_base.shape[0]} != "
+            f"batch mismatch: base sample batch {base_sample.shape[0]} != "
             f"reference batch {reference.shape[0]}"
         )
-    if x0_base.shape[2] != reference.shape[2]:
+    if base_sample.shape[2] != reference.shape[2]:
         raise ValueError(
-            f"action dim mismatch: x0_base dim {x0_base.shape[2]} != "
+            f"action dim mismatch: base sample dim {base_sample.shape[2]} != "
             f"reference dim {reference.shape[2]}"
         )
-    sliced = x0_base[:, guidance_slice]
+    sliced = base_sample[:, guidance_slice]
     if sliced.shape != reference.shape:
         raise ValueError(
-            f"slice length mismatch: x0_base[{guidance_slice}] shape "
+            f"slice length mismatch: base_sample[{guidance_slice}] shape "
             f"{tuple(sliced.shape)} != reference shape {tuple(reference.shape)}"
         )
-    if x0_base.dtype != reference.dtype:
+    if base_sample.dtype != reference.dtype:
         raise ValueError(
-            f"dtype mismatch: x0_base {x0_base.dtype} != reference {reference.dtype}"
+            f"dtype mismatch: base sample {base_sample.dtype} != "
+            f"reference {reference.dtype}"
         )
-    if x0_base.device != reference.device:
+    if base_sample.device != reference.device:
         raise ValueError(
-            f"device mismatch: x0_base {x0_base.device} != reference {reference.device}"
+            f"device mismatch: base sample {base_sample.device} != "
+            f"reference {reference.device}"
         )
-    if not (torch.isfinite(x0_base).all() and torch.isfinite(reference).all()):
+    if not (
+        torch.isfinite(base_sample).all()
+        and torch.isfinite(reference).all()
+    ):
         raise ValueError("non-finite inputs are not supported")
 
-    gradient = torch.zeros_like(x0_base)
+    gradient = torch.zeros_like(base_sample)
     scale = 2.0 / (reference.shape[1] * reference.shape[2])
-    gradient[:, guidance_slice] = scale * (x0_base[:, guidance_slice] - reference)
+    gradient[:, guidance_slice] = scale * (
+        base_sample[:, guidance_slice] - reference
+    )
     return gradient
 
 
@@ -74,8 +81,8 @@ def mse_guidance_gradient(
 class GuidedDDIMStepOutput:
     timestep: int
     prev_sample: torch.Tensor
+    base_prev_sample: torch.Tensor
     pred_original_sample: torch.Tensor
-    base_pred_original_sample: torch.Tensor
     raw_pred_original_sample: torch.Tensor
     alpha_bar_t: torch.Tensor
     alpha_bar_prev: torch.Tensor
@@ -153,22 +160,38 @@ def guided_ddim_step(
     raw_variance = scheduler._get_variance(t, prev_t).to(
         device=sample.device, dtype=sample.dtype
     )
-    gradient = mse_guidance_gradient(x0_base, reference, guidance_slice)
-    x0_guided = x0_base - guidance_scale * raw_variance * gradient
     direction = (1.0 - alpha_prev).sqrt()
-    prev_sample = alpha_prev.sqrt() * x0_guided + direction * model_output
+    base_prev_sample = (
+        alpha_prev.sqrt() * x0_base + direction * model_output
+    )
+    gradient = mse_guidance_gradient(
+        base_prev_sample,
+        reference,
+        guidance_slice,
+    )
+    prev_sample = (
+        base_prev_sample - guidance_scale * raw_variance * gradient
+    )
     return GuidedDDIMStepOutput(
         timestep=t,
         prev_sample=prev_sample,
-        pred_original_sample=x0_guided,
-        base_pred_original_sample=x0_base,
+        base_prev_sample=base_prev_sample,
+        pred_original_sample=x0_base,
         raw_pred_original_sample=x0_raw,
         alpha_bar_t=alpha_t,
         alpha_bar_prev=alpha_prev,
         raw_variance=raw_variance,
         direction_coefficient=direction,
-        guidance_loss_before=_slice_mse(x0_base, reference, guidance_slice),
-        guidance_loss_after=_slice_mse(x0_guided, reference, guidance_slice),
+        guidance_loss_before=_slice_mse(
+            base_prev_sample,
+            reference,
+            guidance_slice,
+        ),
+        guidance_loss_after=_slice_mse(
+            prev_sample,
+            reference,
+            guidance_slice,
+        ),
     )
 
 

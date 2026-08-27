@@ -47,6 +47,7 @@ class GuidedCoordinator:
         proposal: torch.Tensor,
         executor: SegmentExecutor,
         *,
+        hand_reference: torch.Tensor,
         generator: torch.Generator | None = None,
     ) -> GuidedRunResult:
         if (
@@ -71,7 +72,14 @@ class GuidedCoordinator:
         segment_count = total_steps // execution_steps
 
         n_obs_steps = int(self.guidance.adapter.n_obs_steps)
+        guidance_steps = int(self.guidance.adapter.n_pred_action_steps)
         hand_dim = _hand_dim(self.hand_slice)
+        required_reference_steps = total_steps - execution_steps + guidance_steps
+        _validate_hand_reference(
+            hand_reference,
+            required_steps=required_reference_steps,
+            hand_dim=hand_dim,
+        )
 
         guided_action = proposal.clone()
         history = executor.reset()
@@ -82,8 +90,11 @@ class GuidedCoordinator:
             start = segment_id * execution_steps
             stop = start + execution_steps
 
-            # Reference always comes from the original Real proposal.
-            real_hand_reference = proposal[:, start:stop, self.hand_slice].clone()
+            # Reference is a full Sim prediction horizon. Consecutive windows
+            # overlap when guidance_steps > execution_steps.
+            real_hand_reference = hand_reference[
+                :, start : start + guidance_steps, :
+            ].clone()
             history_before = history.clone()
             guided_hand = self.guidance.guide_segment(
                 history_before,
@@ -147,6 +158,30 @@ def _hand_dim(hand_slice: slice) -> int:
     if hand_slice.start is None or hand_slice.stop is None:
         raise ValueError(f"hand_slice must have explicit start/stop, got {hand_slice}")
     return int(hand_slice.stop) - int(hand_slice.start)
+
+
+def _validate_hand_reference(
+    hand_reference: torch.Tensor,
+    *,
+    required_steps: int,
+    hand_dim: int,
+) -> None:
+    if (
+        hand_reference.ndim != 3
+        or hand_reference.shape[0] != 1
+        or hand_reference.shape[-1] != hand_dim
+    ):
+        raise ValueError(
+            "hand_reference must have shape "
+            f"(1,R,{hand_dim}), got {tuple(hand_reference.shape)}"
+        )
+    if hand_reference.shape[1] < required_steps:
+        raise ValueError(
+            f"hand_reference has {hand_reference.shape[1]} step(s), but "
+            f"{required_steps} are required for full-trajectory guidance"
+        )
+    if not torch.isfinite(hand_reference).all():
+        raise ValueError("hand_reference is non-finite")
 
 
 def _validate_history(

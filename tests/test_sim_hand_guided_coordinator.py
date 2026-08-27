@@ -46,7 +46,12 @@ class RecordingGuidance:
             }
         )
         # Deterministic guided hand that differs from the Real reference.
-        return hand_reference + self.guided_offset + float(len(self.calls))
+        execution_steps = int(self.config.execution_steps)
+        return (
+            hand_reference[:, :execution_steps]
+            + self.guided_offset
+            + float(len(self.calls))
+        )
 
 
 @dataclass
@@ -77,12 +82,14 @@ class SeededRecordingGuidance:
                 "noise": noise.detach().clone(),
             }
         )
-        return hand_reference + noise
+        execution_steps = int(self.config.execution_steps)
+        return hand_reference[:, :execution_steps] + noise[:, :execution_steps]
 
 
 @dataclass
 class FakeAdapter:
     n_obs_steps: int = 4
+    n_pred_action_steps: int = 9
 
 
 class RecordingExecutor:
@@ -150,6 +157,16 @@ def make_history(n_obs_steps: int = 4) -> torch.Tensor:
     ).reshape(1, n_obs_steps, HAND_DIM)
 
 
+def make_hand_reference(
+    total_execution_steps: int,
+    *,
+    execution_steps: int = 5,
+    guidance_steps: int = 9,
+) -> torch.Tensor:
+    required_steps = total_execution_steps - execution_steps + guidance_steps
+    return make_proposal(required_steps)[..., HAND_SLICE]
+
+
 def make_guidance(
     *,
     execution_steps: int = 5,
@@ -166,7 +183,9 @@ def make_guidance(
 def assert_segment_boundaries(
     result: GuidedRunResult,
     proposal: torch.Tensor,
+    hand_reference: torch.Tensor,
     execution_steps: int,
+    guidance_steps: int = 9,
 ) -> None:
     total_steps = proposal.shape[1]
     expected_count = total_steps // execution_steps
@@ -179,7 +198,7 @@ def assert_segment_boundaries(
         assert record.stop == stop
         torch.testing.assert_close(
             record.real_hand_reference,
-            proposal[:, start:stop, HAND_SLICE],
+            hand_reference[:, start : start + guidance_steps],
         )
         torch.testing.assert_close(
             record.executed_action[:, :, :9],
@@ -199,11 +218,21 @@ def assert_segment_boundaries(
 def test_coordinator_segments_fifty_step_proposal_into_ten_boundaries():
     guidance = make_guidance(execution_steps=5, n_obs_steps=4)
     proposal = make_proposal(50)
+    hand_reference = make_hand_reference(50)
     history = make_history(4)
     coordinator = GuidedCoordinator(guidance)
-    result = coordinator.run(proposal, FakeSegmentExecutor(history))
+    result = coordinator.run(
+        proposal,
+        FakeSegmentExecutor(history),
+        hand_reference=hand_reference,
+    )
 
-    assert_segment_boundaries(result, proposal, execution_steps=5)
+    assert_segment_boundaries(
+        result,
+        proposal,
+        hand_reference,
+        execution_steps=5,
+    )
     assert len(result.records) == 10
     assert [(r.start, r.stop) for r in result.records] == [
         (i * 5, i * 5 + 5) for i in range(10)
@@ -212,15 +241,53 @@ def test_coordinator_segments_fifty_step_proposal_into_ten_boundaries():
     assert result.guided_action.shape == proposal.shape
 
 
+def test_coordinator_guides_nine_step_overlapping_windows_and_executes_five():
+    guidance = make_guidance(execution_steps=5, n_obs_steps=4)
+    proposal = make_proposal(50)
+    hand_reference = make_hand_reference(50)
+
+    result = GuidedCoordinator(guidance).run(
+        proposal,
+        FakeSegmentExecutor(make_history(4)),
+        hand_reference=hand_reference,
+    )
+
+    assert len(result.records) == 10
+    assert hand_reference.shape == (1, 54, HAND_DIM)
+    for segment_id, call in enumerate(guidance.calls):
+        start = segment_id * 5
+        torch.testing.assert_close(
+            call["reference"],
+            hand_reference[:, start : start + 9],
+        )
+        assert call["reference"].shape == (1, 9, HAND_DIM)
+        assert result.records[segment_id].guided_hand.shape == (1, 5, HAND_DIM)
+        assert result.records[segment_id].executed_action.shape == (
+            1,
+            5,
+            REAL_ACTION_DIM,
+        )
+
+
 def test_coordinator_segments_fifteen_step_proposal_without_hardcoded_counts():
     """Proves production code does not hardcode 50/10; uses T // E dynamically."""
     guidance = make_guidance(execution_steps=5, n_obs_steps=4)
     proposal = make_proposal(15)
+    hand_reference = make_hand_reference(15)
     history = make_history(4)
     coordinator = GuidedCoordinator(guidance)
-    result = coordinator.run(proposal, FakeSegmentExecutor(history))
+    result = coordinator.run(
+        proposal,
+        FakeSegmentExecutor(history),
+        hand_reference=hand_reference,
+    )
 
-    assert_segment_boundaries(result, proposal, execution_steps=5)
+    assert_segment_boundaries(
+        result,
+        proposal,
+        hand_reference,
+        execution_steps=5,
+    )
     assert len(result.records) == 3
     assert [(r.start, r.stop) for r in result.records] == [
         (0, 5),
@@ -235,21 +302,34 @@ def test_coordinator_rejects_wrong_rank_batch_action_dim_and_nonfinite():
     history = make_history()
 
     with pytest.raises(ValueError, match=r"\(1,T,31\)"):
-        coordinator.run(make_proposal(10, batch=1).squeeze(0), FakeSegmentExecutor(history))
+        coordinator.run(
+            make_proposal(10, batch=1).squeeze(0),
+            FakeSegmentExecutor(history),
+            hand_reference=make_hand_reference(10),
+        )
 
     with pytest.raises(ValueError, match=r"\(1,T,31\)"):
-        coordinator.run(make_proposal(10, batch=2), FakeSegmentExecutor(history))
+        coordinator.run(
+            make_proposal(10, batch=2),
+            FakeSegmentExecutor(history),
+            hand_reference=make_hand_reference(10),
+        )
 
     with pytest.raises(ValueError, match=r"\(1,T,31\)"):
         coordinator.run(
             make_proposal(10, action_dim=30),
             FakeSegmentExecutor(history),
+            hand_reference=make_hand_reference(10),
         )
 
     bad = make_proposal(10)
     bad[0, 0, 0] = float("nan")
     with pytest.raises(ValueError, match="non-finite"):
-        coordinator.run(bad, FakeSegmentExecutor(history))
+        coordinator.run(
+            bad,
+            FakeSegmentExecutor(history),
+            hand_reference=make_hand_reference(10),
+        )
 
 
 def test_coordinator_rejects_proposal_length_not_divisible_by_execution_steps():
@@ -257,7 +337,11 @@ def test_coordinator_rejects_proposal_length_not_divisible_by_execution_steps():
     coordinator = GuidedCoordinator(guidance)
     history = make_history()
     with pytest.raises(ValueError, match="not divisible"):
-        coordinator.run(make_proposal(12), FakeSegmentExecutor(history))
+        coordinator.run(
+            make_proposal(12),
+            FakeSegmentExecutor(history),
+            hand_reference=make_hand_reference(12),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -291,7 +375,11 @@ def test_coordinator_updates_history_with_post_states_window():
     executor = RecordingExecutor(history)
     coordinator = GuidedCoordinator(guidance)
 
-    result = coordinator.run(proposal, executor)
+    result = coordinator.run(
+        proposal,
+        executor,
+        hand_reference=make_hand_reference(10),
+    )
 
     assert len(result.records) == 2
     assert executor.reset_calls == 1
@@ -321,7 +409,12 @@ def test_coordinator_passes_exact_command_length_and_fresh_guidance_per_segment(
     guidance = make_guidance(execution_steps=execution_steps)
     proposal = make_proposal(15)
     executor = RecordingExecutor(make_history())
-    result = GuidedCoordinator(guidance).run(proposal, executor)
+    hand_reference = make_hand_reference(15)
+    result = GuidedCoordinator(guidance).run(
+        proposal,
+        executor,
+        hand_reference=hand_reference,
+    )
 
     assert len(guidance.calls) == 3
     assert len(executor.execute_calls) == 3
@@ -333,13 +426,12 @@ def test_coordinator_passes_exact_command_length_and_fresh_guidance_per_segment(
             result.records[i].executed_action,
         )
 
-    # Fresh guidance call each segment with that segment's Real hand reference.
+    # Fresh guidance call each segment with an overlapping full-horizon reference.
     for i, call in enumerate(guidance.calls):
         start = i * execution_steps
-        stop = start + execution_steps
         torch.testing.assert_close(
             call["reference"],
-            proposal[:, start:stop, HAND_SLICE],
+            hand_reference[:, start : start + 9],
         )
 
 
@@ -349,6 +441,7 @@ def test_coordinator_replaces_only_hand_slice_in_guided_action():
     result = GuidedCoordinator(guidance).run(
         proposal,
         FakeSegmentExecutor(make_history()),
+        hand_reference=make_hand_reference(10),
     )
 
     torch.testing.assert_close(
@@ -360,10 +453,10 @@ def test_coordinator_replaces_only_hand_slice_in_guided_action():
             result.guided_action[:, record.start:record.stop, HAND_SLICE],
             record.guided_hand,
         )
-        # Guided hand must differ from original Real hand reference.
+        # Guided hand must differ from the executable prefix of the reference.
         assert not torch.allclose(
             record.guided_hand,
-            record.real_hand_reference,
+            record.real_hand_reference[:, :5],
         )
 
 
@@ -380,6 +473,7 @@ def test_coordinator_reproduces_with_fixed_seed_generator():
         return GuidedCoordinator(guidance).run(
             proposal,
             FakeSegmentExecutor(history.clone()),
+            hand_reference=make_hand_reference(10),
             generator=generator,
         )
 
@@ -399,7 +493,11 @@ def test_coordinator_rejects_malformed_executor_post_states():
         malformed_shape=(1, 3, 22),
     )
     with pytest.raises(ValueError, match="post.?state|shape"):
-        GuidedCoordinator(guidance).run(make_proposal(10), executor)
+        GuidedCoordinator(guidance).run(
+            make_proposal(10),
+            executor,
+            hand_reference=make_hand_reference(10),
+        )
     # Failed on first segment; second segment never executed.
     assert len(executor.execute_calls) == 1
 
@@ -410,6 +508,7 @@ def test_coordinator_rejects_batch_greater_than_one():
         GuidedCoordinator(guidance).run(
             make_proposal(10, batch=2),
             FakeSegmentExecutor(make_history()),
+            hand_reference=make_hand_reference(10),
         )
 
 
@@ -419,7 +518,11 @@ def test_execution_error_stops_immediately_without_later_segments():
     coordinator = GuidedCoordinator(guidance)
 
     with pytest.raises(ExecutionError) as exc_info:
-        coordinator.run(make_proposal(15), executor)
+        coordinator.run(
+            make_proposal(15),
+            executor,
+            hand_reference=make_hand_reference(15),
+        )
 
     err = exc_info.value
     assert err.segment_id == 1
@@ -437,7 +540,11 @@ def test_execution_error_does_not_fabricate_history_after_failure():
     executor = RecordingExecutor(make_history(), fail_at=0)
 
     with pytest.raises(ExecutionError):
-        GuidedCoordinator(guidance).run(make_proposal(10), executor)
+        GuidedCoordinator(guidance).run(
+            make_proposal(10),
+            executor,
+            hand_reference=make_hand_reference(10),
+        )
 
     # Only the failing segment was attempted; no second guidance/history update.
     assert len(guidance.calls) == 1

@@ -19,9 +19,11 @@
   - 如何核验: `git status`；确认无关改动未误入本分支；需要隔离时再建 worktree 迁出。
 
 - [ ] **梯度只用闭式公式（不做 Spec 13.4 的 autograd reference）**
-  - Ruling: `mse_guidance_gradient` 用 `2/(E*A)*(x0-ref)`，不与 autograd 对照。
+  - Ruling: `mse_guidance_gradient` 用
+    `2/(E*A)*(base_prev_mean-ref)`，不与 autograd 对照。
   - 风险: 漏掉与 autograd 不一致的浮点边角。
-  - 如何核验: 抽一组 `(x0_base, reference, slice)`，`x0_base.requires_grad_()` 后对 MSE 求 `autograd.grad`，与闭式结果比对。
+  - 如何核验: 抽一组 `(base_prev_mean, reference, slice)`，令
+    `base_prev_mean.requires_grad_()` 后对 MSE 求 `autograd.grad`，与闭式结果比对。
 
 - [ ] **FakeExecutor 是 command-is-state**
   - Ruling: `post_states = segment[..., 9:31]`，命令即反馈状态。

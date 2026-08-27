@@ -9,8 +9,8 @@ segments.
 
 **Architecture:** Restore each checkpoint with the repository's existing
 Workspace payload sequence. Thin adapters expose policy-derived shape and
-normalization contracts; a focused DDIM module owns dynamic scheduling and x0
-guidance; a coordinator composes hand guidance with the untouched Real
+normalization contracts; a focused DDIM module owns dynamic scheduling and
+reverse-step-mean guidance; a coordinator composes hand guidance with the untouched Real
 proposal. No existing training, policy, temporal, DINO, or hardware file is
 modified.
 
@@ -45,8 +45,8 @@ normalizer, Real policy, and Sim-Hand policy.
   timestep array. `scheduler.set_timesteps(num_inference_steps)` is the
   authority.
 - DDIM uses epsilon prediction, `eta=0`, no dynamic thresholding, official
-  clipping before guidance, no second clipping, and original epsilon in the
-  direction term.
+  x0 clipping before the reverse update, original epsilon in the direction
+  term, and guidance on the resulting reverse-step mean without clipping it.
 - `guidance_scale >= 0`; scale zero follows the same custom arithmetic and is
   compared with official Diffusers step-by-step and through a full chain.
 - Real and Sim normalizers remain independent. Guidance loss is computed only
@@ -399,7 +399,7 @@ def create_ddim_scheduler(
     training_scheduler: DDPMScheduler,
 ) -> DDIMScheduler
 def mse_guidance_gradient(
-    x0_base: torch.Tensor,
+    base_sample: torch.Tensor,
     reference: torch.Tensor,
     guidance_slice: slice,
 ) -> torch.Tensor
@@ -445,7 +445,7 @@ Use shapes `(2,12,22)` with slice `3:8` and `(2,8,22)` with slice
 ~~~python
 expected[:, guidance_slice] = (
     2.0 / (reference.shape[1] * reference.shape[2])
-) * (x0_base[:, guidance_slice] - reference)
+) * (base_sample[:, guidance_slice] - reference)
 ~~~
 
 Reject mismatched batch, action dim, slice length, dtype/device, and non-finite
@@ -502,8 +502,8 @@ git commit -m "feat: add dynamic DDIM guidance primitives"
 class GuidedDDIMStepOutput:
     timestep: int
     prev_sample: torch.Tensor
+    base_prev_sample: torch.Tensor
     pred_original_sample: torch.Tensor
-    base_pred_original_sample: torch.Tensor
     raw_pred_original_sample: torch.Tensor
     alpha_bar_t: torch.Tensor
     alpha_bar_prev: torch.Tensor
@@ -553,12 +553,13 @@ official-step bypass.
 Test:
 
 ~~~text
-test_guidance_changes_only_the_dynamic_slice_before_reverse_combination
+test_guidance_updates_reverse_mean_without_modifying_predicted_x0
 test_raw_variance_matches_independent_formula_for_each_dynamic_timestep
-test_guided_x0_uses_variance_not_standard_deviation
-test_final_timestep_zero_variance_makes_direct_guidance_a_noop
-test_guidance_does_not_clip_x0_a_second_time
+test_guided_reverse_mean_uses_variance_not_standard_deviation
+test_final_timestep_zero_variance_makes_reverse_mean_guidance_a_noop
+test_guided_reverse_mean_is_not_clipped
 test_zero_reference_distance_has_zero_update
+test_guidance_losses_are_measured_on_reverse_mean
 test_negative_scale_and_nonzero_eta_are_rejected
 test_step_rejects_shape_dtype_device_and_finite_violations
 ~~~
@@ -597,15 +598,23 @@ x0_base = (
     else x0_raw
 )
 raw_variance = scheduler._get_variance(t, prev_t)
-gradient = mse_guidance_gradient(x0_base, reference, guidance_slice)
-x0_guided = x0_base - guidance_scale * raw_variance * gradient
 direction = (1.0 - alpha_prev).sqrt()
-prev_sample = alpha_prev.sqrt() * x0_guided + direction * model_output
+base_prev_sample = (
+    alpha_prev.sqrt() * x0_base + direction * model_output
+)
+gradient = mse_guidance_gradient(
+    base_prev_sample, reference, guidance_slice
+)
+prev_sample = (
+    base_prev_sample - guidance_scale * raw_variance * gradient
+)
 ~~~
 
 Validate `scheduler.num_inference_steps` is set, `eta==0`, scale is
-non-negative, and inputs are compatible. Do not rederive epsilon and do not
-clip `x0_guided`.
+non-negative, and inputs are compatible. Do not rederive epsilon, do not
+modify `x0_base`, and do not clip the guided reverse-step mean. The raw
+variance is retained as the guidance scale even though `eta=0` removes the
+stochastic noise term.
 
 - [ ] **Step 5: Verify GREEN and commit**
 

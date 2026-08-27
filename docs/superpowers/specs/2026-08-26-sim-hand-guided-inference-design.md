@@ -8,7 +8,8 @@
    `predict_action()`；
 2. 从 Real proposal 提取最后 22 维 absolute hand target；
 3. 原 Sim-Hand checkpoint 提供模型、scheduler 与 normalizer；
-4. custom DDIM 在完整 Sim trajectory 的 `x0` 上执行 guidance；
+4. custom DDIM 先得到完整 Sim trajectory 的无噪声 reverse-step mean，
+   再在该 mean 上执行 guidance；
 5. 每次输出 5 步 hand action，按闭环方式处理完整 Real proposal；
 6. fake executor 完成 dry-run 与回归测试。
 
@@ -227,19 +228,28 @@ x0_base = clip(x0_raw, -1, 1)  # only when clip_sample=True
 ~~~
 
 direction term 使用原始 `epsilon_pred`，不从 clipped/guided x0 重算。
+`eta=0` 时，无 guidance 的 reverse-step mean 为：
+
+~~~text
+base_prev_mean = sqrt(alpha_bar_prev) * x0_base
+                 + sqrt(1-alpha_bar_prev) * epsilon_pred
+~~~
+
+`pred_original_sample` 始终表示 `x0_base`，guidance 不修改该 tensor。
 
 ### 7.3 Analytic guidance
 
 每个 batch sample 独立计算：
 
 ~~~text
-L_b = mean((x0_base[b,guided_slice,:] - reference[b,:,:]) ** 2)
-grad = 2/(E*A) * (x0_base[guided_slice] - reference)
-x0_guided = x0_base - guidance_scale * raw_ddim_variance * grad
+L_b = mean((base_prev_mean[b,guided_slice,:] - reference[b,:,:]) ** 2)
+grad = 2/(E*A) * (base_prev_mean[guided_slice] - reference)
+guided_prev_mean = base_prev_mean
+                   - guidance_scale * raw_ddim_variance * grad
 ~~~
 
-guided slice 外 gradient 为零。Guidance 后不做第二次 clipping。不对 U-Net
-反向传播；模型预测与 analytic update 都在 `torch.no_grad()` 下执行。
+guided slice 外 gradient 为零。Guidance 后不 clip `guided_prev_mean`。不对
+U-Net 反向传播；模型预测与 analytic update 都在 `torch.no_grad()` 下执行。
 
 raw variance：
 
@@ -248,15 +258,18 @@ v_t = (1-alpha_bar_prev)/(1-alpha_bar_t)
       * (1-alpha_bar_t/alpha_bar_prev)
 ~~~
 
+这里使用的是 DDIM schedule 的 raw variance，不是乘过 `eta**2` 的实际随机
+噪声方差；否则 `eta=0` 会令 guidance 恒为零。
+
 `eta=0` reverse update：
 
 ~~~text
-x_prev = sqrt(alpha_bar_prev) * x0_guided
-         + sqrt(1-alpha_bar_prev) * epsilon_pred
+x_prev = guided_prev_mean
 ~~~
 
-每个 step output 记录实际执行的整数 timestep。full-chain diagnostics 从 step
-outputs 提取实际序列，不用固定常量替代。
+每个 step output 同时记录未引导的 `base_prev_sample`、引导后的 `prev_sample`
+以及未被 guidance 修改的 `pred_original_sample`。full-chain diagnostics 从
+step outputs 提取实际序列，不用固定常量替代。
 
 ## 8. Zero-guidance 回归
 
@@ -426,7 +439,8 @@ dry-run：
 - scale=0 每步/full-chain 等价；
 - analytic gradient 与测试 autograd reference 一致；
 - gradient 只在 dynamic guided slice；
-- no second clipping；
+- `pred_original_sample` 不被 guidance 修改；
+- guidance 作用于 reverse-step mean，且 guided mean 不做 clipping；
 - U-Net 无反向图；
 - 每段 fresh noise。
 

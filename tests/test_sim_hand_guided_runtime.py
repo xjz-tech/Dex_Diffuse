@@ -68,21 +68,24 @@ class TrackingRealPolicy(ModuleAttrMixin):
     def predict_action(self, observation: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         self.predict_calls += 1
         self.last_observation = observation
-        # Deterministic finite proposal with distinct arm/hand content.
-        action = torch.zeros(
-            (1, self._action_t, self._action_dim),
+        # The public proposal is an aligned prefix of a longer full prediction.
+        action_start = self.n_obs_steps - 1
+        prediction_t = action_start + self._action_t + 4
+        action_pred = torch.zeros(
+            (1, prediction_t, self._action_dim),
             dtype=self.dtype,
             device=self.device,
         )
-        action[..., :9] = 1.0
-        action[..., 9:] = torch.linspace(
+        action_pred[..., :9] = 1.0
+        action_pred[..., 9:] = torch.linspace(
             0.1,
             0.9,
-            self._action_t * HAND_DIM,
+            prediction_t * HAND_DIM,
             dtype=self.dtype,
             device=self.device,
-        ).reshape(self._action_t, HAND_DIM)
-        return {"action": action}
+        ).reshape(prediction_t, HAND_DIM)
+        action = action_pred[:, action_start : action_start + self._action_t]
+        return {"action": action, "action_pred": action_pred}
 
 
 class TrackingSimModel(nn.Module):
@@ -373,7 +376,10 @@ def test_run_check_current_target_shapes_and_timesteps():
     assert report.sim_horizon == 12
     assert report.sim_obs_steps == 4
     assert report.sim_pred_action_steps == 9
-    assert report.guided_slice == (3, 8)
+    assert report.guidance_slice == (3, 12)
+    assert report.execution_slice == (3, 8)
+    assert report.real_hand_reference.shape == (1, 54, 22)
+    assert loaded.guidance.guide_calls[0]["reference"].shape == (1, 9, 22)
     assert report.timesteps == EXPECTED_CURRENT_TIMESTEPS
     assert report.max_x0_error >= 0.0
     assert report.max_prev_error >= 0.0
@@ -457,7 +463,8 @@ def test_run_check_alternate_fake_changes_dynamic_fields():
     assert report.sim_horizon == 8
     assert report.sim_obs_steps == 2
     assert report.sim_pred_action_steps == 7
-    assert report.guided_slice == (1, 6)
+    assert report.guidance_slice == (1, 8)
+    assert report.execution_slice == (1, 6)
     assert report.timesteps != EXPECTED_CURRENT_TIMESTEPS
     assert len(report.timesteps) == 5
 
@@ -494,6 +501,12 @@ def test_run_dry_run_reuses_proposal_and_completes_ten_segments():
     # guide_segment: 1 from check + 10 from coordinator
     assert len(loaded.guidance.guide_calls) == 11
     assert len(loaded.guidance.verify_calls) == 1
+    coordinator_calls = loaded.guidance.guide_calls[1:]
+    assert all(call["reference"].shape == (1, 9, 22) for call in coordinator_calls)
+    torch.testing.assert_close(
+        coordinator_calls[-1]["reference"],
+        report.check.real_hand_reference[:, 45:54],
+    )
 
 
 def test_run_dry_run_alternate_segment_count_is_dynamic():

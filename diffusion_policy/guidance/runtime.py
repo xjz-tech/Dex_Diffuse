@@ -36,13 +36,15 @@ class LoadedGuidedPolicies:
 @dataclass(frozen=True)
 class CheckReport:
     real_action_proposal: torch.Tensor
+    real_hand_reference: torch.Tensor
     real_action_shape: tuple[int, ...]
     guided_hand_shape: tuple[int, ...]
     segment_count: int
     sim_horizon: int
     sim_obs_steps: int
     sim_pred_action_steps: int
-    guided_slice: tuple[int, int]
+    guidance_slice: tuple[int, int]
+    execution_slice: tuple[int, int]
     timesteps: tuple[int, ...]
     max_x0_error: float
     max_prev_error: float
@@ -112,7 +114,8 @@ def _seeded_trajectory_noise(
 
 
 def run_check(loaded: LoadedGuidedPolicies, *, seed: int) -> CheckReport:
-    proposal = loaded.real_adapter.predict_proposal()
+    real_prediction = loaded.real_adapter.predict_for_guidance()
+    proposal = real_prediction.proposal
     execution_steps = int(loaded.guidance.config.execution_steps)
     total_steps = int(proposal.shape[1])
     if total_steps % execution_steps != 0:
@@ -124,10 +127,20 @@ def run_check(loaded: LoadedGuidedPolicies, *, seed: int) -> CheckReport:
 
     adapter = loaded.sim_adapter
     device, dtype = _policy_device_dtype(adapter)
-    history = _seeded_history(adapter, seed=seed)
-    reference = proposal[:, :execution_steps, HAND_SLICE].to(
-        device=device, dtype=dtype
+    hand_reference = real_prediction.hand_reference.to(
+        device=device,
+        dtype=dtype,
     )
+    required_reference_steps = (
+        total_steps - execution_steps + int(adapter.n_pred_action_steps)
+    )
+    if hand_reference.shape[1] < required_reference_steps:
+        raise ValueError(
+            f"Real hand reference has {hand_reference.shape[1]} step(s), but "
+            f"{required_reference_steps} are required for full-trajectory guidance"
+        )
+    history = _seeded_history(adapter, seed=seed)
+    reference = hand_reference[:, : int(adapter.n_pred_action_steps)]
 
     # CPU generator: default_noise_factory draws on generator.device then .to().
     guide_generator = torch.Generator(device="cpu").manual_seed(seed)
@@ -145,16 +158,25 @@ def run_check(loaded: LoadedGuidedPolicies, *, seed: int) -> CheckReport:
         initial_noise=initial_noise,
     )
 
-    guided_slice = adapter.guided_slice(execution_steps)
+    guidance_slice = adapter.guidance_slice
+    execution_slice = adapter.execution_slice(execution_steps)
     return CheckReport(
         real_action_proposal=proposal,
+        real_hand_reference=hand_reference,
         real_action_shape=tuple(int(v) for v in proposal.shape),
         guided_hand_shape=tuple(int(v) for v in guided_hand.shape),
         segment_count=segment_count,
         sim_horizon=int(adapter.horizon),
         sim_obs_steps=int(adapter.n_obs_steps),
         sim_pred_action_steps=int(adapter.n_pred_action_steps),
-        guided_slice=(int(guided_slice.start), int(guided_slice.stop)),
+        guidance_slice=(
+            int(guidance_slice.start),
+            int(guidance_slice.stop),
+        ),
+        execution_slice=(
+            int(execution_slice.start),
+            int(execution_slice.stop),
+        ),
         timesteps=tuple(int(t) for t in oracle.timesteps),
         max_x0_error=float(oracle.max_x0_error),
         max_prev_error=float(oracle.max_prev_error),
@@ -171,6 +193,7 @@ def run_dry_run(loaded: LoadedGuidedPolicies, *, seed: int) -> DryRunReport:
     guided = coordinator.run(
         check.real_action_proposal,
         executor,
+        hand_reference=check.real_hand_reference,
         generator=generator,
     )
     return DryRunReport(check=check, guided=guided)

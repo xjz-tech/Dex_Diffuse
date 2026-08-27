@@ -200,8 +200,12 @@ class RecordingSimAdapter:
     def oa_start(self) -> int:
         return self.inner.oa_start
 
-    def guided_slice(self, execution_steps: int) -> slice:
-        return self.inner.guided_slice(execution_steps)
+    @property
+    def guidance_slice(self) -> slice:
+        return self.inner.guidance_slice
+
+    def execution_slice(self, execution_steps: int) -> slice:
+        return self.inner.execution_slice(execution_steps)
 
     def normalize_history(self, value: torch.Tensor) -> torch.Tensor:
         self.normalize_history_calls += 1
@@ -238,7 +242,8 @@ def test_guidance_derives_slice_and_shape_from_current_adapter():
     from diffusion_policy.guidance.sim_hand_guidance import SimHandGuidance
 
     guidance = SimHandGuidance(current_adapter(), _default_config())
-    assert guidance.guidance_slice == slice(3, 8)
+    assert guidance.guidance_slice == slice(3, 12)
+    assert guidance.execution_slice == slice(3, 8)
     assert guidance.trajectory_shape == (1, 12, 22)
 
 
@@ -247,7 +252,8 @@ def test_guidance_derives_slice_and_shape_from_alternate_adapter_without_config_
 
     config = _default_config()
     guidance = SimHandGuidance(alternate_adapter(), config)
-    assert guidance.guidance_slice == slice(1, 6)
+    assert guidance.guidance_slice == slice(1, 8)
+    assert guidance.execution_slice == slice(1, 6)
     assert guidance.trajectory_shape == (1, 8, 22)
     assert config.execution_steps == 5
     assert config.num_inference_steps == 12
@@ -337,7 +343,7 @@ def test_guide_segment_normalize_sample_unnormalize_pipeline():
     ):
         guidance = SimHandGuidance(adapter, config, noise_factory=recording_noise_factory)
         history = torch.ones(1, 4, 22)
-        reference = torch.full((1, 5, 22), 0.25)
+        reference = torch.full((1, 9, 22), 0.25)
         temporal_before = adapter.policy.temporal
         horizon_before = adapter.policy.horizon
         n_obs_before = adapter.policy.n_obs_steps
@@ -350,7 +356,7 @@ def test_guide_segment_normalize_sample_unnormalize_pipeline():
     assert adapter.normalize_reference_calls == 1
     assert len(noise_draws) == 1
     assert noise_draws[0].shape == (1, 12, 22)
-    assert sampler_kwargs["guidance_slice"] == slice(3, 8)
+    assert sampler_kwargs["guidance_slice"] == slice(3, 12)
     assert sampler_kwargs["num_inference_steps"] == 12
     assert sampler_kwargs["guidance_scale"] == 1.5
     assert sampler_kwargs["eta"] == 0.0
@@ -404,7 +410,7 @@ def test_guide_segment_requests_fresh_noise_per_call_and_reproduces_with_seed():
     ):
         guidance = SimHandGuidance(adapter, config, noise_factory=recording_factory)
         history = torch.zeros(1, 4, 22)
-        reference = torch.zeros(1, 5, 22)
+        reference = torch.zeros(1, 9, 22)
 
         gen = torch.Generator().manual_seed(7)
         guidance.guide_segment(history, reference, generator=gen)
@@ -430,7 +436,7 @@ def test_verify_zero_guidance_uses_normalized_inputs_and_configured_steps():
     guidance = SimHandGuidance(adapter, config)
 
     history = torch.ones(1, 4, 22) * 0.5
-    reference = torch.ones(1, 5, 22) * 0.25
+    reference = torch.ones(1, 9, 22) * 0.25
     initial_noise = torch.randn(1, 12, 22)
 
     captured: dict[str, Any] = {}
@@ -458,7 +464,7 @@ def test_verify_zero_guidance_uses_normalized_inputs_and_configured_steps():
     assert adapter.global_condition_calls == 1
     assert adapter.normalize_reference_calls == 1
     assert captured["num_inference_steps"] == 12
-    assert captured["guidance_slice"] == slice(3, 8)
+    assert captured["guidance_slice"] == slice(3, 12)
     assert captured["model"] == adapter.predict_epsilon
     assert captured["training_scheduler"] is adapter.policy.noise_scheduler
     torch.testing.assert_close(captured["initial_noise"], initial_noise)
@@ -510,7 +516,7 @@ def test_guide_segment_cuda_smoke_with_cpu_generator():
         ),
     )
     history = torch.zeros(1, 4, 22, device="cuda")
-    reference = torch.zeros(1, 5, 22, device="cuda")
+    reference = torch.zeros(1, 9, 22, device="cuda")
     generator = torch.Generator(device="cpu").manual_seed(0)
 
     result = guidance.guide_segment(history, reference, generator=generator)

@@ -41,6 +41,7 @@ class TrackingRealPolicy(ModuleAttrMixin):
         ndim: int = 3,
         finite: bool = True,
         include_action_key: bool = True,
+        prediction_t: int | None = None,
     ):
         super().__init__()
         self.n_obs_steps = n_obs_steps
@@ -50,6 +51,7 @@ class TrackingRealPolicy(ModuleAttrMixin):
         self._ndim = ndim
         self._finite = finite
         self._include_action_key = include_action_key
+        self._prediction_t = prediction_t
         self.predict_calls = 0
         self.last_observation: dict[str, torch.Tensor] | None = None
         self.sentinel = nn.Parameter(torch.zeros(1), requires_grad=False)
@@ -69,7 +71,17 @@ class TrackingRealPolicy(ModuleAttrMixin):
         action = torch.ones(shape, dtype=self.dtype, device=self.device)
         if not self._finite:
             action[0, 0, 0] = torch.nan
-        return {"action": action}
+        result = {"action": action}
+        if self._prediction_t is not None:
+            action_pred = torch.arange(
+                self._batch * self._prediction_t * self._action_dim,
+                dtype=self.dtype,
+                device=self.device,
+            ).reshape(self._batch, self._prediction_t, self._action_dim)
+            start = self.n_obs_steps - 1
+            result["action_pred"] = action_pred
+            result["action"] = action_pred[:, start : start + self._action_t]
+        return result
 
 
 def _real_shape_meta() -> dict[str, Any]:
@@ -244,6 +256,32 @@ def test_real_predict_proposal_accepts_non_fifty_temporal_length():
     assert torch.isfinite(proposal).all()
 
 
+def test_real_predict_for_guidance_returns_aligned_full_prediction():
+    policy = TrackingRealPolicy(
+        n_obs_steps=2,
+        action_t=50,
+        prediction_t=55,
+    )
+    adapter = RealPolicyAdapter(_make_loaded_real(policy, n_obs_steps=2))
+
+    prediction = adapter.predict_for_guidance()
+
+    assert policy.predict_calls == 1
+    assert prediction.proposal.shape == (1, 50, 31)
+    assert prediction.hand_reference.shape == (1, 54, 22)
+    expected_full = torch.arange(55 * 31, dtype=torch.float32).reshape(
+        1, 55, 31
+    )[:, 1:, 9:31]
+    torch.testing.assert_close(
+        prediction.hand_reference,
+        expected_full,
+    )
+    torch.testing.assert_close(
+        prediction.proposal[..., 9:31],
+        expected_full[:, :50],
+    )
+
+
 def test_real_predict_proposal_rejects_wrong_batch_rank_or_action_dim():
     for kwargs, match in (
         ({"batch": 2}, r"\(1,T,31\)"),
@@ -312,17 +350,19 @@ def test_sim_adapter_reads_temporal_metadata_from_each_policy():
     assert current_adapter.n_pred_action_steps == 9
     assert current_adapter.action_dim == 22
     assert current_adapter.oa_start == 3
-    assert current_adapter.guided_slice(5) == slice(3, 8)
+    assert current_adapter.guidance_slice == slice(3, 12)
+    assert current_adapter.execution_slice(5) == slice(3, 8)
 
     assert alternate_adapter.horizon == 8
     assert alternate_adapter.n_obs_steps == 2
     assert alternate_adapter.n_pred_action_steps == 7
     assert alternate_adapter.action_dim == 22
     assert alternate_adapter.oa_start == 1
-    assert alternate_adapter.guided_slice(3) == slice(1, 4)
+    assert alternate_adapter.guidance_slice == slice(1, 8)
+    assert alternate_adapter.execution_slice(3) == slice(1, 4)
 
 
-def test_sim_guided_slice_rejects_invalid_execution_steps():
+def test_sim_execution_slice_rejects_invalid_execution_steps():
     adapter = SimPolicyAdapter(
         make_sim_policy(
             n_obs_steps=4,
@@ -333,9 +373,9 @@ def test_sim_guided_slice_rejects_invalid_execution_steps():
     )
 
     with pytest.raises(ValueError):
-        adapter.guided_slice(0)
+        adapter.execution_slice(0)
     with pytest.raises(ValueError):
-        adapter.guided_slice(10)
+        adapter.execution_slice(10)
     with pytest.raises(ValueError):
         # oa_start(3) + E(10) would exceed horizon even if pred allowed it
         SimPolicyAdapter(
@@ -345,7 +385,7 @@ def test_sim_guided_slice_rejects_invalid_execution_steps():
                 n_pred_action_steps=9,
                 usable_start=4,
             )
-        ).guided_slice(9)
+        ).execution_slice(9)
 
 
 def test_sim_adapter_rejects_non_22_dims():

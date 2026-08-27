@@ -70,7 +70,8 @@ class SimHandGuidance:
         self.noise_factory: NoiseFactory = (
             noise_factory if noise_factory is not None else default_noise_factory
         )
-        self.guidance_slice = adapter.guided_slice(config.execution_steps)
+        self.guidance_slice = adapter.guidance_slice
+        self.execution_slice = adapter.execution_slice(config.execution_steps)
         self.trajectory_shape = (1, adapter.horizon, adapter.action_dim)
 
     def guide_segment(
@@ -102,7 +103,7 @@ class SimHandGuidance:
             guidance_slice=self.guidance_slice,
             eta=config.eta,
         )
-        guided_norm = sample.trajectory[:, self.guidance_slice, :]
+        guided_norm = sample.trajectory[:, self.execution_slice, :]
         return adapter.unnormalize_action(guided_norm)
 
     def verify_zero_guidance(

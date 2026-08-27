@@ -20,7 +20,8 @@ class FakeCheckReport:
     sim_horizon: int = 12
     sim_obs_steps: int = 4
     sim_pred_action_steps: int = 9
-    guided_slice: tuple[int, int] = (3, 8)
+    guidance_slice: tuple[int, int] = (3, 12)
+    execution_slice: tuple[int, int] = (3, 8)
     timesteps: tuple[int, ...] = (88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8, 0)
     max_x0_error: float = 0.0
     max_prev_error: float = 0.0
@@ -80,7 +81,8 @@ def test_main_check_dispatches_and_prints_report(capsys):
     assert "sim_horizon=12" in out
     assert "sim_obs_steps=4" in out
     assert "sim_pred_action_steps=9" in out
-    assert "guided_slice=(3, 8)" in out
+    assert "guidance_slice=(3, 12)" in out
+    assert "execution_slice=(3, 8)" in out
     assert "timesteps=(88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8, 0)" in out
 
 

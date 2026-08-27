@@ -56,7 +56,7 @@ def _make_policy(return_full_prediction=False):
         action_dim=HAND_DIM,
         n_obs_steps=4,
         n_pred_action_steps=9,
-        n_action_steps=4,
+        n_action_steps=5,
         num_inference_steps=2,
         obs_as_global_cond=True,
         return_full_prediction=return_full_prediction,
@@ -72,11 +72,11 @@ def test_predict_action_returns_execution_and_usable_actions_only():
     result = policy.predict_action({"obs": obs})
 
     assert set(result) == {"action", "action_usable"}
-    assert result["action"].shape == (2, 4, HAND_DIM)
+    assert result["action"].shape == (2, 5, HAND_DIM)
     assert result["action_usable"].shape == (2, 9, HAND_DIM)
     torch.testing.assert_close(
         result["action"],
-        result["action_usable"][:, :4],
+        result["action_usable"][:, :5],
     )
     assert torch.isfinite(result["action"]).all()
     assert torch.isfinite(result["action_usable"]).all()
@@ -125,14 +125,14 @@ def test_policy_rejects_unet_temporal_length_mismatch():
             action_dim=HAND_DIM,
             n_obs_steps=4,
             n_pred_action_steps=9,
-            n_action_steps=4,
+            n_action_steps=5,
         )
 
     message = str(exc_info.value)
     assert "U-Net output temporal length" in message
     assert "Observation steps       : 4" in message
     assert "Prediction action steps : 9" in message
-    assert "Execution action steps  : 4" in message
+    assert "Execution action steps  : 5" in message
     assert "Derived horizon         : 12" in message
 
 

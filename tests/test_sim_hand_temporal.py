@@ -11,7 +11,7 @@ from diffusion_policy.common.sim_hand_temporal_util import (
 DEFAULTS = {
     "n_obs_steps": 4,
     "n_pred_action_steps": 9,
-    "n_action_steps": 4,
+    "n_action_steps": 5,
     "horizon": 12,
     "obs_dim": 22,
     "action_dim": 22,
@@ -23,7 +23,7 @@ def test_default_temporal_config_has_expected_action_slices():
     config = validate_sim_hand_temporal_config(**DEFAULTS)
 
     assert config.usable_action_slice == slice(3, 12)
-    assert config.execution_action_slice == slice(3, 7)
+    assert config.execution_action_slice == slice(3, 8)
 
 
 @pytest.mark.parametrize(
@@ -89,14 +89,14 @@ def test_startup_report_is_derived_from_default_config():
 
     assert "Observation steps       : 4" in report
     assert "Prediction action steps : 9" in report
-    assert "Execution action steps  : 4" in report
+    assert "Execution action steps  : 5" in report
     assert "Diffusion horizon       : 12" in report
     assert "Action dimension        : 22" in report
     assert "Observation dimension   : 22" in report
     assert "OA step convention      : True" in report
     assert "obs condition : s[t-3:t+1]" in report
     assert "usable actions: a[t:t+9]" in report
-    assert "execute       : a[t:t+4]" in report
+    assert "execute       : a[t:t+5]" in report
 
 
 def test_startup_report_changes_with_temporal_config():
