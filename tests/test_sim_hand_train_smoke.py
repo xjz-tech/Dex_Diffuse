@@ -4,6 +4,7 @@ import json
 import math
 from pathlib import Path
 
+import h5py
 import numpy as np
 import zarr
 from hydra import compose, initialize_config_dir
@@ -44,9 +45,100 @@ def _write_synthetic_dataset(dataset_dir: Path):
     root = zarr.open_group(str(dataset_dir / "replay_buffer.zarr"), mode="w")
     data = root.create_group("data")
     meta = root.create_group("meta")
-    data.create_dataset("hand_joint", data=hand_joint, chunks=(16, HAND_DIM))
-    data.create_dataset("action", data=action, chunks=(16, HAND_DIM))
-    meta.create_dataset("episode_ends", data=episode_ends, dtype="int64")
+    data.create_dataset(
+        "hand_joint",
+        data=hand_joint,
+        shape=hand_joint.shape,
+        chunks=(16, HAND_DIM),
+    )
+    data.create_dataset(
+        "action",
+        data=action,
+        shape=action.shape,
+        chunks=(16, HAND_DIM),
+    )
+    meta.create_dataset(
+        "episode_ends",
+        data=episode_ends,
+        shape=episode_ends.shape,
+        dtype="int64",
+    )
+
+
+def _write_synthetic_hdf5_dataset(dataset_dir: Path):
+    lengths = np.asarray([14, 15, 16, 17, 18], dtype=np.int64)
+    rows = []
+    for step in range(int(lengths.max())):
+        for episode_id, length in enumerate(lengths):
+            if step >= length:
+                continue
+            value = float(episode_id * 100 + step)
+            terminal = step == length - 1
+            rows.append(
+                {
+                    "episode_id": episode_id,
+                    "env_id": episode_id,
+                    "step": step,
+                    "done": terminal,
+                    "success": terminal,
+                    "failure": False,
+                    "timeout": False,
+                    "reset_reason": 1 if terminal else 0,
+                    "qpos": np.full(HAND_DIM, value, dtype=np.float32),
+                    "target_after": np.full(
+                        HAND_DIM,
+                        0.8 * value + 0.05,
+                        dtype=np.float32,
+                    ),
+                }
+            )
+
+    shard_dir = dataset_dir / "shards"
+    shard_dir.mkdir()
+    shard_path = shard_dir / "shard_000000.h5"
+    with h5py.File(shard_path, "w") as f:
+        index = f.create_group("index")
+        robot = f.create_group("robot")
+        for key, dtype in (
+            ("episode_id", np.int64),
+            ("env_id", np.int32),
+            ("step", np.int64),
+            ("reset_reason", np.int8),
+        ):
+            index.create_dataset(
+                key,
+                data=np.asarray([row[key] for row in rows], dtype=dtype),
+            )
+        for key in ("done", "success", "failure", "timeout"):
+            index.create_dataset(
+                key,
+                data=np.asarray([row[key] for row in rows], dtype=np.bool_),
+            )
+        robot.create_dataset(
+            "qpos",
+            data=np.stack([row["qpos"] for row in rows]),
+        )
+        robot.create_dataset(
+            "target_after",
+            data=np.stack([row["target_after"] for row in rows]),
+        )
+
+    (dataset_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "total_transitions": len(rows),
+                "dof": HAND_DIM,
+                "shards": [
+                    {
+                        "path": "shards/shard_000000.h5",
+                        "num_transitions": len(rows),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def _small_cpu_config(dataset_dir: Path):
@@ -91,6 +183,7 @@ def test_hydra_defaults_have_one_consistent_temporal_configuration():
     assert config.policy.return_full_prediction is False
     assert config.task.dataset.pad_before == 3
     assert config.task.dataset.pad_after == 8
+    assert config.task.dataset.successful_only is True
 
 
 def test_workspace_prints_dynamic_temporal_report(tmp_path, capsys):
@@ -125,6 +218,31 @@ def test_one_step_train_validation_and_periodic_checkpoint(tmp_path):
     dataset_dir = tmp_path / "dataset"
     dataset_dir.mkdir()
     _write_synthetic_dataset(dataset_dir)
+    output_dir = tmp_path / "output"
+    config = _small_cpu_config(dataset_dir)
+    workspace = TrainDiffusionUnetSimHandWorkspace(
+        config,
+        output_dir=str(output_dir),
+    )
+
+    workspace.run()
+
+    records = [
+        json.loads(line)
+        for line in (output_dir / "logs.json.txt").read_text().splitlines()
+    ]
+    assert records
+    final_record = records[-1]
+    assert math.isfinite(final_record["train_loss"])
+    assert math.isfinite(final_record["val_loss"])
+    assert (output_dir / "checkpoints" / "epoch_0001.ckpt").is_file()
+    assert (output_dir / "checkpoints" / "latest.ckpt").is_file()
+
+
+def test_one_step_train_from_hdf5_dataset(tmp_path):
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    _write_synthetic_hdf5_dataset(dataset_dir)
     output_dir = tmp_path / "output"
     config = _small_cpu_config(dataset_dir)
     workspace = TrainDiffusionUnetSimHandWorkspace(

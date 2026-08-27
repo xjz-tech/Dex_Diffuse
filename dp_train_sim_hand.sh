@@ -16,8 +16,8 @@ if ! command -v "$PYTHON" >/dev/null 2>&1; then
     echo "Python interpreter not found: $PYTHON" >&2
     exit 1
 fi
-if [[ ! -d "$DATASET_PATH/replay_buffer.zarr" ]]; then
-    echo "Dataset not found: $DATASET_PATH/replay_buffer.zarr" >&2
+if [[ ! -d "$DATASET_PATH/replay_buffer.zarr" && ! -f "$DATASET_PATH/manifest.json" ]]; then
+    echo "Dataset not found: expected $DATASET_PATH/replay_buffer.zarr or $DATASET_PATH/manifest.json" >&2
     exit 1
 fi
 mkdir -p "$WANDB_DIR" "$MPLCONFIGDIR"
