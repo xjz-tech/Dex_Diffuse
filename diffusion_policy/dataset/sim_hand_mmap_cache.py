@@ -518,14 +518,16 @@ def validate_sim_hand_mmap_cache(
     pad_after: int | None = None,
     val_ratio: float | None = None,
     seed: int | None = None,
+    require_ready: bool = True,
 ) -> SimHandMmapCacheInfo:
     cache_dir = Path(cache_dir)
     if not cache_dir.is_dir():
         raise SimHandMmapCacheError(f"{cache_dir}: cache directory not found")
 
-    ready_path = cache_dir / "READY"
-    if not ready_path.is_file():
-        raise SimHandMmapCacheError("READY: completion marker not found")
+    if require_ready:
+        ready_path = cache_dir / "READY"
+        if not ready_path.is_file():
+            raise SimHandMmapCacheError("READY: completion marker not found")
 
     metadata = _load_metadata(cache_dir)
     _validate_metadata_schema(metadata)
