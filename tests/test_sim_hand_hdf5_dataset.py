@@ -439,3 +439,123 @@ def test_hdf5_rejects_unknown_manifest_schema_version(tmp_path):
 
     with pytest.raises(ValueError, match="schema_version=1.*2"):
         _make_dataset(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("missing_key", "in_shard"),
+    [
+        ("dof", False),
+        ("total_transitions", False),
+        ("path", True),
+        ("num_transitions", True),
+    ],
+)
+def test_hdf5_rejects_manifest_missing_required_integrity_field(
+    tmp_path,
+    missing_key,
+    in_shard,
+):
+    _write_rollout(
+        tmp_path,
+        shards=[[
+            _row(10, 0, 0),
+            _row(10, 0, 1),
+            _row(10, 0, 2, done=True, success=True),
+        ]],
+    )
+    manifest_path = tmp_path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    container = manifest["shards"][0] if in_shard else manifest
+    del container[missing_key]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=rf"required.*{missing_key}"):
+        _make_dataset(tmp_path)
+
+
+def test_hdf5_rejects_non_object_manifest(tmp_path):
+    (tmp_path / "manifest.json").write_text("[]", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="manifest.*JSON object"):
+        _make_dataset(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value", "expected_message"),
+    [
+        ("schema_version", "1", "schema_version.*integer"),
+        ("dof", 22.5, "dof.*integer"),
+        ("total_transitions", "3", "total_transitions.*integer"),
+        ("total_transitions", -1, "total_transitions.*non-negative"),
+    ],
+)
+def test_hdf5_rejects_invalid_manifest_field_type_or_range(
+    tmp_path,
+    field,
+    invalid_value,
+    expected_message,
+):
+    _write_rollout(
+        tmp_path,
+        shards=[[
+            _row(10, 0, 0),
+            _row(10, 0, 1),
+            _row(10, 0, 2, done=True, success=True),
+        ]],
+    )
+    manifest_path = tmp_path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest[field] = invalid_value
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=expected_message):
+        _make_dataset(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value", "expected_message"),
+    [
+        ("path", 123, "path.*string"),
+        ("num_transitions", "3", "num_transitions.*integer"),
+        ("num_transitions", -1, "num_transitions.*non-negative"),
+    ],
+)
+def test_hdf5_rejects_invalid_shard_manifest_field_type_or_range(
+    tmp_path,
+    field,
+    invalid_value,
+    expected_message,
+):
+    _write_rollout(
+        tmp_path,
+        shards=[[
+            _row(10, 0, 0),
+            _row(10, 0, 1),
+            _row(10, 0, 2, done=True, success=True),
+        ]],
+    )
+    manifest_path = tmp_path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["shards"][0][field] = invalid_value
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=expected_message):
+        _make_dataset(tmp_path)
+
+
+def test_hdf5_rejects_non_object_shard_entry(tmp_path):
+    _write_rollout(
+        tmp_path,
+        shards=[[
+            _row(10, 0, 0),
+            _row(10, 0, 1),
+            _row(10, 0, 2, done=True, success=True),
+        ]],
+    )
+    manifest_path = tmp_path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["shards"][0] = []
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="shard 0.*JSON object"):
+        _make_dataset(tmp_path)
