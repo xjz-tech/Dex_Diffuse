@@ -162,7 +162,29 @@ def test_hdf5_shards_reconstruct_interleaved_episodes_in_step_order(tmp_path):
     )
 
 
-def test_hdf5_rejects_episode_without_terminal_done_marker(tmp_path):
+def test_hdf5_keeps_failure_and_timeout_episodes(tmp_path):
+    _write_rollout(
+        tmp_path,
+        shards=[[
+            _row(10, 0, 0),
+            _row(10, 0, 1),
+            _row(10, 0, 2, done=True, failure=True),
+            _row(20, 1, 0),
+            _row(20, 1, 1),
+            _row(20, 1, 2, done=True, timeout=True),
+        ]],
+    )
+
+    dataset = _make_dataset(tmp_path)  # horizon=3
+
+    assert dataset.replay_buffer.n_episodes == 2
+    np.testing.assert_array_equal(
+        dataset.replay_buffer.meta["episode_ids"],
+        np.asarray([10, 20], dtype=np.int64),
+    )
+
+
+def test_hdf5_keeps_episode_without_terminal_done(tmp_path):
     _write_rollout(
         tmp_path,
         shards=[[
@@ -172,8 +194,67 @@ def test_hdf5_rejects_episode_without_terminal_done_marker(tmp_path):
         ]],
     )
 
-    with pytest.raises(ValueError, match="terminal.*done=True"):
+    dataset = _make_dataset(tmp_path)
+    assert dataset.replay_buffer.n_episodes == 1
+
+
+def test_hdf5_drops_episodes_shorter_than_horizon(tmp_path):
+    _write_rollout(
+        tmp_path,
+        shards=[[
+            # length 2 < horizon 3 → drop
+            _row(10, 0, 0),
+            _row(10, 0, 1, done=True, success=True),
+            # length 3 >= horizon 3 → keep
+            _row(20, 1, 0),
+            _row(20, 1, 1),
+            _row(20, 1, 2, done=True, failure=True),
+        ]],
+    )
+
+    dataset = _make_dataset(tmp_path)
+
+    assert dataset.replay_buffer.n_episodes == 1
+    np.testing.assert_array_equal(
+        dataset.replay_buffer.episode_ends,
+        np.asarray([3], dtype=np.int64),
+    )
+    np.testing.assert_array_equal(
+        dataset.replay_buffer.meta["episode_ids"],
+        np.asarray([20], dtype=np.int64),
+    )
+    np.testing.assert_array_equal(
+        dataset.replay_buffer["hand_joint"][:, 0],
+        np.asarray([2000, 2001, 2002], dtype=np.float32),
+    )
+
+
+def test_hdf5_rejects_when_all_episodes_are_too_short(tmp_path):
+    _write_rollout(
+        tmp_path,
+        shards=[[
+            _row(10, 0, 0),
+            _row(10, 0, 1, done=True, success=True),
+        ]],
+    )
+
+    with pytest.raises(ValueError, match="no episodes|min_episode_length|too short"):
         _make_dataset(tmp_path)
+
+
+def test_hdf5_rejects_invalid_min_episode_length(tmp_path):
+    _write_rollout(
+        tmp_path,
+        shards=[[
+            _row(10, 0, 0),
+            _row(10, 0, 1),
+            _row(10, 0, 2),
+        ]],
+    )
+    from diffusion_policy.dataset.sim_hand_hdf5 import load_sim_hand_hdf5
+
+    with pytest.raises(ValueError, match="min_episode_length"):
+        load_sim_hand_hdf5(tmp_path, min_episode_length=0)
 
 
 def test_hdf5_rejects_non_contiguous_episode_steps(tmp_path):
@@ -186,41 +267,6 @@ def test_hdf5_rejects_non_contiguous_episode_steps(tmp_path):
     )
 
     with pytest.raises(ValueError, match="steps must be contiguous"):
-        _make_dataset(tmp_path)
-
-
-def test_hdf5_successful_only_discards_valid_failed_episodes(tmp_path):
-    _write_rollout(
-        tmp_path,
-        shards=[[
-            _row(10, 0, 0),
-            _row(20, 1, 0),
-            _row(10, 0, 1),
-            _row(20, 1, 1),
-            _row(10, 0, 2, done=True, success=True),
-            _row(20, 1, 2, done=True, failure=True),
-        ]],
-    )
-
-    dataset = _make_dataset(tmp_path, successful_only=True)
-
-    assert dataset.replay_buffer.n_episodes == 1
-    np.testing.assert_array_equal(
-        dataset.replay_buffer.meta["episode_ids"],
-        np.asarray([10], dtype=np.int64),
-    )
-
-
-def test_hdf5_rejects_multiple_terminal_outcomes(tmp_path):
-    rows = [
-        _row(10, 0, 0),
-        _row(10, 0, 1),
-        _row(10, 0, 2, done=True, success=True),
-    ]
-    rows[-1]["failure"] = True
-    _write_rollout(tmp_path, shards=[rows])
-
-    with pytest.raises(ValueError, match="exactly one terminal outcome"):
         _make_dataset(tmp_path)
 
 
@@ -262,31 +308,6 @@ def test_hdf5_rejects_wrong_training_field_shape(tmp_path):
         _make_dataset(tmp_path)
 
 
-def test_hdf5_rejects_terminal_reset_reason_mismatch(tmp_path):
-    rows = [
-        _row(10, 0, 0),
-        _row(10, 0, 1),
-        _row(10, 0, 2, done=True, success=True),
-    ]
-    rows[-1]["reset_reason"] = 0
-    _write_rollout(tmp_path, shards=[rows])
-
-    with pytest.raises(ValueError, match="reset_reason=1"):
-        _make_dataset(tmp_path)
-
-
-def test_hdf5_rejects_outcome_marker_before_episode_end(tmp_path):
-    rows = [
-        _row(10, 0, 0),
-        _row(10, 0, 1, done=True, success=True),
-        _row(10, 0, 2, done=True, success=True),
-    ]
-    _write_rollout(tmp_path, shards=[rows])
-
-    with pytest.raises(ValueError, match="non-terminal.*outcome"):
-        _make_dataset(tmp_path)
-
-
 def test_train_script_accepts_hdf5_manifest_dataset(tmp_path):
     (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
     env = os.environ.copy()
@@ -309,21 +330,6 @@ def test_train_script_accepts_hdf5_manifest_dataset(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
-
-
-def test_hdf5_accepts_other_done_when_success_filter_is_disabled(tmp_path):
-    _write_rollout(
-        tmp_path,
-        shards=[[
-            _row(10, 0, 0),
-            _row(10, 0, 1),
-            _row(10, 0, 2, done=True),
-        ]],
-    )
-
-    dataset = _make_dataset(tmp_path, successful_only=False)
-
-    assert dataset.replay_buffer.n_episodes == 1
 
 
 def test_hdf5_rejects_wrong_index_dtype(tmp_path):

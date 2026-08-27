@@ -29,7 +29,8 @@ class SimHandLowdimDataset(BaseLowdimDataset):
 
     HDF5 inputs map ``robot/qpos`` to observations and
     ``robot/target_after`` to absolute 22-D action targets. HDF5 episodes are
-    validated and reconstructed from ``episode_id``, ``env_id``, and ``step``.
+    reconstructed from ``episode_id``, ``env_id``, and ``step``. Outcome flags
+    on disk are ignored; episodes shorter than ``horizon`` are dropped.
     """
 
     def __init__(
@@ -41,7 +42,6 @@ class SimHandLowdimDataset(BaseLowdimDataset):
         seed: int = 42,
         val_ratio: float = 0.1,
         max_train_episodes: int | None = None,
-        successful_only: bool = True,
     ):
         super().__init__()
         expanded_path = os.path.expanduser(dataset_path)
@@ -54,7 +54,7 @@ class SimHandLowdimDataset(BaseLowdimDataset):
         elif os.path.isfile(manifest_path):
             replay_buffer = load_sim_hand_hdf5(
                 expanded_path,
-                successful_only=successful_only,
+                min_episode_length=int(horizon),
             )
         else:
             raise FileNotFoundError(

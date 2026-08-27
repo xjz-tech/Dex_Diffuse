@@ -40,9 +40,14 @@ HDF5_FIELD_DTYPES = {
 def load_sim_hand_hdf5(
     dataset_path: str | Path,
     *,
-    successful_only: bool = True,
+    min_episode_length: int,
 ) -> ReplayBuffer:
     """Load HDF5 rollout shards and make every episode contiguous in memory."""
+    if type(min_episode_length) is not int or min_episode_length < 1:
+        raise ValueError(
+            "min_episode_length must be an integer >= 1, "
+            f"got {min_episode_length!r}"
+        )
     root_path = Path(dataset_path).expanduser()
     manifest_path = root_path / "manifest.json"
     if not manifest_path.is_file():
@@ -225,11 +230,6 @@ def load_sim_hand_hdf5(
     )
     episode_ends = np.r_[episode_starts[1:], len(order)].astype(np.int64)
     ordered_step = arrays["index/step"][order]
-    done = arrays["index/done"][order]
-    success = arrays["index/success"][order]
-    failure = arrays["index/failure"][order]
-    timeout = arrays["index/timeout"][order]
-    reset_reason = arrays["index/reset_reason"][order]
     del arrays
     for start, end in zip(episode_starts, episode_ends):
         episode_steps = ordered_step[start:end]
@@ -241,62 +241,13 @@ def load_sim_hand_hdf5(
                 f"env_id={int(env_id[start])}) steps must be contiguous "
                 "and start at zero"
             )
-        if end - start > 1:
-            non_terminal = slice(start, end - 1)
-            has_early_marker = (
-                np.any(done[non_terminal])
-                or np.any(success[non_terminal])
-                or np.any(failure[non_terminal])
-                or np.any(timeout[non_terminal])
-                or np.any(reset_reason[non_terminal] != 0)
-            )
-            if has_early_marker:
-                raise ValueError(
-                    "HDF5 episode "
-                    f"(episode_id={int(episode_id[start])}, "
-                    f"env_id={int(env_id[start])}) has a non-terminal row "
-                    "with a done, outcome, or reset marker"
-                )
-        if not bool(done[end - 1]):
-            raise ValueError(
-                "HDF5 episode "
-                f"(episode_id={int(episode_id[start])}, "
-                f"env_id={int(env_id[start])}) has no terminal done=True "
-                "marker at its final step"
-            )
-        terminal_outcomes = int(success[end - 1]) + int(failure[end - 1]) + int(
-            timeout[end - 1]
-        )
-        terminal_reset_reason = int(reset_reason[end - 1])
-        if terminal_reset_reason == 4 and terminal_outcomes == 0:
-            continue
-        if terminal_outcomes != 1:
-            raise ValueError(
-                "HDF5 episode "
-                f"(episode_id={int(episode_id[start])}, "
-                f"env_id={int(env_id[start])}) must have exactly one terminal "
-                "outcome among success, failure, and timeout"
-            )
-        if success[end - 1]:
-            expected_reset_reason = 1
-        elif failure[end - 1]:
-            expected_reset_reason = 2
-        else:
-            expected_reset_reason = 3
-        if terminal_reset_reason != expected_reset_reason:
-            raise ValueError(
-                "HDF5 episode "
-                f"(episode_id={int(episode_id[start])}, "
-                f"env_id={int(env_id[start])}) terminal outcome requires "
-                f"reset_reason={expected_reset_reason}, got "
-                f"{terminal_reset_reason}"
-            )
 
-    keep_episodes = np.ones(len(episode_starts), dtype=bool)
-    if successful_only:
-        keep_episodes = success[episode_ends - 1].astype(bool)
+    keep_episodes = (episode_ends - episode_starts) >= min_episode_length
     if not np.any(keep_episodes):
-        raise ValueError("Sim-Hand HDF5 dataset contains no successful episodes")
+        raise ValueError(
+            "Sim-Hand HDF5 dataset contains no episodes with length >= "
+            f"min_episode_length={min_episode_length}"
+        )
 
     kept_episode_starts = episode_starts[keep_episodes]
     kept_episode_ends = episode_ends[keep_episodes]
