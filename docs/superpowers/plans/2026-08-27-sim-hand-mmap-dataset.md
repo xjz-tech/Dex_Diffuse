@@ -1084,10 +1084,10 @@ In `tests/test_sim_hand_train_smoke.py`, change the Hydra-default assertions to:
 
 ```python
 assert config.task.dataset._target_.endswith("SimHandMmapDataset")
-assert config.training.num_epochs == 100
+assert config.training.num_epochs == 10000
 assert config.training.steps_per_epoch == 2000
 assert config.training.validation_steps == 200
-assert config.training.checkpoint_every == 10
+assert config.training.checkpoint_every == 100000
 assert config.dataloader.shuffle is False
 assert config.dataloader.persistent_workers is True
 assert config.dataloader.prefetch_factor == 2
@@ -1174,10 +1174,10 @@ val_dataloader:
   prefetch_factor: 2
 
 training:
-  num_epochs: 100
+  num_epochs: 10000
   steps_per_epoch: 2000
   validation_steps: 200
-  checkpoint_every: 10
+  checkpoint_every: 100000
 ```
 
 Leave all policy temporal values, optimizer values, and diagnostic

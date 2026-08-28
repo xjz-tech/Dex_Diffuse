@@ -271,19 +271,21 @@ The Sim-Hand workspace gains explicit finite-data-pipeline settings:
 
 ```yaml
 training:
-  num_epochs: 100
+  num_epochs: 10000
   steps_per_epoch: 2000
   validation_steps: 200
-  checkpoint_every: 10
+  checkpoint_every: 100000
 ```
 
-With `batch_size=256`, this produces 512,000 sampled training windows per logical
-epoch and 200,000 optimizer steps over the default run. Validation evaluates a
-fixed 51,200-window subset each epoch. Existing debug limits still take
-precedence and checkpoint/resume occurs at logical epoch boundaries.
+With `batch_size: 1024`, this produces 2,048,000 sampled training windows per
+logical epoch and 20,000,000 optimizer steps over the default run. Validation
+evaluates a fixed 204,800-window subset each epoch. Periodic checkpoints land
+every 100,000 optimizer steps (`step_XXXXXXXX.ckpt`), not every logical epoch.
+Existing debug limits still take precedence and checkpoint/resume occurs at
+logical epoch boundaries after the step budget is checked.
 
 The learning-rate scheduler uses the bounded DataLoader length and therefore
-receives the correct 200,000-step training horizon. `max_train_steps` and
+receives the correct 20,000,000-step training horizon. `max_train_steps` and
 `max_val_steps` remain supported as smaller per-epoch diagnostic limits.
 
 ## Launcher behavior

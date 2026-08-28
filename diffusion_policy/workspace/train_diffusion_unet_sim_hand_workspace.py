@@ -53,7 +53,9 @@ class TrainDiffusionUnetSimHandWorkspace(BaseWorkspace):
         )
         print(format_sim_hand_temporal_config(temporal))
         if int(cfg.training.checkpoint_every) <= 0:
-            raise ValueError("training.checkpoint_every must be positive")
+            raise ValueError(
+                "training.checkpoint_every must be a positive step interval"
+            )
         if int(cfg.training.steps_per_epoch) <= 0:
             raise ValueError("training.steps_per_epoch must be positive")
         if int(cfg.training.validation_steps) <= 0:
@@ -214,7 +216,7 @@ class TrainDiffusionUnetSimHandWorkspace(BaseWorkspace):
                     self.epoch += 1
                     step_log["epoch"] = self.epoch
                     step_log["global_step"] = self.global_step
-                    self._save_epoch_checkpoints(cfg)
+                    self._save_step_checkpoints(cfg)
                     wandb_run.log(step_log, step=self.global_step)
                     json_logger.log(step_log)
                     policy.train()
@@ -296,19 +298,22 @@ class TrainDiffusionUnetSimHandWorkspace(BaseWorkspace):
             return None
         return torch.stack(losses).mean().item()
 
-    def _save_epoch_checkpoints(self, cfg) -> None:
+    def _save_step_checkpoints(self, cfg) -> None:
         checkpoint_every = int(cfg.training.checkpoint_every)
-        should_save_periodic = self.epoch % checkpoint_every == 0
+        should_save_periodic = (
+            self.global_step > 0
+            and self.global_step % checkpoint_every == 0
+        )
         is_final_epoch = self.epoch >= int(cfg.training.num_epochs)
         if should_save_periodic:
             self.save_checkpoint(
                 path=pathlib.Path(self.output_dir)
                 / "checkpoints"
-                / f"epoch_{self.epoch:04d}.ckpt",
+                / f"step_{self.global_step:08d}.ckpt",
                 use_thread=False,
             )
             if cfg.checkpoint.save_last_snapshot:
-                self.save_snapshot(tag=f"epoch_{self.epoch:04d}")
+                self.save_snapshot(tag=f"step_{self.global_step:08d}")
         if cfg.checkpoint.save_last_ckpt and (
             should_save_periodic or is_final_epoch
         ):

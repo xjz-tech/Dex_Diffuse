@@ -155,7 +155,7 @@ def test_hydra_defaults_have_one_consistent_temporal_configuration():
     assert config.training.num_epochs == 10000
     assert config.training.steps_per_epoch == 2000
     assert config.training.validation_steps == 200
-    assert config.training.checkpoint_every == 50
+    assert config.training.checkpoint_every == 100000
     assert config.dataloader.shuffle is False
     assert config.dataloader.persistent_workers is True
     assert config.dataloader.prefetch_factor == 2
@@ -222,5 +222,5 @@ def test_one_step_train_validation_and_periodic_checkpoint_from_mmap(tmp_path):
     final_record = records[-1]
     assert math.isfinite(final_record["train_loss"])
     assert math.isfinite(final_record["val_loss"])
-    assert (output_dir / "checkpoints" / "epoch_0001.ckpt").is_file()
+    assert (output_dir / "checkpoints" / "step_00000001.ckpt").is_file()
     assert (output_dir / "checkpoints" / "latest.ckpt").is_file()
