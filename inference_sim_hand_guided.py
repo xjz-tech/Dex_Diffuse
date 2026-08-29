@@ -18,6 +18,11 @@ from diffusion_policy.guidance.runtime import (
 )
 from diffusion_policy.guidance.sim_hand_guidance import SimHandGuidanceConfig
 
+EXECUTION_STEPS_BY_MODE = {
+    "closed-loop-5": 5,
+    "open-loop-50": 50,
+}
+
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -47,10 +52,23 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Torch device, e.g. cpu or cuda:0",
     )
     parser.add_argument(
+        "--execution-mode",
+        choices=tuple(EXECUTION_STEPS_BY_MODE),
+        default="closed-loop-5",
+        help=(
+            "closed-loop-5: guide/execute ten five-step segments; "
+            "open-loop-50: guide/execute one fifty-step segment "
+            "(default: closed-loop-5)"
+        ),
+    )
+    parser.add_argument(
         "--execution-steps",
         type=int,
-        default=5,
-        help="Executed hand actions per segment (default: 5)",
+        default=None,
+        help=(
+            "Executed hand actions per segment; normally derived from "
+            "--execution-mode and must agree with it"
+        ),
     )
     parser.add_argument(
         "--guidance-scale",
@@ -76,13 +94,23 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=0,
         help="Seed for synthetic history / noise (default: 0)",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.execution_steps is None:
+        args.execution_steps = EXECUTION_STEPS_BY_MODE[args.execution_mode]
+    return args
 
 
 def _validate_args(args: argparse.Namespace) -> None:
     if args.execution_steps <= 0:
         raise ValueError(
             f"execution_steps must be positive, got {args.execution_steps}"
+        )
+    expected_execution_steps = EXECUTION_STEPS_BY_MODE[args.execution_mode]
+    if args.execution_steps != expected_execution_steps:
+        raise ValueError(
+            f"execution_mode={args.execution_mode} requires "
+            f"execution_steps={expected_execution_steps}, got "
+            f"{args.execution_steps}"
         )
     if args.guidance_scale < 0:
         raise ValueError(
@@ -140,9 +168,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         if args.mode == "check":
             report: CheckReport | DryRunReport = run_check(loaded, seed=args.seed)
+            print(f"execution_mode={args.execution_mode}")
+            print(f"execution_steps={args.execution_steps}")
             _print_check_fields(report)
         else:
             dry: DryRunReport = run_dry_run(loaded, seed=args.seed)
+            print(f"execution_mode={args.execution_mode}")
+            print(f"execution_steps={args.execution_steps}")
             _print_check_fields(dry.check)
             print(f"completed_segments={len(dry.guided.records)}")
         return 0

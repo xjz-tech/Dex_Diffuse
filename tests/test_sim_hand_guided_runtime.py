@@ -43,12 +43,14 @@ class TrackingRealPolicy(ModuleAttrMixin):
         *,
         n_obs_steps: int = 2,
         action_t: int = 50,
+        full_prediction_t: int | None = None,
         action_dim: int = REAL_ACTION_DIM,
         normalizer_sentinel: float = 1.0,
     ):
         super().__init__()
         self.n_obs_steps = n_obs_steps
         self._action_t = action_t
+        self._full_prediction_t = full_prediction_t
         self._action_dim = action_dim
         self.predict_calls = 0
         self.last_observation: dict[str, torch.Tensor] | None = None
@@ -70,7 +72,12 @@ class TrackingRealPolicy(ModuleAttrMixin):
         self.last_observation = observation
         # The public proposal is an aligned prefix of a longer full prediction.
         action_start = self.n_obs_steps - 1
-        prediction_t = action_start + self._action_t + 4
+        aligned_prediction_t = (
+            self._action_t + 4
+            if self._full_prediction_t is None
+            else self._full_prediction_t
+        )
+        prediction_t = action_start + aligned_prediction_t
         action_pred = torch.zeros(
             (1, prediction_t, self._action_dim),
             dtype=self.dtype,
@@ -186,11 +193,13 @@ def make_real_loaded(
     *,
     action_t: int = 50,
     n_obs_steps: int = 2,
+    full_prediction_t: int | None = None,
     normalizer_sentinel: float = 1.0,
 ) -> LoadedPolicy:
     policy = TrackingRealPolicy(
         n_obs_steps=n_obs_steps,
         action_t=action_t,
+        full_prediction_t=full_prediction_t,
         normalizer_sentinel=normalizer_sentinel,
     )
     cfg = OmegaConf.create(
@@ -517,6 +526,51 @@ def test_run_dry_run_reuses_proposal_and_completes_ten_segments():
     torch.testing.assert_close(
         coordinator_calls[-1]["reference"],
         report.check.real_hand_reference[:, 45:54],
+    )
+
+
+def test_run_dry_run_long_horizon_guides_once_and_executes_fifty_steps():
+    from diffusion_policy.guidance.runtime import run_dry_run
+
+    loaded = _build_loaded(
+        real=make_real_loaded(
+            action_t=50,
+            n_obs_steps=1,
+            full_prediction_t=68,
+        ),
+        sim=make_sim_loaded(
+            n_obs_steps=4,
+            horizon=68,
+            n_pred_action_steps=65,
+            usable_start=3,
+        ),
+        config=SimHandGuidanceConfig(
+            execution_steps=50,
+            guidance_scale=0.0,
+            num_inference_steps=2,
+            eta=0.0,
+        ),
+        record=True,
+    )
+
+    report = run_dry_run(loaded, seed=4)
+
+    assert loaded.real.policy.predict_calls == 1
+    assert loaded.sim.policy.predict_action_calls == 0
+    assert report.check.real_action_shape == (1, 50, 31)
+    assert report.check.real_hand_reference_shape == (1, 68, 22)
+    assert report.check.sim_horizon == 68
+    assert report.check.sim_pred_action_steps == 65
+    assert report.check.guidance_slice == (3, 68)
+    assert report.check.execution_slice == (3, 53)
+    assert report.check.segment_count == 1
+    assert len(report.guided.records) == 1
+    assert report.guided.guided_action.shape == (1, 50, 31)
+    coordinator_call = loaded.guidance.guide_calls[-1]
+    assert coordinator_call["reference"].shape == (1, 65, 22)
+    torch.testing.assert_close(
+        coordinator_call["reference"],
+        report.check.real_hand_reference[:, :65],
     )
 
 

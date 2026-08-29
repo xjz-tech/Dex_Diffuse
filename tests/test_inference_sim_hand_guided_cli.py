@@ -52,12 +52,24 @@ def test_parse_args_defaults_and_required():
 
     args = parse_args(_base_argv())
     assert args.mode == "check"
+    assert args.execution_mode == "closed-loop-5"
     assert args.execution_steps == 5
     assert args.guidance_scale == 1.0
     assert args.num_inference_steps == 12
     assert args.eta == 0.0
     assert args.seed == 0
     assert args.device == "cpu"
+
+
+def test_parse_args_open_loop_mode_executes_fifty_steps():
+    from inference_sim_hand_guided import parse_args
+
+    args = parse_args(
+        _base_argv() + ["--execution-mode", "open-loop-50"]
+    )
+
+    assert args.execution_mode == "open-loop-50"
+    assert args.execution_steps == 50
 
 
 def test_main_check_dispatches_and_prints_report(capsys):
@@ -86,6 +98,39 @@ def test_main_check_dispatches_and_prints_report(capsys):
     assert "guidance_slice=(3, 12)" in out
     assert "execution_slice=(3, 8)" in out
     assert "timesteps=(88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8, 0)" in out
+
+
+def test_main_open_loop_reports_mode_and_passes_fifty_step_config(capsys):
+    from inference_sim_hand_guided import main
+
+    loaded = MagicMock(name="loaded")
+    report = FakeCheckReport(
+        real_hand_reference_shape=(1, 68, 22),
+        segment_count=1,
+        sim_horizon=68,
+        sim_pred_action_steps=65,
+        guidance_slice=(3, 68),
+        execution_slice=(3, 53),
+    )
+    with (
+        patch(
+            "inference_sim_hand_guided.load_guided_policies",
+            return_value=loaded,
+        ) as load,
+        patch("inference_sim_hand_guided.run_check", return_value=report),
+    ):
+        code = main(
+            _base_argv()
+            + ["--execution-mode", "open-loop-50"]
+        )
+
+    assert code == 0
+    guidance_config = load.call_args.args[3]
+    assert guidance_config.execution_steps == 50
+    out = capsys.readouterr().out
+    assert "execution_mode=open-loop-50" in out
+    assert "execution_steps=50" in out
+    assert "segment_count=1" in out
 
 
 def test_main_dry_run_dispatches_and_prints_report(capsys):
@@ -141,6 +186,25 @@ def test_non_positive_execution_steps_returns_1(capsys):
     code = main(_base_argv() + ["--execution-steps", "0"])
     assert code == 1
     assert "execution_steps" in capsys.readouterr().err
+
+
+def test_execution_mode_rejects_conflicting_execution_steps_before_load(capsys):
+    from inference_sim_hand_guided import main
+
+    with patch("inference_sim_hand_guided.load_guided_policies") as load:
+        code = main(
+            _base_argv()
+            + [
+                "--execution-mode",
+                "open-loop-50",
+                "--execution-steps",
+                "5",
+            ]
+        )
+
+    assert code == 1
+    assert "open-loop-50" in capsys.readouterr().err
+    load.assert_not_called()
 
 
 def test_non_positive_inference_steps_returns_1(capsys):
