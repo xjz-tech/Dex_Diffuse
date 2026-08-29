@@ -13,7 +13,7 @@ DEFAULTS = {
     "n_pred_action_steps": 9,
     "n_action_steps": 4,
     "horizon": 12,
-    "obs_dim": 22,
+    "obs_dim": 66,
     "action_dim": 22,
     "oa_step_convention": True,
 }
@@ -46,7 +46,7 @@ def test_default_temporal_config_has_expected_action_slices():
             {"n_pred_action_steps": 8, "horizon": 11},
             "horizon must be a multiple of 4",
         ),
-        ({"obs_dim": 21}, "Observation dimension must be 22"),
+        ({"obs_dim": 22}, "Observation dimension must be 66"),
         ({"action_dim": 21}, "Action dimension must be 22"),
         (
             {"oa_step_convention": False},
@@ -69,7 +69,7 @@ def test_invalid_temporal_error_reports_all_config_values():
             n_pred_action_steps=8,
             n_action_steps=3,
             horizon=11,
-            obs_dim=22,
+            obs_dim=66,
             action_dim=22,
         )
 
@@ -78,7 +78,7 @@ def test_invalid_temporal_error_reports_all_config_values():
     assert "Prediction action steps : 8" in message
     assert "Execution action steps  : 3" in message
     assert "Derived horizon         : 11" in message
-    assert "Observation dimension   : 22" in message
+    assert "Observation dimension   : 66" in message
     assert "Action dimension        : 22" in message
 
 
@@ -92,7 +92,7 @@ def test_startup_report_is_derived_from_default_config():
     assert "Execution action steps  : 4" in report
     assert "Diffusion horizon       : 12" in report
     assert "Action dimension        : 22" in report
-    assert "Observation dimension   : 22" in report
+    assert "Observation dimension   : 66" in report
     assert "OA step convention      : True" in report
     assert "obs condition : s[t-3:t+1]" in report
     assert "usable actions: a[t:t+9]" in report
@@ -106,7 +106,7 @@ def test_startup_report_changes_with_temporal_config():
             n_pred_action_steps=7,
             n_action_steps=3,
             horizon=8,
-            obs_dim=22,
+            obs_dim=66,
             action_dim=22,
         )
     )

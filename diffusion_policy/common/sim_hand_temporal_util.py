@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-SIM_HAND_DIM = 22
+SIM_HAND_ACTION_DIM = 22
+SIM_HAND_OBS_DIM = 66
+SIM_HAND_DIM = SIM_HAND_ACTION_DIM  # hand/action DOF width
 TEMPORAL_DOWNSAMPLE_FACTOR = 4
 
 
@@ -96,9 +98,9 @@ def validate_sim_hand_temporal_config(
             "Diffusion horizon must be a multiple of 4 for the current "
             "ConditionalUnet1D temporal down/up-sampling structure.",
         )
-    if config.obs_dim != SIM_HAND_DIM:
-        raise _invalid(config, "Observation dimension must be 22.")
-    if config.action_dim != SIM_HAND_DIM:
+    if config.obs_dim != SIM_HAND_OBS_DIM:
+        raise _invalid(config, "Observation dimension must be 66.")
+    if config.action_dim != SIM_HAND_ACTION_DIM:
         raise _invalid(config, "Action dimension must be 22.")
     if not config.oa_step_convention:
         raise _invalid(config, "OA step convention must be enabled.")
