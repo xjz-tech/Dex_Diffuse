@@ -80,3 +80,5 @@ wandb/
 lightning_logs/
 tensorboard/
 eval/record
+assets/
+/data

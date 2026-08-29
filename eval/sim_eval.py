@@ -24,6 +24,7 @@ except ImportError as exc:
 
 import torch  # noqa: E402
 from omegaconf import OmegaConf  # noqa: E402
+from termcolor import cprint  # noqa: E402
 
 
 EVAL_DIR = Path(__file__).resolve().parent
@@ -42,6 +43,7 @@ from recording import (  # noqa: E402
 HAND_DIM = 22
 OBS_STEPS = 4
 ACTION_STEPS = 5
+SHARPA_URDF_NAME = "v3right_sharpa_wave-forhammer5.urdf"
 
 
 def _parse_args():
@@ -61,6 +63,7 @@ def _parse_args():
     parser.add_argument("--data-indices", default="000,001")
     parser.add_argument("--nokov3-data-dir", required=True)
     parser.add_argument("--nokov3-retarget-dir", required=True)
+    parser.add_argument("--sharpa-asset-dir", required=True)
     parser.add_argument("--sim-device", default="cuda:0")
     parser.add_argument("--rl-device", default="cuda:0")
     parser.add_argument("--graphics-device-id", type=int, default=0)
@@ -136,9 +139,14 @@ def _expand_data_indices(spec):
 
 def _validate_inputs(args, data_indices):
     controller_root = Path(args.controller_root).expanduser().resolve()
-    config_path = Path(args.sim_config).expanduser().resolve()
-    data_root = Path(args.nokov3_data_dir).expanduser().resolve()
-    retarget_root = Path(args.nokov3_retarget_dir).expanduser().resolve()
+    # Keep repository-local symlink paths visible instead of resolving them
+    # back to dex-controller.  The paths still need to be absolute because the
+    # simulator changes cwd to controller_root below.
+    config_path = Path(os.path.abspath(os.path.expanduser(args.sim_config)))
+    data_root = Path(os.path.abspath(os.path.expanduser(args.nokov3_data_dir)))
+    retarget_root = Path(
+        os.path.abspath(os.path.expanduser(args.nokov3_retarget_dir))
+    )
     if not controller_root.is_dir():
         raise FileNotFoundError("dex-controller root not found: %s" % controller_root)
     if not config_path.is_file():
@@ -172,6 +180,39 @@ def _validate_inputs(args, data_indices):
         if not retarget.is_file():
             raise FileNotFoundError("bulb2 retarget trajectory not found: %s" % retarget)
     return controller_root, config_path, data_root, retarget_root
+
+
+def _resolve_sharpa_urdf(asset_dir):
+    asset_dir = Path(os.path.abspath(os.path.expanduser(asset_dir)))
+    urdf_path = asset_dir / SHARPA_URDF_NAME
+    if not urdf_path.is_file():
+        raise FileNotFoundError("SharpA URDF not found: %s" % urdf_path)
+    if not (asset_dir / "meshes").is_dir():
+        raise FileNotFoundError("SharpA mesh directory not found: %s" % asset_dir)
+    return urdf_path
+
+
+def _install_sharpa_asset_override(urdf_path):
+    """Point this process's SharpA factory entry at the evaluator asset path."""
+    from maniptrans_envs.lib.envs.dexhands.factory import DexHandFactory
+
+    registry_key = "sharpa_rh"
+    original_class = DexHandFactory._registry[registry_key]
+    resolved_urdf = os.path.abspath(os.path.expanduser(str(urdf_path)))
+
+    class EvalSharpaRH(original_class):
+        def __init__(self):
+            super().__init__()
+            # DexHand.urdf_path preserves an absolute _urdf_path unchanged.
+            self._urdf_path = resolved_urdf
+
+    DexHandFactory._registry[registry_key] = EvalSharpaRH
+    return DexHandFactory, registry_key, original_class
+
+
+def _restore_sharpa_asset_override(override):
+    factory, registry_key, original_class = override
+    factory._registry[registry_key] = original_class
 
 
 def _load_manifest(config_path):
@@ -369,6 +410,7 @@ def run(args):
         data_indices,
     )
     manifest = _load_manifest(config_path)
+    sharpa_urdf = _resolve_sharpa_urdf(args.sharpa_asset_dir)
     recording_config = _make_recording_config(args) if args.recording else None
 
     # Controller assets and several legacy relative paths assume this cwd.
@@ -399,11 +441,12 @@ def run(args):
     recording_runtime = None
     try:
         construction_hooks = None
-        if recording_config is not None:
-            task_class = maniptrans_envs_lib.TASK_MAP[str(task_cfg.name)]
-            construction_hooks = RecordingConstructionHooks(recording_config)
-            construction_hooks.install(task_class)
+        sharpa_asset_override = _install_sharpa_asset_override(sharpa_urdf)
         try:
+            if recording_config is not None:
+                task_class = maniptrans_envs_lib.TASK_MAP[str(task_cfg.name)]
+                construction_hooks = RecordingConstructionHooks(recording_config)
+                construction_hooks.install(task_class)
             env = maniptrans_envs_lib.make(
                 sim_device=args.sim_device,
                 rl_device=args.rl_device,
@@ -418,6 +461,7 @@ def run(args):
         finally:
             if construction_hooks is not None:
                 construction_hooks.restore()
+            _restore_sharpa_asset_override(sharpa_asset_override)
         env.compute_observations()
         env.reset()
         lower, upper = _validate_environment(env, manifest)
@@ -493,8 +537,9 @@ def run(args):
 
                 if torch.any(reach_goal):
                     reached = reach_goal.nonzero(as_tuple=False).flatten().tolist()
-                    print(
+                    cprint(
                         "[sim] reached target | step=%d env_ids=%s" % (step, reached),
+                        "green",
                         flush=True,
                     )
 
@@ -596,7 +641,7 @@ def run(args):
                         if inference_calls
                         else 0.0
                     )
-                    print(
+                    cprint(
                         "[sim] progress | steps=%d control_hz=%.2f "
                         "inference_calls=%d mean_inference=%.3fs "
                         "object_drops=%d object_pose_resets=%d"
@@ -608,6 +653,7 @@ def run(args):
                             object_drop_count,
                             object_pose_reset_count,
                         ),
+                        "yellow",
                         flush=True,
                     )
     finally:
