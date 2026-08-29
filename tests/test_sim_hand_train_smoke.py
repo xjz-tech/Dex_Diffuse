@@ -31,6 +31,7 @@ from diffusion_policy.workspace.train_diffusion_unet_sim_hand_workspace import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_DIR = REPO_ROOT / "diffusion_policy" / "config"
 HAND_DIM = 22
+OBS_DIM = 66
 
 
 def _compose_config(overrides=None):
@@ -52,9 +53,9 @@ def _write_synthetic_dataset(dataset_dir: Path):
     episode_ends = np.cumsum(lengths)
     n_steps = int(episode_ends[-1])
     rng = np.random.default_rng(8)
-    hand_joint = rng.normal(size=(n_steps, HAND_DIM)).astype(np.float32)
+    obs = rng.normal(size=(n_steps, OBS_DIM)).astype(np.float32)
     action = (
-        0.8 * hand_joint
+        0.8 * obs[:, :HAND_DIM]
         + rng.normal(scale=0.05, size=(n_steps, HAND_DIM)).astype(np.float32)
     ).astype(np.float32)
 
@@ -62,10 +63,10 @@ def _write_synthetic_dataset(dataset_dir: Path):
     data = root.create_group("data")
     meta = root.create_group("meta")
     data.create_dataset(
-        "hand_joint",
-        data=hand_joint,
-        shape=hand_joint.shape,
-        chunks=(16, HAND_DIM),
+        "obs",
+        data=obs,
+        shape=obs.shape,
+        chunks=(16, OBS_DIM),
     )
     data.create_dataset(
         "action",
@@ -101,6 +102,11 @@ def _write_synthetic_hdf5_dataset(dataset_dir: Path):
                     "timeout": False,
                     "reset_reason": 1 if terminal else 0,
                     "qpos": np.full(HAND_DIM, value, dtype=np.float32),
+                    "target_before": np.full(
+                        HAND_DIM,
+                        value + 1_000.0,
+                        dtype=np.float32,
+                    ),
                     "target_after": np.full(
                         HAND_DIM,
                         0.8 * value + 0.05,
@@ -130,14 +136,11 @@ def _write_synthetic_hdf5_dataset(dataset_dir: Path):
                 key,
                 data=np.asarray([row[key] for row in rows], dtype=np.bool_),
             )
-        robot.create_dataset(
-            "qpos",
-            data=np.stack([row["qpos"] for row in rows]),
-        )
-        robot.create_dataset(
-            "target_after",
-            data=np.stack([row["target_after"] for row in rows]),
-        )
+        for key in ("qpos", "target_before", "target_after"):
+            robot.create_dataset(
+                key,
+                data=np.stack([row[key] for row in rows]),
+            )
 
     (dataset_dir / "manifest.json").write_text(
         json.dumps(
@@ -236,7 +239,7 @@ def test_hydra_defaults_have_one_consistent_temporal_configuration():
     assert config.n_pred_action_steps == 61
     assert config.n_action_steps == 5
     assert config.horizon == 64
-    assert config.obs_dim == HAND_DIM
+    assert config.obs_dim == OBS_DIM
     assert config.action_dim == HAND_DIM
     assert config.dataloader.batch_size == 10240
     assert config.val_dataloader.batch_size == 10240
@@ -345,7 +348,7 @@ def test_workspace_prints_dynamic_temporal_report(tmp_path, capsys):
         config.policy.n_pred_action_steps = 7
         config.policy.n_action_steps = 3
         config.policy.horizon = 8
-        config.policy.model.global_cond_dim = 2 * HAND_DIM
+        config.policy.model.global_cond_dim = 2 * OBS_DIM
         config.policy.model.down_dims = [32, 64, 128]
         config.policy.model.diffusion_step_embed_dim = 32
         config.policy.model.kernel_size = 3

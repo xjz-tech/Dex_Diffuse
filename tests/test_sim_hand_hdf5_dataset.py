@@ -352,6 +352,9 @@ def test_train_script_accepts_hdf5_manifest_dataset(tmp_path):
     env.update(
         {
             "PYTHON": "/bin/true",
+            # Skip netrc key lookup that hardcodes bare `python` (may be absent
+            # from PATH when running under conda/env interpreters).
+            "WANDB_API_KEY": "test-only",
             "DATASET_PATH": str(tmp_path),
             "WANDB_DIR": str(tmp_path / "wandb"),
             "MPLCONFIGDIR": str(tmp_path / "matplotlib"),

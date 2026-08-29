@@ -15,6 +15,7 @@ from diffusion_policy.policy.diffusion_unet_sim_hand_policy import (
 )
 
 
+OBS_DIM = 66
 HAND_DIM = 22
 
 
@@ -41,7 +42,7 @@ def _make_policy(return_full_prediction=False):
     model = ConditionalUnet1D(
         input_dim=HAND_DIM,
         local_cond_dim=None,
-        global_cond_dim=4 * HAND_DIM,
+        global_cond_dim=4 * OBS_DIM,
         diffusion_step_embed_dim=32,
         down_dims=(32, 64, 128),
         kernel_size=3,
@@ -52,7 +53,7 @@ def _make_policy(return_full_prediction=False):
         model=model,
         noise_scheduler=_scheduler(),
         horizon=12,
-        obs_dim=HAND_DIM,
+        obs_dim=OBS_DIM,
         action_dim=HAND_DIM,
         n_obs_steps=4,
         n_pred_action_steps=9,
@@ -67,7 +68,7 @@ def _make_policy(return_full_prediction=False):
 
 def test_predict_action_returns_execution_and_usable_actions_only():
     policy = _make_policy(return_full_prediction=False)
-    obs = torch.randn(2, 4, HAND_DIM)
+    obs = torch.randn(2, 4, OBS_DIM)
 
     result = policy.predict_action({"obs": obs})
 
@@ -85,7 +86,7 @@ def test_predict_action_returns_execution_and_usable_actions_only():
 def test_predict_action_debug_mode_returns_full_oa_trajectory():
     policy = _make_policy(return_full_prediction=True)
 
-    result = policy.predict_action({"obs": torch.randn(1, 4, HAND_DIM)})
+    result = policy.predict_action({"obs": torch.randn(1, 4, OBS_DIM)})
 
     assert set(result) == {"action", "action_usable", "action_pred"}
     assert result["action_pred"].shape == (1, 12, HAND_DIM)
@@ -98,7 +99,7 @@ def test_predict_action_debug_mode_returns_full_oa_trajectory():
 def test_compute_loss_is_finite_and_backpropagates():
     policy = _make_policy()
     batch = {
-        "obs": torch.randn(2, 12, HAND_DIM),
+        "obs": torch.randn(2, 12, OBS_DIM),
         "action": torch.randn(2, 12, HAND_DIM),
     }
 
@@ -113,7 +114,7 @@ def test_compute_loss_is_finite_and_backpropagates():
 def test_forward_exposes_training_loss_for_distributed_wrapping():
     policy = _make_policy()
     batch = {
-        "obs": torch.randn(2, 12, HAND_DIM),
+        "obs": torch.randn(2, 12, OBS_DIM),
         "action": torch.randn(2, 12, HAND_DIM),
     }
 
@@ -136,7 +137,7 @@ def test_policy_rejects_unet_temporal_length_mismatch():
             model=ShortTemporalModel(),
             noise_scheduler=_scheduler(),
             horizon=12,
-            obs_dim=HAND_DIM,
+            obs_dim=OBS_DIM,
             action_dim=HAND_DIM,
             n_obs_steps=4,
             n_pred_action_steps=9,

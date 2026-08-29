@@ -1,8 +1,8 @@
 name: sim_hand_lowdim
 
-# These 22 channels must preserve TAM hand joint ordering, units, absolute
-# target convention, and control timing in the future simulation converter.
-obs_dim: 22
+# DexGen-style proprio: [q, target_before, residual] = 66 channels.
+# Action remains absolute 22-D target_after.
+obs_dim: 66
 action_dim: 22
 dataset_path: data/sim_hand
 
