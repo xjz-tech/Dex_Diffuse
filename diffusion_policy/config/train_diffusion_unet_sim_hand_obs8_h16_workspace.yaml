@@ -2,15 +2,15 @@ defaults:
   - _self_
   - task: sim_hand_lowdim
 
-name: train_diffusion_unet_sim_hand
+name: train_diffusion_unet_sim_hand_obs8_h16
 _target_: diffusion_policy.workspace.train_diffusion_unet_sim_hand_workspace.TrainDiffusionUnetSimHandWorkspace
 
 task_name: ${task.name}
 obs_dim: ${task.obs_dim}
 action_dim: ${task.action_dim}
-exp_name: host_mmap
+exp_name: host_mmap_obs8_h16
 
-n_obs_steps: 4
+n_obs_steps: 8
 n_pred_action_steps: 9
 n_action_steps: 5
 horizon: ${eval:'${n_obs_steps}+${n_pred_action_steps}-1'}
@@ -105,12 +105,12 @@ training:
 
 logging:
   project: sim_hand_diffusion_policy
-  resume: True
+  resume: False
   mode: online
   name: ${now:%Y.%m.%d-%H.%M.%S}_${exp_name}_${name}_${task_name}
-  tags: ["${name}", "${task_name}", "${exp_name}", "host", "mmap"]
+  tags: ["${name}", "${task_name}", "${exp_name}", "host", "mmap", "obs8", "h16"]
   id: null
-  group: null
+  group: obs8_h16
 
 checkpoint:
   save_last_ckpt: True

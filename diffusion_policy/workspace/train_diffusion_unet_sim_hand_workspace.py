@@ -202,6 +202,7 @@ class TrainDiffusionUnetSimHandWorkspace(BaseWorkspace):
                             result = policy.predict_action(
                                 {"obs": train_sampling_batch["obs"]}
                             )
+                            # Match prior runs / DP execute window: n_action_steps.
                             target = train_sampling_batch["action"][
                                 :,
                                 policy.temporal.execution_action_slice,
