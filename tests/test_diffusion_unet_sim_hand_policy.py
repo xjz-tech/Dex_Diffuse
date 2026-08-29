@@ -110,6 +110,21 @@ def test_compute_loss_is_finite_and_backpropagates():
     assert any(parameter.grad is not None for parameter in policy.model.parameters())
 
 
+def test_forward_exposes_training_loss_for_distributed_wrapping():
+    policy = _make_policy()
+    batch = {
+        "obs": torch.randn(2, 12, HAND_DIM),
+        "action": torch.randn(2, 12, HAND_DIM),
+    }
+
+    loss = policy(batch)
+    loss.backward()
+
+    assert loss.ndim == 0
+    assert torch.isfinite(loss)
+    assert any(parameter.grad is not None for parameter in policy.model.parameters())
+
+
 class ShortTemporalModel(nn.Module):
     def forward(self, sample, timestep, local_cond=None, global_cond=None):
         return sample[:, :-1]
