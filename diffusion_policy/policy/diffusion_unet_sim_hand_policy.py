@@ -223,6 +223,9 @@ class DiffusionUnetSimHandPolicy(BaseLowdimPolicy):
     def set_normalizer(self, normalizer: LinearNormalizer) -> None:
         self.normalizer.load_state_dict(normalizer.state_dict())
 
+    def forward(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
+        return self.compute_loss(batch)
+
     def compute_loss(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
         if set(batch) != {"obs", "action"}:
             raise KeyError("Sim-Hand training batch must contain obs and action")

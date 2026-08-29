@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import copy
+from contextlib import nullcontext
+from dataclasses import dataclass
+from datetime import timedelta
 import math
+import os
 import pathlib
 import random
 
@@ -11,7 +15,10 @@ import torch
 import tqdm
 import wandb
 from omegaconf import OmegaConf
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 
 from diffusion_policy.common.json_logger import JsonLogger
 from diffusion_policy.common.pytorch_util import dict_apply, optimizer_to
@@ -32,6 +39,85 @@ from diffusion_policy.workspace.base_workspace import BaseWorkspace
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
 
+@dataclass(frozen=True)
+class DistributedContext:
+    rank: int
+    local_rank: int
+    world_size: int
+    device: torch.device
+    initialized_here: bool = False
+
+    @property
+    def enabled(self) -> bool:
+        return self.world_size > 1
+
+    @property
+    def is_main(self) -> bool:
+        return self.rank == 0
+
+
+def _initialize_distributed(
+    configured_device: str,
+    timeout_seconds: int = 1800,
+) -> DistributedContext:
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    rank = int(os.environ.get("RANK", "0"))
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    device = torch.device(configured_device)
+    initialized_here = False
+
+    if world_size > 1:
+        if device.type == "cuda":
+            device = torch.device("cuda", local_rank)
+            torch.cuda.set_device(device)
+            backend = "nccl"
+        else:
+            backend = "gloo"
+        if not dist.is_initialized():
+            dist.init_process_group(
+                backend=backend,
+                rank=rank,
+                world_size=world_size,
+                timeout=timedelta(seconds=int(timeout_seconds)),
+            )
+            initialized_here = True
+
+    return DistributedContext(
+        rank=rank,
+        local_rank=local_rank,
+        world_size=world_size,
+        device=device,
+        initialized_here=initialized_here,
+    )
+
+
+def _shutdown_distributed(context: DistributedContext) -> None:
+    if context.initialized_here and dist.is_initialized():
+        dist.destroy_process_group()
+
+
+def _make_train_dataloader(dataset, dataloader_cfg, context, seed):
+    if OmegaConf.is_config(dataloader_cfg):
+        loader_cfg = OmegaConf.to_container(dataloader_cfg, resolve=True)
+    else:
+        loader_cfg = dict(dataloader_cfg)
+    shuffle = bool(loader_cfg.pop("shuffle", False))
+    sampler = None
+    if context.enabled:
+        sampler = DistributedSampler(
+            dataset,
+            num_replicas=context.world_size,
+            rank=context.rank,
+            shuffle=shuffle,
+            seed=int(seed),
+            drop_last=True,
+        )
+        loader_cfg["sampler"] = sampler
+    else:
+        loader_cfg["shuffle"] = shuffle
+    return DataLoader(dataset, **loader_cfg), sampler
+
+
 class TrainDiffusionUnetSimHandWorkspace(BaseWorkspace):
     include_keys = ("global_step", "epoch")
 
@@ -47,7 +133,8 @@ class TrainDiffusionUnetSimHandWorkspace(BaseWorkspace):
             action_dim=cfg.action_dim,
             oa_step_convention=cfg.oa_step_convention,
         )
-        print(format_sim_hand_temporal_config(temporal))
+        if int(os.environ.get("RANK", "0")) == 0:
+            print(format_sim_hand_temporal_config(temporal))
         if int(cfg.training.checkpoint_every) <= 0:
             raise ValueError("training.checkpoint_every must be positive")
 
@@ -72,19 +159,52 @@ class TrainDiffusionUnetSimHandWorkspace(BaseWorkspace):
 
     def run(self):
         cfg = copy.deepcopy(self.cfg)
+        context = _initialize_distributed(
+            str(cfg.training.device),
+            timeout_seconds=cfg.training.distributed_timeout_seconds,
+        )
+        try:
+            self._run(cfg, context)
+        finally:
+            _shutdown_distributed(context)
+
+    def _run(self, cfg, context: DistributedContext) -> None:
         output_dir = pathlib.Path(self.output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        if context.enabled:
+            shared_output_dir = [str(output_dir) if context.is_main else None]
+            dist.broadcast_object_list(shared_output_dir, src=0)
+            output_dir = pathlib.Path(shared_output_dir[0])
+        self._output_dir = str(output_dir)
+        if context.is_main:
+            output_dir.mkdir(parents=True, exist_ok=True)
+        if context.enabled:
+            dist.barrier()
 
         if cfg.training.resume:
             latest_path = self.get_checkpoint_path()
             if latest_path.is_file():
-                print(f"Resuming from checkpoint {latest_path}")
-                self.load_checkpoint(path=latest_path)
+                if context.is_main:
+                    print(f"Resuming from checkpoint {latest_path}")
+                self.load_checkpoint(path=latest_path, map_location="cpu")
+
+        if cfg.training.debug:
+            cfg.training.num_epochs = min(int(cfg.training.num_epochs), 2)
+            cfg.training.max_train_steps = 3
+            cfg.training.max_val_steps = 3
+            cfg.training.rollout_every = 1
+            cfg.training.checkpoint_every = 1
+            cfg.training.val_every = 1
+            cfg.training.sample_every = 1
 
         dataset: BaseLowdimDataset = hydra.utils.instantiate(cfg.task.dataset)
         if not isinstance(dataset, BaseLowdimDataset):
             raise TypeError("Sim-Hand dataset must inherit BaseLowdimDataset")
-        train_dataloader = DataLoader(dataset, **cfg.dataloader)
+        train_dataloader, train_sampler = _make_train_dataloader(
+            dataset,
+            cfg.dataloader,
+            context,
+            seed=cfg.training.seed,
+        )
         val_dataset = dataset.get_validation_dataset()
         val_dataloader = DataLoader(val_dataset, **cfg.val_dataloader)
         normalizer = dataset.get_normalizer()
@@ -110,92 +230,156 @@ class TrainDiffusionUnetSimHandWorkspace(BaseWorkspace):
         if self.ema_model is not None:
             ema = hydra.utils.instantiate(cfg.ema, model=self.ema_model)
 
-        env_runner: BaseLowdimRunner = hydra.utils.instantiate(
-            cfg.task.env_runner,
-            output_dir=str(output_dir),
-        )
-        if not isinstance(env_runner, BaseLowdimRunner):
-            raise TypeError("Sim-Hand runner must inherit BaseLowdimRunner")
+        env_runner = None
+        wandb_run = None
+        if context.is_main:
+            env_runner = hydra.utils.instantiate(
+                cfg.task.env_runner,
+                output_dir=str(output_dir),
+            )
+            if not isinstance(env_runner, BaseLowdimRunner):
+                raise TypeError("Sim-Hand runner must inherit BaseLowdimRunner")
 
-        wandb_run = wandb.init(
-            dir=str(output_dir),
-            config=OmegaConf.to_container(cfg, resolve=True),
-            **cfg.logging,
-        )
-        wandb_run.config.update({"output_dir": str(output_dir)})
+            wandb_run = wandb.init(
+                dir=str(output_dir),
+                config=OmegaConf.to_container(cfg, resolve=True),
+                **cfg.logging,
+            )
+            wandb_run.config.update(
+                {
+                    "output_dir": str(output_dir),
+                    "world_size": context.world_size,
+                    "per_gpu_batch_size": int(cfg.dataloader.batch_size),
+                    "global_batch_size": (
+                        int(cfg.dataloader.batch_size) * context.world_size
+                    ),
+                }
+            )
 
-        device = torch.device(cfg.training.device)
+        device = context.device
         self.model.to(device)
         if self.ema_model is not None:
             self.ema_model.to(device)
         optimizer_to(self.optimizer, device)
+        training_model: torch.nn.Module = self.model
+        if context.enabled:
+            ddp_kwargs = {"find_unused_parameters": True}
+            if device.type == "cuda":
+                ddp_kwargs.update(
+                    device_ids=[context.local_rank],
+                    output_device=context.local_rank,
+                )
+            training_model = DistributedDataParallel(self.model, **ddp_kwargs)
 
-        if cfg.training.debug:
-            cfg.training.num_epochs = min(int(cfg.training.num_epochs), 2)
-            cfg.training.max_train_steps = 3
-            cfg.training.max_val_steps = 3
-            cfg.training.rollout_every = 1
-            cfg.training.checkpoint_every = 1
-            cfg.training.val_every = 1
-            cfg.training.sample_every = 1
+        if context.enabled:
+            rank_seed = int(cfg.training.seed) + context.rank
+            torch.manual_seed(rank_seed)
+            np.random.seed(rank_seed)
+            random.seed(rank_seed)
+
+        if context.is_main:
+            global_batch_size = (
+                int(cfg.dataloader.batch_size) * context.world_size
+            )
+            print(
+                "Sim-Hand training: "
+                f"world_size={context.world_size}, "
+                f"per_gpu_batch_size={int(cfg.dataloader.batch_size)}, "
+                f"global_batch_size={global_batch_size}, "
+                f"device={device}"
+            )
 
         train_sampling_batch = None
         log_path = output_dir / "logs.json.txt"
+        logger_context = (
+            JsonLogger(str(log_path)) if context.is_main else nullcontext()
+        )
         try:
-            with JsonLogger(str(log_path)) as json_logger:
+            with logger_context as json_logger:
                 while self.epoch < int(cfg.training.num_epochs):
                     local_epoch_idx = self.epoch
+                    if train_sampler is not None:
+                        train_sampler.set_epoch(local_epoch_idx)
                     step_log = self._train_epoch(
                         cfg,
                         train_dataloader,
                         device,
                         lr_scheduler,
                         ema,
+                        training_model,
+                        context,
                     )
-                    if train_sampling_batch is None:
-                        train_sampling_batch = next(iter(train_dataloader))
-                        train_sampling_batch = dict_apply(
-                            train_sampling_batch,
-                            lambda value: value.to(device, non_blocking=True),
-                        )
+                    if context.is_main:
+                        if train_sampling_batch is None:
+                            train_sampling_batch = next(iter(train_dataloader))
+                            train_sampling_batch = dict_apply(
+                                train_sampling_batch,
+                                lambda value: value.to(
+                                    device,
+                                    non_blocking=True,
+                                ),
+                            )
 
-                    policy = self.ema_model or self.model
-                    policy.eval()
-                    if local_epoch_idx % int(cfg.training.rollout_every) == 0:
-                        step_log.update(env_runner.run(policy))
-                    if local_epoch_idx % int(cfg.training.val_every) == 0:
-                        val_loss = self._validate_epoch(
-                            cfg,
-                            val_dataloader,
-                            device,
-                        )
-                        if val_loss is not None:
-                            step_log["val_loss"] = val_loss
-                    if local_epoch_idx % int(cfg.training.sample_every) == 0:
-                        with torch.no_grad():
-                            result = policy.predict_action(
-                                {"obs": train_sampling_batch["obs"]}
+                        policy = self.ema_model or self.model
+                        policy.eval()
+                        if (
+                            local_epoch_idx
+                            % int(cfg.training.rollout_every)
+                            == 0
+                        ):
+                            step_log.update(env_runner.run(policy))
+                        if local_epoch_idx % int(cfg.training.val_every) == 0:
+                            val_loss = self._validate_epoch(
+                                cfg,
+                                val_dataloader,
+                                device,
                             )
-                            target = train_sampling_batch["action"][
-                                :,
-                                policy.temporal.execution_action_slice,
-                            ]
-                            step_log["train_action_mse_error"] = (
-                                torch.nn.functional.mse_loss(
-                                    result["action"],
-                                    target,
-                                ).item()
-                            )
+                            if val_loss is not None:
+                                step_log["val_loss"] = val_loss
+                        if (
+                            local_epoch_idx
+                            % int(cfg.training.sample_every)
+                            == 0
+                        ):
+                            with torch.no_grad():
+                                result = policy.predict_action(
+                                    {"obs": train_sampling_batch["obs"]}
+                                )
+                                target = train_sampling_batch["action"][
+                                    :,
+                                    policy.temporal.execution_action_slice,
+                                ]
+                                step_log["train_action_mse_error"] = (
+                                    torch.nn.functional.mse_loss(
+                                        result["action"],
+                                        target,
+                                    ).item()
+                                )
 
                     self.epoch += 1
-                    step_log["epoch"] = self.epoch
-                    step_log["global_step"] = self.global_step
-                    self._save_epoch_checkpoints(cfg)
-                    wandb_run.log(step_log, step=self.global_step)
-                    json_logger.log(step_log)
-                    policy.train()
+                    if context.is_main:
+                        step_log.update(
+                            {
+                                "epoch": self.epoch,
+                                "global_step": self.global_step,
+                                "world_size": context.world_size,
+                                "per_gpu_batch_size": int(
+                                    cfg.dataloader.batch_size
+                                ),
+                                "global_batch_size": (
+                                    int(cfg.dataloader.batch_size)
+                                    * context.world_size
+                                ),
+                            }
+                        )
+                        self._save_epoch_checkpoints(cfg)
+                        wandb_run.log(step_log, step=self.global_step)
+                        json_logger.log(step_log)
+                    if context.enabled:
+                        dist.barrier()
         finally:
-            wandb_run.finish()
+            if wandb_run is not None:
+                wandb_run.finish()
 
     def _train_epoch(
         self,
@@ -204,6 +388,8 @@ class TrainDiffusionUnetSimHandWorkspace(BaseWorkspace):
         device,
         lr_scheduler,
         ema: EMAModel | None,
+        training_model: torch.nn.Module,
+        context: DistributedContext,
     ) -> dict:
         self.model.train()
         self.optimizer.zero_grad(set_to_none=True)
@@ -214,16 +400,13 @@ class TrainDiffusionUnetSimHandWorkspace(BaseWorkspace):
             desc=f"Training epoch {self.epoch}",
             leave=False,
             mininterval=cfg.training.tqdm_interval_sec,
+            disable=not context.is_main,
         ) as progress:
             for batch_idx, batch in enumerate(progress):
                 batch = dict_apply(
                     batch,
                     lambda value: value.to(device, non_blocking=True),
                 )
-                raw_loss = self.model.compute_loss(batch)
-                (raw_loss / cfg.training.gradient_accumulate_every).backward()
-                losses.append(raw_loss.item())
-
                 reached_limit = (
                     max_steps is not None and batch_idx + 1 >= int(max_steps)
                 )
@@ -234,6 +417,16 @@ class TrainDiffusionUnetSimHandWorkspace(BaseWorkspace):
                     == 0
                     or is_last
                 )
+                sync_context = nullcontext()
+                if context.enabled and not should_step:
+                    sync_context = training_model.no_sync()
+                with sync_context:
+                    raw_loss = training_model(batch)
+                    (
+                        raw_loss / cfg.training.gradient_accumulate_every
+                    ).backward()
+                losses.append(raw_loss.item())
+
                 if should_step:
                     self.optimizer.step()
                     self.optimizer.zero_grad(set_to_none=True)
@@ -248,8 +441,15 @@ class TrainDiffusionUnetSimHandWorkspace(BaseWorkspace):
 
         if not losses:
             raise RuntimeError("Sim-Hand training dataset produced no batches")
+        loss_stats = torch.tensor(
+            [sum(losses), len(losses)],
+            device=device,
+            dtype=torch.float64,
+        )
+        if context.enabled:
+            dist.all_reduce(loss_stats, op=dist.ReduceOp.SUM)
         return {
-            "train_loss": float(np.mean(losses)),
+            "train_loss": (loss_stats[0] / loss_stats[1]).item(),
             "lr": lr_scheduler.get_last_lr()[0],
         }
 

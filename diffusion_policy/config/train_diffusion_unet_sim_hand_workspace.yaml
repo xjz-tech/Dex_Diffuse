@@ -11,9 +11,13 @@ action_dim: ${task.action_dim}
 exp_name: default
 
 n_obs_steps: 4
-n_pred_action_steps: 9
+n_pred_action_steps: 61
 n_action_steps: 5
 horizon: ${eval:'${n_obs_steps}+${n_pred_action_steps}-1'}
+# Keep the per-GPU temporal-element budget close to the original
+# 61440 x 12 setting. Use 10240-sample boundaries for large batches,
+# falling back to 1024-sample boundaries for longer horizons.
+batch_size: ${eval:'max(1024, ((737280 // ${horizon}) // (10240 if (737280 // ${horizon}) >= 10240 else 1024)) * (10240 if (737280 // ${horizon}) >= 10240 else 1024))'}
 obs_as_global_cond: True
 oa_step_convention: True
 
@@ -61,15 +65,15 @@ ema:
   max_value: 0.9999
 
 dataloader:
-  # Sized for A100-80GB low-dim UNet: ~60GB+ reserved VRAM (probed).
-  batch_size: 61440
+  # Per-GPU batch. The global DDP batch is batch_size x world_size.
+  batch_size: ${batch_size}
   num_workers: 8
   shuffle: True
   pin_memory: True
   persistent_workers: False
 
 val_dataloader:
-  batch_size: 61440
+  batch_size: ${batch_size}
   num_workers: 8
   shuffle: False
   pin_memory: True
@@ -84,6 +88,8 @@ optimizer:
 
 training:
   device: cuda:0
+  # Rank 0 may run full validation, sampling, and checkpointing while peers wait.
+  distributed_timeout_seconds: 7200
   seed: 42
   debug: False
   resume: True
