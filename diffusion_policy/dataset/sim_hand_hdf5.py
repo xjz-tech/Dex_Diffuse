@@ -10,9 +10,11 @@ from diffusion_policy.common.replay_buffer import ReplayBuffer
 
 
 HAND_DIM = 22
+OBS_DIM = 66
 SCHEMA_VERSION = 1
 HDF5_FIELDS = (
     "robot/qpos",
+    "robot/target_before",
     "robot/target_after",
     "index/episode_id",
     "index/env_id",
@@ -25,6 +27,7 @@ HDF5_FIELDS = (
 )
 HDF5_FIELD_DTYPES = {
     "robot/qpos": np.float32,
+    "robot/target_before": np.float32,
     "robot/target_after": np.float32,
     "index/episode_id": np.int64,
     "index/env_id": np.int32,
@@ -35,6 +38,11 @@ HDF5_FIELD_DTYPES = {
     "index/timeout": np.bool_,
     "index/reset_reason": np.int8,
 }
+_ROBOT_TRAINING_FIELDS = (
+    "robot/qpos",
+    "robot/target_before",
+    "robot/target_after",
+)
 
 
 def load_sim_hand_hdf5(
@@ -160,7 +168,7 @@ def load_sim_hand_hdf5(
                         f"HDF5 field {key} must use {expected_dtype}, "
                         f"got {dataset.dtype}"
                     )
-                if key in ("robot/qpos", "robot/target_after") and (
+                if key in _ROBOT_TRAINING_FIELDS and (
                     dataset.ndim != 2 or dataset.shape[1] != HAND_DIM
                 ):
                     raise ValueError(
@@ -186,7 +194,7 @@ def load_sim_hand_hdf5(
     for key in HDF5_FIELDS:
         shape = (
             (declared_total, HAND_DIM)
-            if key in ("robot/qpos", "robot/target_after")
+            if key in _ROBOT_TRAINING_FIELDS
             else (declared_total,)
         )
         arrays[key] = np.empty(shape, dtype=HDF5_FIELD_DTYPES[key])
@@ -218,6 +226,7 @@ def load_sim_hand_hdf5(
         )
     )
     qpos = arrays.pop("robot/qpos")
+    target_before = arrays.pop("robot/target_before")
     target_after = arrays.pop("robot/target_after")
     episode_id = arrays["index/episode_id"][order]
     env_id = arrays["index/env_id"][order]
@@ -264,14 +273,21 @@ def load_sim_hand_hdf5(
         kept_offset += episode_length
     replay_episode_ends = np.cumsum(kept_lengths, dtype=np.int64)
     source_rows = order[kept_rows]
-    hand_joint = qpos[source_rows]
-    del qpos
+    qpos = qpos[source_rows]
+    target_before = target_before[source_rows]
     action = target_after[source_rows]
     del target_after
+    obs = np.concatenate(
+        (qpos, target_before, target_before - qpos),
+        axis=-1,
+    ).astype(np.float32, copy=False)
+    del qpos
+    del target_before
+    assert obs.shape[1] == OBS_DIM
 
     replay_root = {
         "data": {
-            "hand_joint": hand_joint,
+            "obs": obs,
             "action": action,
         },
         "meta": {
