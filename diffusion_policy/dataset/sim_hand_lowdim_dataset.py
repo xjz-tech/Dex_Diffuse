@@ -21,14 +21,16 @@ from diffusion_policy.model.common.normalizer import LinearNormalizer
 
 
 HAND_DIM = 22
-REQUIRED_KEYS = ("hand_joint", "action")
+OBS_DIM = 66
+REQUIRED_KEYS = ("obs", "action")
 
 
 class SimHandLowdimDataset(BaseLowdimDataset):
-    """Hand-only trajectories loaded from standardized Zarr or rollout HDF5.
+    """Hand trajectories from standardized Zarr or DexGen-style rollout HDF5.
 
-    HDF5 inputs map ``robot/qpos`` to observations and
-    ``robot/target_after`` to absolute 22-D action targets. HDF5 episodes are
+    Observations are 66-D proprioception composed as
+    ``[qpos(22), target_before(22), residual=target_before-qpos(22)]``.
+    Actions are absolute 22-D ``target_after`` targets. HDF5 episodes are
     reconstructed from ``episode_id``, ``env_id``, and ``step``. Outcome flags
     on disk are ignored; episodes shorter than ``horizon`` are dropped.
     """
@@ -50,7 +52,16 @@ class SimHandLowdimDataset(BaseLowdimDataset):
         if os.path.isdir(zarr_path):
             root = zarr.open_group(zarr_path, mode="r")
             self._validate_replay_group(root)
-            replay_buffer = ReplayBuffer.create_from_group(root)
+            # Load into a numpy-backed ReplayBuffer. Zarr 3 Groups no longer
+            # expose Mapping.items(), which ReplayBuffer.create_from_group uses.
+            data = {key: np.asarray(root["data"][key][:]) for key in REQUIRED_KEYS}
+            episode_ends = np.asarray(root["meta/episode_ends"][:])
+            replay_buffer = ReplayBuffer(
+                root={
+                    "data": data,
+                    "meta": {"episode_ends": episode_ends},
+                }
+            )
         elif os.path.isfile(manifest_path):
             replay_buffer = load_sim_hand_hdf5(
                 expanded_path,
@@ -95,22 +106,25 @@ class SimHandLowdimDataset(BaseLowdimDataset):
                 f"Missing Sim-Hand replay-buffer keys: {sorted(missing)}"
             )
 
-        hand_joint = data["hand_joint"]
+        obs = data["obs"]
         action = data["action"]
-        for key, array in (("hand_joint", hand_joint), ("action", action)):
+        for key, array, expected_dim in (
+            ("obs", obs, OBS_DIM),
+            ("action", action, HAND_DIM),
+        ):
             if np.dtype(array.dtype) != np.dtype(np.float32):
                 raise TypeError(
                     f"{key} must use float32, got {array.dtype}"
                 )
-            if len(array.shape) != 2 or array.shape[1] != HAND_DIM:
+            if len(array.shape) != 2 or array.shape[1] != expected_dim:
                 raise ValueError(
-                    f"{key} must have shape (N, {HAND_DIM}), got {array.shape}"
+                    f"{key} must have shape (N, {expected_dim}), got {array.shape}"
                 )
 
-        if hand_joint.shape[0] != action.shape[0]:
+        if obs.shape[0] != action.shape[0]:
             raise ValueError(
-                "hand_joint and action must contain the same number of steps, "
-                f"got {hand_joint.shape[0]} and {action.shape[0]}"
+                "obs and action must contain the same number of steps, "
+                f"got {obs.shape[0]} and {action.shape[0]}"
             )
 
         episode_ends_array = root["meta/episode_ends"]
@@ -124,7 +138,7 @@ class SimHandLowdimDataset(BaseLowdimDataset):
             raise ValueError("episode_ends must be a non-empty 1-D array")
         if episode_ends[0] <= 0 or np.any(np.diff(episode_ends) <= 0):
             raise ValueError("episode_ends must be strictly increasing")
-        n_steps = hand_joint.shape[0]
+        n_steps = obs.shape[0]
         if int(episode_ends[-1]) != n_steps:
             raise ValueError(
                 f"The final episode end must equal {n_steps}, got "
@@ -150,7 +164,7 @@ class SimHandLowdimDataset(BaseLowdimDataset):
         normalizer = LinearNormalizer()
         normalizer.fit(
             data={
-                "obs": self.replay_buffer["hand_joint"],
+                "obs": self.replay_buffer["obs"],
                 "action": self.replay_buffer["action"],
             },
             last_n_dims=1,
@@ -168,7 +182,7 @@ class SimHandLowdimDataset(BaseLowdimDataset):
     def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
         sample = self.sampler.sample_sequence(index)
         data = {
-            "obs": sample["hand_joint"],
+            "obs": sample["obs"],
             "action": sample["action"],
         }
         return dict_apply(data, torch.from_numpy)
