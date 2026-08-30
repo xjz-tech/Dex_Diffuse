@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Non-blocking hold-last-action evaluator for Sim-Hand Diffusion Policy.
+"""ZeroMQ evaluator for Sim-Hand Diffusion Policy.
 
 The simulator and model run in separate processes connected by ZeroMQ.  After
 five model actions have executed, the simulator sends its latest four-state
-history and continues stepping PhysX with the final absolute action target.
-When the next five-action chunk arrives, it is consumed from index zero.  Model
-latency therefore creates a hold interval, never a simulator or viewer pause.
+history.  It can either keep stepping with the final action target (WAIT=0) or
+freeze physics/rendering until the next action chunk arrives (WAIT=1).
 """
 
 from __future__ import annotations
@@ -46,16 +45,20 @@ from sim_eval import (  # noqa: E402
     ACTION_STEPS,
     HAND_DIM,
     OBS_STEPS,
+    _add_reset_arguments,
     _absolute_targets_to_env_action,
     _expand_data_indices,
+    _import_local_maniptrans,
     _install_sharpa_asset_override,
     _load_manifest,
     _make_recording_config,
     _make_task_config,
+    _reset_overrides_from_args,
     _resolve_sharpa_urdf,
     _restore_sharpa_asset_override,
     _validate_environment,
     _validate_inputs,
+    _validate_reset_args,
 )
 
 
@@ -72,8 +75,8 @@ EXPECTED_POLICY_SPEC = {
 def _parse_args():
     parser = argparse.ArgumentParser(
         description=(
-            "Evaluate Sim-Hand DP with ZeroMQ inference and non-blocking "
-            "hold-last-action simulation."
+            "Evaluate Sim-Hand DP with ZeroMQ inference and selectable "
+            "hold-last-action or wait-at-chunk-boundary simulation."
         )
     )
     parser.add_argument("--controller-root", required=True)
@@ -93,6 +96,17 @@ def _parse_args():
     parser.add_argument("--max-steps", type=int, default=0)
     parser.add_argument("--print-every", type=int, default=25)
     parser.add_argument("--request-timeout", type=float, default=600.0)
+    parser.add_argument(
+        "--wait",
+        type=int,
+        choices=(0, 1),
+        default=0,
+        dest="wait_for_policy",
+        help=(
+            "0: keep stepping/rendering with the last target during inference; "
+            "1: pause physics/rendering at chunk boundaries until a reply arrives."
+        ),
+    )
     parser.add_argument(
         "--control-hz",
         type=float,
@@ -121,6 +135,7 @@ def _parse_args():
     parser.add_argument("--record-camera-fov", type=float, default=60.0)
     parser.add_argument("--record-axis-length", type=float, default=0.20)
     parser.add_argument("--record-axis-thickness", type=float, default=0.008)
+    _add_reset_arguments(parser)
 
     parser.set_defaults(randomize_demo_on_failure=True)
     parser.add_argument(
@@ -132,6 +147,7 @@ def _parse_args():
 
 
 def _validate_parallel_args(args):
+    _validate_reset_args(args)
     if not np.isfinite(args.control_hz) or args.control_hz <= 0.0:
         raise ValueError("--control-hz must be finite and positive")
     if not np.isfinite(args.render_hz) or args.render_hz <= 0.0:
@@ -447,6 +463,14 @@ class FixedControlPacer:
         self.last_start = started
         return started
 
+    def restart_after_pause(self):
+        """Drop only a deadline that expired during an intentional pause."""
+        if (
+            self.last_start is not None
+            and time.monotonic() >= self.last_start + self.period
+        ):
+            self.last_start = None
+
     @property
     def measured_hz(self):
         if self.interval_count == 0 or self.interval_seconds <= 0.0:
@@ -485,9 +509,7 @@ def run(args):
     recording_config = _make_recording_config(args) if args.recording else None
 
     os.chdir(str(controller_root))
-    if str(controller_root) not in sys.path:
-        sys.path.insert(0, str(controller_root))
-    import maniptrans_envs.lib as maniptrans_envs_lib
+    maniptrans_envs_lib = _import_local_maniptrans(controller_root)
 
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
@@ -499,6 +521,7 @@ def run(args):
         data_indices,
         data_root,
         retarget_root,
+        _reset_overrides_from_args(args),
     )
     print(
         "[sim-para] creating bulb2 task | envs=%d trajectories=%d "
@@ -575,6 +598,8 @@ def run(args):
         max_hold_steps = 0
         total_inference_time = 0.0
         total_roundtrip_time = 0.0
+        policy_waits = 0
+        total_policy_wait_time = 0.0
         total_env_step_time = 0.0
         max_env_step_time = 0.0
         capture_calls = 0
@@ -589,6 +614,63 @@ def run(args):
         pacer = FixedControlPacer(args.control_hz, args.deadline_tolerance_ms)
         started = time.monotonic()
 
+        def consume_policy_reply():
+            nonlocal active_chunk
+            nonlocal chunk_cursor
+            nonlocal chunks_received
+            nonlocal replan_needed
+            nonlocal responses_received
+            nonlocal stale_replies
+            nonlocal total_inference_time
+            nonlocal total_roundtrip_time
+
+            received = client.poll_action(args.num_envs)
+            if received is None:
+                return False
+
+            responses_received += 1
+            total_inference_time += received["inference_seconds"]
+            total_roundtrip_time += received["roundtrip_seconds"]
+            pending = received["pending"]
+            if pending.generation != generation:
+                stale_replies += 1
+                replan_needed = True
+                print(
+                    "[sim-para] discarded stale action chunk | "
+                    "request=%d request_generation=%d current_generation=%d"
+                    % (
+                        pending.request_id,
+                        pending.generation,
+                        generation,
+                    ),
+                    flush=True,
+                )
+            else:
+                if active_chunk is not None:
+                    raise RuntimeError(
+                        "received a policy chunk while another is active"
+                    )
+                active_chunk = received["action"]
+                chunk_cursor = 0
+                chunks_received += 1
+                replan_needed = False
+            return True
+
+        def submit_latest_state_if_needed():
+            nonlocal replan_needed
+            nonlocal requests_sent
+
+            if args.max_steps and step >= args.max_steps:
+                return
+            if (
+                replan_needed
+                and client.pending is None
+                and active_chunk is None
+            ):
+                client.submit(history, generation, step)
+                requests_sent += 1
+                replan_needed = False
+
         sim_control_hz = 1.0 / (float(env.dt) * int(env.control_freq_inv))
         if not np.isclose(sim_control_hz, args.control_hz, rtol=0.0, atol=1e-3):
             print(
@@ -598,56 +680,57 @@ def run(args):
                 flush=True,
             )
 
-        print(
-            "[sim-para] chunk_boundary_hold | execute 5 actions, send latest "
-            "state, then keep stepping with action[4] until the next chunk; "
-            "press Q/Esc, close viewer, or Ctrl-C to stop",
-            flush=True,
-        )
+        if args.wait_for_policy:
+            print(
+                "[sim-para] chunk_boundary_wait | execute 5 actions, send "
+                "latest state, then pause PhysX/rendering until the next chunk; "
+                "Q/Esc events are still polled",
+                flush=True,
+            )
+        else:
+            print(
+                "[sim-para] chunk_boundary_hold | execute 5 actions, send "
+                "latest state, then keep stepping with action[4] until the "
+                "next chunk; press Q/Esc, close viewer, or Ctrl-C to stop",
+                flush=True,
+            )
 
         with torch.no_grad():
             while args.max_steps == 0 or step < args.max_steps:
+                if args.wait_for_policy and active_chunk is None:
+                    # WAIT=1 deliberately freezes simulation time and drawing at
+                    # a chunk boundary. Only IPC and viewer quit events are
+                    # serviced until a current-generation chunk is available.
+                    if client.pending is None and not replan_needed:
+                        replan_needed = True
+                    submit_latest_state_if_needed()
+
+                    wait_started = time.monotonic()
+                    policy_waits += 1
+                    while active_chunk is None:
+                        # Give a simultaneous Q/viewer-close event priority over
+                        # a newly ready policy reply so no extra step is run.
+                        if renderer.poll_events():
+                            break
+                        consume_policy_reply()
+                        submit_latest_state_if_needed()
+                        if active_chunk is not None:
+                            break
+                        time.sleep(0.002)
+                    total_policy_wait_time += time.monotonic() - wait_started
+                    # A long intentional wait is not a missed deadline. An
+                    # unusually early reply still observes the remaining part
+                    # of the current control period.
+                    pacer.restart_after_pause()
+                    if renderer.poll_events():
+                        break
+
                 tick_started = pacer.wait_for_tick(renderer)
                 if tick_started is None or renderer.quit_requested:
                     break
 
-                received = client.poll_action(args.num_envs)
-                if received is not None:
-                    responses_received += 1
-                    total_inference_time += received["inference_seconds"]
-                    total_roundtrip_time += received["roundtrip_seconds"]
-                    pending = received["pending"]
-                    if pending.generation != generation:
-                        stale_replies += 1
-                        replan_needed = True
-                        print(
-                            "[sim-para] discarded stale action chunk | "
-                            "request=%d request_generation=%d current_generation=%d"
-                            % (
-                                pending.request_id,
-                                pending.generation,
-                                generation,
-                            ),
-                            flush=True,
-                        )
-                    else:
-                        if active_chunk is not None:
-                            raise RuntimeError(
-                                "received a policy chunk while another is active"
-                            )
-                        active_chunk = received["action"]
-                        chunk_cursor = 0
-                        chunks_received += 1
-                        replan_needed = False
-
-                if (
-                    replan_needed
-                    and client.pending is None
-                    and active_chunk is None
-                ):
-                    client.submit(history, generation, step)
-                    requests_sent += 1
-                    replan_needed = False
+                consume_policy_reply()
+                submit_latest_state_if_needed()
 
                 executing_chunk = active_chunk is not None
                 if executing_chunk:
@@ -705,6 +788,11 @@ def run(args):
                 if recording_runtime is not None:
                     capture_started = time.monotonic()
                     recording_runtime.update_axes()
+                    # Match the original serial recorder: register Isaac Gym
+                    # Lines API geometry before render_all_camera_sensors().
+                    # This build then renders the native lines into both the
+                    # viewer and the recording camera; no 2D axis compositing.
+                    recording_runtime._draw_viewer_axes(env.control_steps)
                     recording_runtime.capture_if_active()
                     capture_seconds = time.monotonic() - capture_started
                     capture_calls += 1
@@ -802,14 +890,7 @@ def run(args):
                     # an absolute target from the previous episode.
                     hold_targets[reset_ids_np] = qpos[reset_ids_np]
 
-                if (
-                    replan_needed
-                    and client.pending is None
-                    and active_chunk is None
-                ):
-                    client.submit(history, generation, step)
-                    requests_sent += 1
-                    replan_needed = False
+                submit_latest_state_if_needed()
 
                 if args.print_every and step % args.print_every == 0:
                     elapsed = max(time.monotonic() - started, 1e-9)
@@ -837,7 +918,12 @@ def run(args):
                         else 0.0
                     )
                     hold_ratio = hold_steps / float(step)
-                    next_mode = "action" if active_chunk is not None else "hold"
+                    if active_chunk is not None:
+                        next_mode = "action"
+                    elif args.wait_for_policy:
+                        next_mode = "wait"
+                    else:
+                        next_mode = "hold"
                     cprint(
                         "[sim-para] progress | steps=%d target_hz=%.2f "
                         "control_hz=%.2f wall_hz=%.2f target_render_hz=%.2f "
@@ -847,7 +933,8 @@ def run(args):
                         "mean_capture_ms=%.2f max_capture_ms=%.2f requests=%d "
                         "responses=%d chunks=%d chunks_completed=%d "
                         "chunks_aborted=%d mean_inference=%.3fs "
-                        "mean_roundtrip=%.3fs action_steps=%d hold_steps=%d "
+                        "mean_roundtrip=%.3fs wait_mode=%d policy_waits=%d "
+                        "policy_wait=%.2fs action_steps=%d hold_steps=%d "
                         "hold_ratio=%.3f hold_events=%d max_hold_steps=%d "
                         "stale_replies=%d pending=%d next_mode=%s object_drops=%d "
                         "object_pose_resets=%d"
@@ -873,6 +960,9 @@ def run(args):
                             chunks_aborted,
                             mean_inference,
                             mean_roundtrip,
+                            args.wait_for_policy,
+                            policy_waits,
+                            total_policy_wait_time,
                             action_steps,
                             hold_steps,
                             hold_ratio,

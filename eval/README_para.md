@@ -15,14 +15,16 @@ Common overrides:
 NUM_ENV=8 RECORD_ENV=0 CONTROL_HZ=30 RENDER_HZ=30 \
   bash eval/eval_para.sh
 
+WAIT=1 bash eval/eval_para.sh
+
 RECORDING=0 HEADLESS=1 MAX_STEPS=100 PRINT_EVERY=25 \
   bash eval/eval_para.sh
 ```
 
-## Chunk-boundary hold semantics
+## Chunk-boundary modes
 
-The checkpoint returns a five-action chunk. The simulator uses this state
-machine for the full environment batch:
+The checkpoint returns a five-action chunk. `WAIT=0` is the default and retains
+the non-blocking behavior:
 
 1. At startup it sends the edge-padded four-state history to the model.
 2. Before the first result arrives, every control tick holds the current joint
@@ -34,6 +36,13 @@ machine for the full environment batch:
    not wait or pause physics. The next chunk starts at `action[0]` when it is
    received.
 
+With `WAIT=1`, steps 1, 3 and 4 are unchanged. At startup and after each chunk,
+the simulator waits for the current request instead of repeating a target.
+During that wait it does not call `env.step()`, capture a recording frame, or
+draw the viewer, so both simulation time and the displayed frame are frozen.
+It only polls ZeroMQ and Q/Esc/viewer-close events. Once the reply arrives, the
+next chunk starts immediately from `action[0]`.
+
 The sim-side DEALER socket is polled non-blockingly and allows at most one
 in-flight request. The model-side ROUTER performs blocking CUDA inference in
 its own process. Messages use versioned JSON metadata and raw little-endian
@@ -42,16 +51,20 @@ float32 arrays; no pickle or Python objects cross the Python 3.8/3.10 boundary.
 If any environment resets, the full-batch chunk is invalidated. Reset histories
 are padded from their new qpos and those environments hold their new initial
 targets. An in-flight reply from an older generation is discarded, then a
-fresh latest-state request is sent. Physics/rendering continue throughout.
+fresh latest-state request is sent. `WAIT=0` continues physics/rendering while
+that request is in flight; `WAIT=1` pauses them.
 
 ## Timing and GPU isolation
 
-- `CONTROL_HZ=30` targets PhysX/action starts. A model hold is still a normal
-  `env.step()`, not a paused interval.
+- `CONTROL_HZ=30` targets PhysX/action starts. With `WAIT=0`, a model hold is
+  still a normal `env.step()`. With `WAIT=1`, intentional policy waits are
+  excluded from control intervals and deadline-miss accounting.
 - `RENDER_HZ=30` targets viewer draws on the Isaac Gym main thread, including
-  draws between slower control deadlines when time is available.
+  draws between slower control deadlines when time is available. `WAIT=1`
+  deliberately performs no draws while waiting for the model.
 - `RECORD_FPS=30` controls MP4 encoding. The recorder continues capturing
-  control steps while the last action is held.
+  control steps while the last action is held in `WAIT=0`; `WAIT=1` adds no
+  recording frames during a model wait.
 - `MODEL_CUDA_VISIBLE_DEVICES` and `SIM_CUDA_VISIBLE_DEVICES` can isolate model
   and simulation on different physical GPUs. Each process normally continues
   to address its visible device as `cuda:0`.
@@ -74,8 +87,8 @@ impossible without reducing work or separating GPUs.
 
 ## Progress fields
 
-- `control_hz` / `wall_hz`: paced control-start rate and overall simulated-step
-  throughput;
+- `control_hz` / `wall_hz`: active paced control-start rate and overall
+  simulated-step throughput. In `WAIT=1`, only `wall_hz` includes model waits;
 - `render_hz`: actual viewer draws over wall time;
 - `deadline_misses` / `max_lag_ms`: control deadlines missed by local workload;
 - `mean_env_step_ms`, `mean_draw_ms`, `mean_capture_ms` and maxima: PhysX/task,
@@ -84,10 +97,13 @@ impossible without reducing work or separating GPUs.
 - `chunks`, `chunks_completed`, `chunks_aborted`: accepted, fully executed and
   reset-invalidated action chunks;
 - `mean_inference` / `mean_roundtrip`: model compute and end-to-end IPC latency;
+- `wait_mode` / `policy_waits` / `policy_wait`: configured mode, number of
+  chunk-boundary waits and their cumulative wall time;
 - `action_steps` / `hold_steps` / `hold_ratio`: learned chunk actions versus
   repeated last-action simulation steps;
 - `stale_replies`: replies discarded because a reset changed the generation;
-- `pending` / `mode`: current in-flight request and `action`/`hold` state;
+- `pending` / `next_mode`: current in-flight request and upcoming
+  `action`/`hold`/`wait` state;
 - `object_drops` / `object_pose_resets`: cumulative full-batch environment
   counters.
 

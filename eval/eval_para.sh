@@ -6,7 +6,7 @@ DEX_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
 CONTROLLER_ROOT="${CONTROLLER_ROOT:-/mnt/work/dexIL/dex-controller}"
 DATA_ROOT="${DATA_ROOT:-${DEX_ROOT}/data}"
-ASSETS_ROOT="${ASSETS_ROOT:-${DEX_ROOT}/assets}"
+ASSETS_ROOT="${ASSETS_ROOT:-${DEX_ROOT}/maniptrans_envs/assets}"
 SIM_DATASET="${SIM_DATASET:-${DATA_ROOT}/sim_data/bulb2/20260827175545}"
 SIM_CONFIG="${SIM_CONFIG:-${SIM_DATASET}/hydra_config.yaml}"
 CKPT_PATH="${CKPT_PATH:-${DEX_ROOT}/runs/step_01700000.ckpt}"
@@ -28,13 +28,32 @@ done
 NUM_ENV="${NUM_ENV:-${NUM_ENVS:-1}}"
 RECORD_ENV="${RECORD_ENV:-0}"
 MAX_STEPS="${MAX_STEPS:-0}"
-PRINT_EVERY="${PRINT_EVERY:-25}"
+PRINT_EVERY="${PRINT_EVERY:-100}"
 HEADLESS="${HEADLESS:-0}"
 RANDOMIZE_DEMO_ON_FAILURE="${RANDOMIZE_DEMO_ON_FAILURE:-1}"
 
-# Fixed-rate hold-last-action loop. Model latency never deliberately pauses
-# PhysX: after a five-action chunk, the final absolute target is repeated until
-# the asynchronously inferred next chunk arrives.
+# Episode reset conditions (all pose errors are relative to the current target).
+# Position/tip/rotation failures accumulate bad frames; regular targets allow
+# FAILURE_TOLERANCE_SCALE * abs(skipSteps), while cross targets use the fixed
+# tolerance. INVALID_OBJ_POS_THRES_M bypasses that tolerance and resets at once.
+# TRAJ_STEPS_LIMIT is a full-trajectory success reset. RESET_ON_REACH_GOAL=1
+# additionally resets after every stable target reach; 0 only advances target.
+FAILURE_OBJ_POS_THRES_M="${FAILURE_OBJ_POS_THRES_M:-0.05}" #0.012
+FAILURE_TIP_POS_THRES_M="${FAILURE_TIP_POS_THRES_M:-0.1}" #0.036
+FAILURE_OBJ_ROT_THRES_DEG="${FAILURE_OBJ_ROT_THRES_DEG:-180.0}" #180.0
+INVALID_OBJ_POS_THRES_M="${INVALID_OBJ_POS_THRES_M:-0.15}" #0.15
+FAILURE_TOLERANCE_SCALE="${FAILURE_TOLERANCE_SCALE:-10000.0}" #1.0
+FIXED_TOLERANCE_STEPS="${FIXED_TOLERANCE_STEPS:-20000}" #200
+TRAJ_STEPS_LIMIT="${TRAJ_STEPS_LIMIT:-12000}"
+RESET_ON_REACH_GOAL="${RESET_ON_REACH_GOAL:-0}"
+# Keep dex-controller's cross-trajectory target branch enabled, but make its
+# random cross-demo selection impossible during this evaluation.
+CROSS_TRAJECTORY_GOAL_PROB="${CROSS_TRAJECTORY_GOAL_PROB:-0.3}"
+
+# WAIT=0 keeps PhysX/render running with the last action while inference is in
+# flight. WAIT=1 freezes PhysX/render at each chunk boundary until inference is
+# ready (viewer quit events are still serviced).
+WAIT="${WAIT:-1}"
 CONTROL_HZ="${CONTROL_HZ:-30}"
 RENDER_HZ="${RENDER_HZ:-30}"
 DEADLINE_TOLERANCE_MS="${DEADLINE_TOLERANCE_MS:-2.0}"
@@ -57,7 +76,8 @@ SIM_DEVICE="${SIM_DEVICE:-cuda:0}"
 RL_DEVICE="${RL_DEVICE:-cuda:0}"
 GRAPHICS_DEVICE_ID="${GRAPHICS_DEVICE_ID:-0}"
 SEED="${SEED:-42}"
-INFERENCE_STEPS="${INFERENCE_STEPS:-}"
+SAMPLER="${SAMPLER:-ddim}"
+INFERENCE_STEPS="${INFERENCE_STEPS:-8}"
 ALLOW_SALVAGE="${ALLOW_SALVAGE:-1}"
 MODEL_WARMUP="${MODEL_WARMUP:-1}"
 STARTUP_TIMEOUT="${STARTUP_TIMEOUT:-180}"
@@ -79,6 +99,11 @@ die() {
 [[ -d "${NOKOV3_RETARGET_DIR}/mano2sharpa_rh/bulb2" ]] || die "bulb2 retarget data not found under ${NOKOV3_RETARGET_DIR}"
 [[ -f "${SHARPA_ASSET_DIR}/v3right_sharpa_wave-forhammer5.urdf" ]] || die "SharpA URDF not found under ${SHARPA_ASSET_DIR}"
 [[ "${STARTUP_TIMEOUT}" =~ ^[0-9]+$ ]] || die "STARTUP_TIMEOUT must be an integer"
+[[ "${SAMPLER}" == "ddpm" || "${SAMPLER}" == "ddim" ]] || die "SAMPLER must be ddpm or ddim"
+[[ "${WAIT}" =~ ^[01]$ ]] || die "WAIT must be 0 or 1"
+[[ "${FIXED_TOLERANCE_STEPS}" =~ ^[1-9][0-9]*$ ]] || die "FIXED_TOLERANCE_STEPS must be a positive integer"
+[[ "${TRAJ_STEPS_LIMIT}" =~ ^[1-9][0-9]*$ ]] || die "TRAJ_STEPS_LIMIT must be a positive integer"
+[[ "${RESET_ON_REACH_GOAL}" =~ ^[01]$ ]] || die "RESET_ON_REACH_GOAL must be 0 or 1"
 [[ "${NUM_ENV}" =~ ^[1-9][0-9]*$ ]] || die "NUM_ENV must be a positive integer"
 [[ "${RECORD_ENV}" =~ ^(0|[1-9][0-9]*)$ ]] || die "RECORD_ENV must be a non-negative integer"
 (( RECORD_ENV < NUM_ENV )) || die "RECORD_ENV must be in [0, NUM_ENV), got RECORD_ENV=${RECORD_ENV} NUM_ENV=${NUM_ENV}"
@@ -120,6 +145,7 @@ MODEL_ARGS=(
     --socket "${SOCKET_PATH}"
     --device "${MODEL_DEVICE}"
     --seed "${SEED}"
+    --sampler "${SAMPLER}"
 )
 if [[ -n "${INFERENCE_STEPS}" ]]; then
     MODEL_ARGS+=(--inference-steps "${INFERENCE_STEPS}")
@@ -132,6 +158,7 @@ if [[ "${MODEL_WARMUP}" == "0" ]]; then
 fi
 
 echo "[eval-para] checkpoint: ${CKPT_PATH}"
+echo "[eval-para] sampler: ${SAMPLER} inference_steps=${INFERENCE_STEPS}"
 echo "[eval-para] model GPU visibility: ${MODEL_CUDA_VISIBLE_DEVICES}"
 echo "[eval-para] simulator GPU visibility: ${SIM_CUDA_VISIBLE_DEVICES}"
 if [[ "${MODEL_CUDA_VISIBLE_DEVICES}" == "${SIM_CUDA_VISIBLE_DEVICES}" ]]; then
@@ -180,6 +207,16 @@ SIM_ARGS=(
     --max-steps "${MAX_STEPS}"
     --print-every "${PRINT_EVERY}"
     --request-timeout "${REQUEST_TIMEOUT}"
+    --failure-obj-pos-thres-m "${FAILURE_OBJ_POS_THRES_M}"
+    --failure-tip-pos-thres-m "${FAILURE_TIP_POS_THRES_M}"
+    --failure-obj-rot-thres-deg "${FAILURE_OBJ_ROT_THRES_DEG}"
+    --invalid-obj-pos-thres-m "${INVALID_OBJ_POS_THRES_M}"
+    --failure-tolerance-scale "${FAILURE_TOLERANCE_SCALE}"
+    --fixed-tolerance-steps "${FIXED_TOLERANCE_STEPS}"
+    --traj-steps-limit "${TRAJ_STEPS_LIMIT}"
+    --reset-on-reach-goal "${RESET_ON_REACH_GOAL}"
+    --cross-trajectory-goal-prob "${CROSS_TRAJECTORY_GOAL_PROB}"
+    --wait "${WAIT}"
     --control-hz "${CONTROL_HZ}"
     --render-hz "${RENDER_HZ}"
     --deadline-tolerance-ms "${DEADLINE_TOLERANCE_MS}"
@@ -205,8 +242,15 @@ if [[ "${RECORDING}" != "0" ]]; then
     )
 fi
 
+if [[ "${WAIT}" == "1" ]]; then
+    PIPELINE_MODE="zmq_chunk_boundary_wait"
+else
+    PIPELINE_MODE="zmq_chunk_boundary_hold"
+fi
+
 echo "[eval-para] starting Isaac Gym process (${SIM_PYTHON})"
-echo "[eval-para] trajectories=${DATA_INDICES} envs=${NUM_ENV} record_env=${RECORD_ENV} headless=${HEADLESS} control_hz=${CONTROL_HZ} render_hz=${RENDER_HZ} pipeline=zmq_chunk_boundary_hold"
+echo "[eval-para] trajectories=${DATA_INDICES} envs=${NUM_ENV} record_env=${RECORD_ENV} headless=${HEADLESS} wait=${WAIT} control_hz=${CONTROL_HZ} render_hz=${RENDER_HZ} pipeline=${PIPELINE_MODE}"
+echo "[eval-para] reset failure_obj_pos_m=${FAILURE_OBJ_POS_THRES_M} failure_tip_pos_m=${FAILURE_TIP_POS_THRES_M} failure_obj_rot_deg=${FAILURE_OBJ_ROT_THRES_DEG} invalid_obj_pos_m=${INVALID_OBJ_POS_THRES_M} tolerance_scale=${FAILURE_TOLERANCE_SCALE} fixed_tolerance_steps=${FIXED_TOLERANCE_STEPS} traj_steps_limit=${TRAJ_STEPS_LIMIT} reset_on_reach_goal=${RESET_ON_REACH_GOAL} cross_trajectory_goal_prob=${CROSS_TRAJECTORY_GOAL_PROB}"
 SIM_STATUS=0
 if env \
     CUDA_VISIBLE_DEVICES="${SIM_CUDA_VISIBLE_DEVICES}" \

@@ -28,6 +28,8 @@ from termcolor import cprint  # noqa: E402
 
 
 EVAL_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = EVAL_DIR.parent
+LOCAL_MANIPTRANS_ROOT = PROJECT_ROOT / "maniptrans_envs"
 if str(EVAL_DIR) not in sys.path:
     sys.path.insert(0, str(EVAL_DIR))
 
@@ -44,6 +46,91 @@ HAND_DIM = 22
 OBS_STEPS = 4
 ACTION_STEPS = 5
 SHARPA_URDF_NAME = "v3right_sharpa_wave-forhammer5.urdf"
+
+
+def _add_reset_arguments(parser):
+    group = parser.add_argument_group("episode reset conditions")
+    group.add_argument("--failure-obj-pos-thres-m", type=float, default=0.012)
+    group.add_argument("--failure-tip-pos-thres-m", type=float, default=0.036)
+    group.add_argument("--failure-obj-rot-thres-deg", type=float, default=180.0)
+    group.add_argument("--invalid-obj-pos-thres-m", type=float, default=0.15)
+    group.add_argument("--failure-tolerance-scale", type=float, default=1.0)
+    group.add_argument("--fixed-tolerance-steps", type=int, default=200)
+    group.add_argument("--traj-steps-limit", type=int, default=12000)
+    group.add_argument(
+        "--reset-on-reach-goal",
+        type=int,
+        choices=(0, 1),
+        default=0,
+        help="1 resets an environment after every stable reach_final_goal.",
+    )
+    group.add_argument(
+        "--cross-trajectory-goal-prob",
+        type=float,
+        default=None,
+        help=(
+            "Probability of selecting a target from another demonstration "
+            "after reach_final_goal. Omit to preserve the task config."
+        ),
+    )
+
+
+def _validate_reset_args(args):
+    positive_float_args = (
+        "failure_obj_pos_thres_m",
+        "failure_tip_pos_thres_m",
+        "failure_obj_rot_thres_deg",
+        "invalid_obj_pos_thres_m",
+        "failure_tolerance_scale",
+    )
+    for name in positive_float_args:
+        value = float(getattr(args, name))
+        if not np.isfinite(value) or value <= 0.0:
+            raise ValueError("--%s must be finite and positive" % name.replace("_", "-"))
+    if args.fixed_tolerance_steps <= 0:
+        raise ValueError("--fixed-tolerance-steps must be positive")
+    if args.traj_steps_limit <= 0:
+        raise ValueError("--traj-steps-limit must be positive")
+    if args.failure_obj_rot_thres_deg > 180.0:
+        raise ValueError("--failure-obj-rot-thres-deg must be <= 180")
+    if (
+        args.cross_trajectory_goal_prob is not None
+        and (
+            not np.isfinite(args.cross_trajectory_goal_prob)
+            or not 0.0 <= args.cross_trajectory_goal_prob <= 1.0
+        )
+    ):
+        raise ValueError("--cross-trajectory-goal-prob must be in [0, 1]")
+    if args.invalid_obj_pos_thres_m < args.failure_obj_pos_thres_m:
+        raise ValueError(
+            "--invalid-obj-pos-thres-m must be >= --failure-obj-pos-thres-m"
+        )
+
+
+def _reset_overrides_from_args(args):
+    tip_threshold = float(args.failure_tip_pos_thres_m)
+    overrides = {
+        "failureObjPosThres": float(args.failure_obj_pos_thres_m),
+        "failureThumbTipPosThres": tip_threshold,
+        "failureIndexTipPosThres": tip_threshold,
+        "failureMiddleTipPosThres": tip_threshold,
+        "failurePinkyTipPosThres": tip_threshold,
+        "failureRingTipPosThres": tip_threshold,
+        "failureObjRotThres": float(args.failure_obj_rot_thres_deg),
+        "invalidObjPosThres": float(args.invalid_obj_pos_thres_m),
+        "FailureToleranceScale": float(args.failure_tolerance_scale),
+        "fixedToleranceSteps": int(args.fixed_tolerance_steps),
+        "trajStepsLimit": int(args.traj_steps_limit),
+        "resetOnReachGoal": bool(args.reset_on_reach_goal),
+    }
+    if args.cross_trajectory_goal_prob is not None:
+        # Match dex-controller's reach-goal branch while allowing evaluation
+        # to set its random cross-demo selection probability to zero.
+        overrides["enableCrossTrajectoryReset"] = True
+        overrides["crossTrajectoryGoalProb"] = float(
+            args.cross_trajectory_goal_prob
+        )
+    return overrides
 
 
 def _parse_args():
@@ -95,6 +182,7 @@ def _parse_args():
     parser.add_argument("--record-camera-fov", type=float, default=60.0)
     parser.add_argument("--record-axis-length", type=float, default=0.20)
     parser.add_argument("--record-axis-thickness", type=float, default=0.008)
+    _add_reset_arguments(parser)
     parser.set_defaults(randomize_demo_on_failure=True)
     parser.add_argument(
         "--no-randomize-demo-on-failure",
@@ -192,6 +280,35 @@ def _resolve_sharpa_urdf(asset_dir):
     return urdf_path
 
 
+def _import_local_maniptrans(controller_root):
+    """Load the evaluator's private maniptrans_envs copy."""
+    expected_lib = (LOCAL_MANIPTRANS_ROOT / "lib" / "__init__.py").resolve()
+    if not expected_lib.is_file():
+        raise FileNotFoundError(
+            "local maniptrans_envs copy not found: %s" % LOCAL_MANIPTRANS_ROOT
+        )
+
+    # Keep dex-controller available for legacy top-level dependencies, while
+    # resolving the maniptrans_envs namespace from Dex_Diffuse first.
+    controller_path = str(controller_root)
+    project_path = str(PROJECT_ROOT)
+    for source_path in (controller_path, project_path):
+        while source_path in sys.path:
+            sys.path.remove(source_path)
+    sys.path.insert(0, controller_path)
+    sys.path.insert(0, project_path)
+
+    import maniptrans_envs.lib as maniptrans_envs_lib
+
+    loaded_lib = Path(maniptrans_envs_lib.__file__).resolve()
+    if loaded_lib != expected_lib:
+        raise RuntimeError(
+            "wrong maniptrans_envs source loaded: %s (expected %s)"
+            % (loaded_lib, expected_lib)
+        )
+    return maniptrans_envs_lib
+
+
 def _install_sharpa_asset_override(urdf_path):
     """Point this process's SharpA factory entry at the evaluator asset path."""
     from maniptrans_envs.lib.envs.dexhands.factory import DexHandFactory
@@ -234,6 +351,7 @@ def _make_task_config(
     data_indices,
     data_root,
     retarget_root,
+    reset_overrides=None,
 ):
     full_cfg = OmegaConf.load(str(config_path))
     OmegaConf.set_struct(full_cfg, False)
@@ -251,6 +369,9 @@ def _make_task_config(
     # DP predicts robot/target_after in absolute radians.  The task's "abs"
     # path accepts those targets after joint-limit normalization.
     env_cfg.actStyle = "abs"
+    if reset_overrides is not None:
+        for key, value in reset_overrides.items():
+            env_cfg[key] = value
     return task_cfg
 
 
@@ -404,6 +525,7 @@ def _print_policy_info(client):
 
 
 def run(args):
+    _validate_reset_args(args)
     data_indices = _expand_data_indices(args.data_indices)
     controller_root, config_path, data_root, retarget_root = _validate_inputs(
         args,
@@ -415,9 +537,7 @@ def run(args):
 
     # Controller assets and several legacy relative paths assume this cwd.
     os.chdir(str(controller_root))
-    if str(controller_root) not in sys.path:
-        sys.path.insert(0, str(controller_root))
-    import maniptrans_envs.lib as maniptrans_envs_lib
+    maniptrans_envs_lib = _import_local_maniptrans(controller_root)
 
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
@@ -429,6 +549,7 @@ def run(args):
         data_indices,
         data_root,
         retarget_root,
+        _reset_overrides_from_args(args),
     )
     print(
         "[sim] creating bulb2 Isaac Gym task | envs=%d trajectories=%d "

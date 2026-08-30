@@ -37,6 +37,11 @@ def _parse_args():
     parser.add_argument("--socket", required=True, dest="socket_path")
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--sampler",
+        choices=("ddpm", "ddim"),
+        default="ddpm",
+    )
     parser.add_argument("--inference-steps", type=int, default=None)
     parser.add_argument("--no-salvage", action="store_true")
     parser.add_argument("--no-warmup", action="store_true")
@@ -167,6 +172,15 @@ def main():
         allow_salvage=not args.no_salvage,
     )
     policy, spec = model_server.build_policy(loaded)
+    if args.sampler == "ddim":
+        from diffusers.schedulers.scheduling_ddim import DDIMScheduler
+
+        policy.noise_scheduler = DDIMScheduler.from_config(
+            policy.noise_scheduler.config,
+            set_alpha_to_one=True,
+            steps_offset=0,
+            timestep_spacing="leading",
+        )
     if args.inference_steps is not None:
         if args.inference_steps <= 0:
             raise ValueError("--inference-steps must be positive")
@@ -176,11 +190,12 @@ def main():
     summary = model_server._normalizer_summary(policy)
 
     print(
-        "[model-para] loaded %s | step=%s epoch=%s | DDPM steps=%d"
+        "[model-para] loaded %s | step=%s epoch=%s | sampler=%s steps=%d"
         % (
             loaded.weight_source,
             loaded.global_step,
             loaded.epoch,
+            type(policy.noise_scheduler).__name__,
             policy.num_inference_steps,
         ),
         flush=True,

@@ -1,8 +1,9 @@
 """Physics-isolated recording support for the bulb2 evaluator.
 
-The object axes never become Isaac Gym actors. They are drawn as debug-line
-cuboids in the interactive viewer only. Recorded RGB frames are written directly
-from the Isaac Gym camera tensor without axis projection or image post-processing.
+The object axes never become Isaac Gym actors. They are drawn with Isaac Gym's
+native debug Lines API, so they cannot affect simulation physics or actor state.
+The parallel evaluator registers those lines before rendering camera sensors,
+matching the native rendering path used by the original serial recording.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
 
+import cv2
 import numpy as np
 from isaacgym import gymapi, gymtorch
 
@@ -42,6 +44,32 @@ CUBOID_EDGES = (
     (5, 7),
     (6, 7),
 )
+
+
+def _draw_step_number(rgb: np.ndarray, control_step: int) -> None:
+    """Draw the global simulation control-step number in-place."""
+    height, width = rgb.shape[:2]
+    resolution_scale = min(width / 1280.0, height / 720.0)
+    font_scale = max(0.6, 1.25 * resolution_scale)
+    thickness = max(1, int(round(2.0 * resolution_scale)))
+    margin = max(8, int(round(0.02 * min(width, height))))
+    text = str(int(control_step))
+    (_text_width, text_height), _baseline = cv2.getTextSize(
+        text,
+        cv2.FONT_HERSHEY_SIMPLEX,
+        font_scale,
+        thickness,
+    )
+    cv2.putText(
+        rgb,
+        text,
+        (margin, margin + text_height),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        font_scale,
+        (0, 0, 0),
+        thickness,
+        cv2.LINE_AA,
+    )
 
 
 def parse_vec3(value: str) -> Tuple[float, float, float]:
@@ -570,7 +598,7 @@ class RecordingRuntime:
         return self.local_cuboids @ rotation.T + position[None, None, :]
 
     def update_axes(self) -> None:
-        """Cache the current cuboids for the next viewer render."""
+        """Cache the current cuboids for the next viewer and camera render."""
         self._viewer_cuboids = self._world_cuboids()
         self._viewer_lines_step = None
 
@@ -614,8 +642,7 @@ class RecordingRuntime:
             )
         finally:
             self.env.gym.end_access_image_tensors(self.env.sim)
-        # Keep the MP4 as the unmodified Isaac Gym camera image. Viewer debug
-        # lines are intentionally not projected or redrawn onto this frame.
+        _draw_step_number(rgb, self.env.control_steps)
         self.recorder.write(rgb, captured_at=time.monotonic())
 
     def close(self) -> None:

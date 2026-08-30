@@ -6,7 +6,7 @@ DEX_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
 CONTROLLER_ROOT="${CONTROLLER_ROOT:-/mnt/work/dexIL/dex-controller}"
 DATA_ROOT="${DATA_ROOT:-${DEX_ROOT}/data}"
-ASSETS_ROOT="${ASSETS_ROOT:-${DEX_ROOT}/assets}"
+ASSETS_ROOT="${ASSETS_ROOT:-${DEX_ROOT}/maniptrans_envs/assets}"
 SIM_DATASET="${SIM_DATASET:-${DATA_ROOT}/sim_data/bulb2/20260827175545}"
 SIM_CONFIG="${SIM_CONFIG:-${SIM_DATASET}/hydra_config.yaml}"
 CKPT_PATH="${CKPT_PATH:-${DEX_ROOT}/runs/step_01700000.ckpt}"
@@ -32,6 +32,22 @@ MAX_STEPS="${MAX_STEPS:-0}"
 PRINT_EVERY="${PRINT_EVERY:-25}"
 HEADLESS="${HEADLESS:-0}"
 RANDOMIZE_DEMO_ON_FAILURE="${RANDOMIZE_DEMO_ON_FAILURE:-1}"
+
+# Episode reset conditions (all pose errors are relative to the current target).
+# Position/tip/rotation failures accumulate bad frames; regular targets allow
+# FAILURE_TOLERANCE_SCALE * abs(skipSteps), while cross targets use the fixed
+# tolerance. INVALID_OBJ_POS_THRES_M bypasses that tolerance and resets at once.
+# TRAJ_STEPS_LIMIT is a full-trajectory success reset. RESET_ON_REACH_GOAL=1
+# additionally resets after every stable target reach; 0 only advances target.
+FAILURE_OBJ_POS_THRES_M="${FAILURE_OBJ_POS_THRES_M:-0.012}"
+FAILURE_TIP_POS_THRES_M="${FAILURE_TIP_POS_THRES_M:-0.036}"
+FAILURE_OBJ_ROT_THRES_DEG="${FAILURE_OBJ_ROT_THRES_DEG:-180.0}"
+INVALID_OBJ_POS_THRES_M="${INVALID_OBJ_POS_THRES_M:-0.15}"
+FAILURE_TOLERANCE_SCALE="${FAILURE_TOLERANCE_SCALE:-1.0}"
+FIXED_TOLERANCE_STEPS="${FIXED_TOLERANCE_STEPS:-200}"
+TRAJ_STEPS_LIMIT="${TRAJ_STEPS_LIMIT:-12000}"
+RESET_ON_REACH_GOAL="${RESET_ON_REACH_GOAL:-0}"
+
 RECORDING="${RECORDING:-0}"
 RECORD_DIR="${RECORD_DIR:-${SCRIPT_DIR}/record}"
 RECORD_WIDTH="${RECORD_WIDTH:-1280}"
@@ -69,6 +85,9 @@ die() {
 [[ -d "${NOKOV3_RETARGET_DIR}/mano2sharpa_rh/bulb2" ]] || die "bulb2 retarget data not found under ${NOKOV3_RETARGET_DIR}"
 [[ -f "${SHARPA_ASSET_DIR}/v3right_sharpa_wave-forhammer5.urdf" ]] || die "SharpA URDF not found under ${SHARPA_ASSET_DIR}"
 [[ "${STARTUP_TIMEOUT}" =~ ^[0-9]+$ ]] || die "STARTUP_TIMEOUT must be an integer"
+[[ "${FIXED_TOLERANCE_STEPS}" =~ ^[1-9][0-9]*$ ]] || die "FIXED_TOLERANCE_STEPS must be a positive integer"
+[[ "${TRAJ_STEPS_LIMIT}" =~ ^[1-9][0-9]*$ ]] || die "TRAJ_STEPS_LIMIT must be a positive integer"
+[[ "${RESET_ON_REACH_GOAL}" =~ ^[01]$ ]] || die "RESET_ON_REACH_GOAL must be 0 or 1"
 [[ "${NUM_ENV}" =~ ^[1-9][0-9]*$ ]] || die "NUM_ENV must be a positive integer"
 [[ "${RECORD_ENV}" =~ ^(0|[1-9][0-9]*)$ ]] || die "RECORD_ENV must be a non-negative integer"
 (( RECORD_ENV < NUM_ENV )) || die "RECORD_ENV must be in [0, NUM_ENV), got RECORD_ENV=${RECORD_ENV} NUM_ENV=${NUM_ENV}"
@@ -153,6 +172,14 @@ SIM_ARGS=(
     --max-steps "${MAX_STEPS}"
     --print-every "${PRINT_EVERY}"
     --request-timeout "${REQUEST_TIMEOUT}"
+    --failure-obj-pos-thres-m "${FAILURE_OBJ_POS_THRES_M}"
+    --failure-tip-pos-thres-m "${FAILURE_TIP_POS_THRES_M}"
+    --failure-obj-rot-thres-deg "${FAILURE_OBJ_ROT_THRES_DEG}"
+    --invalid-obj-pos-thres-m "${INVALID_OBJ_POS_THRES_M}"
+    --failure-tolerance-scale "${FAILURE_TOLERANCE_SCALE}"
+    --fixed-tolerance-steps "${FIXED_TOLERANCE_STEPS}"
+    --traj-steps-limit "${TRAJ_STEPS_LIMIT}"
+    --reset-on-reach-goal "${RESET_ON_REACH_GOAL}"
 )
 if [[ "${HEADLESS}" != "0" ]]; then
     SIM_ARGS+=(--headless)
@@ -177,6 +204,7 @@ fi
 
 echo "[eval] starting Isaac Gym process (${SIM_PYTHON})"
 echo "[eval] trajectories=${DATA_INDICES} num_envs=${NUM_ENV} record_env=${RECORD_ENV} headless=${HEADLESS}"
+echo "[eval] reset failure_obj_pos_m=${FAILURE_OBJ_POS_THRES_M} failure_tip_pos_m=${FAILURE_TIP_POS_THRES_M} failure_obj_rot_deg=${FAILURE_OBJ_ROT_THRES_DEG} invalid_obj_pos_m=${INVALID_OBJ_POS_THRES_M} tolerance_scale=${FAILURE_TOLERANCE_SCALE} fixed_tolerance_steps=${FIXED_TOLERANCE_STEPS} traj_steps_limit=${TRAJ_STEPS_LIMIT} reset_on_reach_goal=${RESET_ON_REACH_GOAL}"
 SIM_STATUS=0
 if env \
     PYTHONUNBUFFERED=1 \
