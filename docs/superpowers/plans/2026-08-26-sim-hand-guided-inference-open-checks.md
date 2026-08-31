@@ -65,7 +65,7 @@
       --device cuda:0 \
       --execution-steps 5 \
       --guidance-scale 0.0 \
-      --num-inference-steps 12 \
+      --num-inference-steps 8 \
       --eta 0.0 \
       --seed 7
     $GUIDED_TEST_PYTHON inference_sim_hand_guided.py \
@@ -75,7 +75,7 @@
       --device cuda:0 \
       --execution-steps 5 \
       --guidance-scale 1.0 \
-      --num-inference-steps 12 \
+      --num-inference-steps 8 \
       --eta 0.0 \
       --seed 7
     ```

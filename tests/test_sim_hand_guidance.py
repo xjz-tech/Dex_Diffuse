@@ -256,7 +256,7 @@ def test_guidance_derives_slice_and_shape_from_alternate_adapter_without_config_
     assert guidance.execution_slice == slice(1, 6)
     assert guidance.trajectory_shape == (1, 8, 22)
     assert config.execution_steps == 5
-    assert config.num_inference_steps == 12
+    assert config.num_inference_steps == 8
 
 
 def test_guidance_rejects_execution_beyond_usable_prediction():

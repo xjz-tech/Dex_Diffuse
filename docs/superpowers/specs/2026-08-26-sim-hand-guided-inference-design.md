@@ -207,11 +207,11 @@ timesteps = ddim.timesteps
 生产代码不得：
 
 - 要求 `num_train_timesteps == 100`；
-- 写死 `[88,80,72,64,56,48,40,32,24,16,8,0]`；
+- 写死 `[84,72,60,48,36,24,12,0]`；
 - 根据固定 timestep 数组驱动或验证 sampling。
 
 当前 100-train-step checkpoint 的测试可以断言
-`set_timesteps(12)` 得到上述序列。另一个非 100-step fixture 必须证明生产
+`set_timesteps(8)` 得到上述序列。另一个非 100-step fixture 必须证明生产
 factory 与 sampler 仍按 scheduler 动态工作。两个 scheduler 的
 `alphas_cumprod` 必须逐元素一致。
 
@@ -319,7 +319,7 @@ Guidance config 只包含真正新增的参数：
 ~~~yaml
 execution_steps: 5
 guidance_scale: 1.0
-num_inference_steps: 12
+num_inference_steps: 8
 eta: 0.0
 ~~~
 
@@ -446,8 +446,8 @@ dry-run：
 - 当前 Real proposal 是 `(1,50,31)`，动态得到 10 段；
 - 当前 Sim 目标值是 `4/12/9/5`，guidance slice 是 `[3:12]`，execution
   slice 是 `[3:8]`；
-- 当前 100-step DDPM 配 12-step DDIM 得到
-  `[88,80,72,64,56,48,40,32,24,16,8,0]`；
+- 当前 100-step DDPM 配 8-step DDIM 得到
+  `[84,72,60,48,36,24,12,0]`；
 - 这些常量只存在于测试 expected，不被 production module 导入。
 
 ### 13.3 动态性

@@ -79,8 +79,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--num-inference-steps",
         type=int,
-        default=12,
-        help="DDIM inference steps (default: 12)",
+        default=8,
+        help="DDIM inference steps (default: 8)",
     )
     parser.add_argument(
         "--eta",

@@ -1184,7 +1184,7 @@ Arguments:
 --device DEVICE
 --execution-steps INT          default 5
 --guidance-scale FLOAT         default 1.0, zero allowed
---num-inference-steps INT      default 12
+--num-inference-steps INT      default 8
 --eta FLOAT                    default 0.0
 --seed INT                     default 0
 ~~~
@@ -1256,14 +1256,14 @@ git status --short
 test -f "$REAL_CKPT_PATH"
 test -f "$SIM_CKPT_PATH"
 
-$GUIDED_TEST_PYTHON inference_sim_hand_guided.py +  --mode check +  --real-checkpoint "$REAL_CKPT_PATH" +  --sim-checkpoint "$SIM_CKPT_PATH" +  --device cuda:0 +  --execution-steps 5 +  --guidance-scale 0.0 +  --num-inference-steps 12 +  --eta 0.0 +  --seed 7
+$GUIDED_TEST_PYTHON inference_sim_hand_guided.py +  --mode check +  --real-checkpoint "$REAL_CKPT_PATH" +  --sim-checkpoint "$SIM_CKPT_PATH" +  --device cuda:0 +  --execution-steps 5 +  --guidance-scale 0.0 +  --num-inference-steps 8 +  --eta 0.0 +  --seed 7
 
-$GUIDED_TEST_PYTHON inference_sim_hand_guided.py +  --mode dry-run +  --real-checkpoint "$REAL_CKPT_PATH" +  --sim-checkpoint "$SIM_CKPT_PATH" +  --device cuda:0 +  --execution-steps 5 +  --guidance-scale 1.0 +  --num-inference-steps 12 +  --eta 0.0 +  --seed 7
+$GUIDED_TEST_PYTHON inference_sim_hand_guided.py +  --mode dry-run +  --real-checkpoint "$REAL_CKPT_PATH" +  --sim-checkpoint "$SIM_CKPT_PATH" +  --device cuda:0 +  --execution-steps 5 +  --guidance-scale 1.0 +  --num-inference-steps 8 +  --eta 0.0 +  --seed 7
 ~~~
 
 Expected current-checkpoint output includes Real `(1,50,31)`, a full hand
 reference covering at least 54 steps, ten segments, Sim `4/12/9`, guidance
-slice `(3,12)`, execution slice `(3,8)`, the current twelve generated
+slice `(3,12)`, execution slice `(3,8)`, the current eight generated
 timesteps, zero-oracle errors within tolerance, and ten completed fake segments.
 
 - [ ] **Step 8: Commit the CLI**
