@@ -182,6 +182,13 @@ def test_hdf5_shards_reconstruct_interleaved_episodes_in_step_order(tmp_path):
     )
 
 
+def test_hdf5_invalid_json_names_the_manifest_path(tmp_path):
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text("{", encoding="utf-8")
+    with pytest.raises(ValueError, match=str(manifest_path)):
+        load_sim_hand_hdf5(tmp_path, min_episode_length=1)
+
+
 def test_hdf5_keeps_failure_and_timeout_episodes(tmp_path):
     _write_rollout(
         tmp_path,

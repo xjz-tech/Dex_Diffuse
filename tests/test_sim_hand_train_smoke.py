@@ -212,8 +212,11 @@ def _small_mixed_cpu_config(data_root: Path):
     return config
 
 
-def _small_cpu_config(dataset_dir: Path):
-    config = _compose_config(overrides=["n_pred_action_steps=9"])
+def _small_cpu_config(dataset_dir: Path, *, task: str | None = None):
+    overrides = ["n_pred_action_steps=9"]
+    if task is not None:
+        overrides.append(f"task={task}")
+    config = _compose_config(overrides=overrides)
     with open_dict(config):
         config.task.dataset.dataset_path = str(dataset_dir)
         config.training.device = "cpu"
@@ -325,6 +328,20 @@ def test_mixed_task_composes_without_changing_single_source_defaults():
     assert mixed.task.dataset._target_.endswith("MixedLowdimDataset")
     assert mixed.task.dataset.datasets.expdata.dataset_path.endswith("/exp_data")
     assert mixed.task.dataset.datasets.bulb_tac.dataset_path.endswith("/bulb_tac_80")
+
+
+def test_multiple_task_composes_as_lazy_non_mixed_dataset():
+    single = _compose_config()
+    multiple = _compose_config(overrides=["task=sim_hand_multiple"])
+
+    assert single.task.name == "sim_hand_lowdim"
+    assert "recursive_hdf5" not in single.task.dataset
+    assert multiple.task.name == "sim_hand_multiple"
+    assert multiple.task.dataset_path == "data/sim_data"
+    assert multiple.task.cache_path is None
+    assert multiple.task.dataset._target_.endswith("LazySimHandMultipleDataset")
+    assert "probabilities" not in multiple.task
+    assert "source_id" not in OmegaConf.to_container(multiple.task)
 
 
 @pytest.mark.parametrize(
@@ -528,6 +545,50 @@ def test_one_step_train_from_hdf5_dataset(tmp_path):
     assert math.isfinite(final_record["train_loss"])
     assert math.isfinite(final_record["val_loss"])
     assert (output_dir / "checkpoints" / "epoch_0001.ckpt").is_file()
+    assert (output_dir / "checkpoints" / "latest.ckpt").is_file()
+
+
+def test_one_step_train_from_multiple_hdf5_directories(tmp_path, monkeypatch):
+    class DisabledWandbRun:
+        config = {}
+
+        def log(self, *_args, **_kwargs):
+            pass
+
+        def finish(self):
+            pass
+
+    monkeypatch.setattr(
+        workspace_module.wandb,
+        "init",
+        lambda **_kwargs: DisabledWandbRun(),
+    )
+    dataset_root = tmp_path / "sim_data"
+    first = dataset_root / "brush" / "run_b"
+    second = dataset_root / "bulb" / "run_a"
+    first.mkdir(parents=True)
+    second.mkdir(parents=True)
+    _write_synthetic_hdf5_dataset(first)
+    _write_synthetic_hdf5_dataset(second)
+    output_dir = tmp_path / "output"
+    config = _small_cpu_config(dataset_root, task="sim_hand_multiple")
+    workspace = TrainDiffusionUnetSimHandWorkspace(
+        config,
+        output_dir=str(output_dir),
+    )
+
+    workspace.run()
+
+    records = [
+        json.loads(line)
+        for line in (output_dir / "logs.json.txt").read_text().splitlines()
+    ]
+    final_record = records[-1]
+    assert math.isfinite(final_record["train_loss"])
+    assert math.isfinite(final_record["val_loss"])
+    assert not any(
+        key.startswith("train/source_fraction/") for key in final_record
+    )
     assert (output_dir / "checkpoints" / "latest.ckpt").is_file()
 
 

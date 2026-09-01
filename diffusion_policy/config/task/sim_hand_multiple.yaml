@@ -1,0 +1,26 @@
+name: sim_hand_multiple
+
+# Recursively discover every DexGen HDF5 rollout below dataset_path and train
+# one ordinary (non-mixed) Sim-Hand policy from the lazy disk cache.
+obs_dim: 66
+action_dim: 22
+dataset_path: data/sim_data
+cache_path: null
+samples_per_epoch: null
+rebuild_cache: false
+
+env_runner:
+  _target_: diffusion_policy.env_runner.null_lowdim_runner.NullLowdimRunner
+
+dataset:
+  _target_: diffusion_policy.dataset.sim_hand_multiple_dataset.LazySimHandMultipleDataset
+  dataset_path: ${task.dataset_path}
+  cache_path: ${task.cache_path}
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1'}
+  pad_after: ${eval:'${n_pred_action_steps}-1'}
+  seed: ${training.seed}
+  val_ratio: 0.1
+  max_train_episodes: null
+  samples_per_epoch: ${task.samples_per_epoch}
+  rebuild_cache: ${task.rebuild_cache}

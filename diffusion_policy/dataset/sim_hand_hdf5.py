@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 import h5py
@@ -45,23 +46,50 @@ _ROBOT_TRAINING_FIELDS = (
 )
 
 
-def load_sim_hand_hdf5(
-    dataset_path: str | Path,
-    *,
-    min_episode_length: int,
-) -> ReplayBuffer:
-    """Load HDF5 rollout shards and make every episode contiguous in memory."""
-    if type(min_episode_length) is not int or min_episode_length < 1:
-        raise ValueError(
-            "min_episode_length must be an integer >= 1, "
-            f"got {min_episode_length!r}"
-        )
-    root_path = Path(dataset_path).expanduser()
-    manifest_path = root_path / "manifest.json"
-    if not manifest_path.is_file():
-        raise FileNotFoundError(f"Sim-Hand HDF5 manifest not found: {manifest_path}")
+@dataclass(frozen=True)
+class SimHandLeafArrays:
+    qpos: np.ndarray
+    target_before: np.ndarray
+    action: np.ndarray
+    episode_ends: np.ndarray
+    episode_ids: np.ndarray
+    env_ids: np.ndarray
 
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+def compose_sim_hand_obs(qpos: np.ndarray, target_before: np.ndarray) -> np.ndarray:
+    return np.concatenate(
+        (qpos, target_before, target_before - qpos),
+        axis=-1,
+    ).astype(np.float32, copy=False)
+
+
+def _annotate_error(path: Path, exc: Exception) -> Exception:
+    path_text = str(path)
+    message = str(exc)
+    if path_text in message:
+        return exc
+    return type(exc)(f"{path_text}: {message}")
+
+
+def read_sim_hand_manifest_shards(root_path: Path) -> tuple[int, list[tuple[Path, int]]]:
+    manifest_path = root_path / "manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"{manifest_path}: Sim-Hand HDF5 manifest is not valid JSON"
+        ) from exc
+    try:
+        return _parse_manifest_shards(root_path, manifest_path, manifest)
+    except (TypeError, ValueError) as exc:
+        raise _annotate_error(manifest_path, exc) from exc
+
+
+def _parse_manifest_shards(
+    root_path: Path,
+    manifest_path: Path,
+    manifest: object,
+) -> tuple[int, list[tuple[Path, int]]]:
     if not isinstance(manifest, dict):
         raise ValueError("Sim-Hand HDF5 manifest must be a JSON object")
     required_manifest_fields = (
@@ -152,6 +180,18 @@ def load_sim_hand_hdf5(
             "Sim-Hand HDF5 manifest total_transitions mismatch: "
             f"declared {declared_total}, shard metadata {shard_total}"
         )
+    return declared_total, shard_specs
+
+
+def load_sim_hand_leaf_arrays(dataset_path: str | Path) -> SimHandLeafArrays:
+    """Load one leaf's ordered source arrays, keeping every reconstructed episode."""
+    root_path = Path(dataset_path).expanduser()
+    manifest_path = root_path / "manifest.json"
+    if not manifest_path.is_file():
+        raise FileNotFoundError(
+            f"Sim-Hand HDF5 manifest not found: {manifest_path}"
+        )
+    declared_total, shard_specs = read_sim_hand_manifest_shards(root_path)
 
     for shard_path, expected_rows in shard_specs:
         with h5py.File(shard_path, "r") as f:
@@ -165,19 +205,19 @@ def load_sim_hand_hdf5(
                 expected_dtype = np.dtype(HDF5_FIELD_DTYPES[key])
                 if np.dtype(dataset.dtype) != expected_dtype:
                     raise TypeError(
-                        f"HDF5 field {key} must use {expected_dtype}, "
-                        f"got {dataset.dtype}"
+                        f"{shard_path}: HDF5 field {key} must use "
+                        f"{expected_dtype}, got {dataset.dtype}"
                     )
                 if key in _ROBOT_TRAINING_FIELDS and (
                     dataset.ndim != 2 or dataset.shape[1] != HAND_DIM
                 ):
                     raise ValueError(
-                        f"HDF5 field {key} must have shape (N, {HAND_DIM}), "
-                        f"got {dataset.shape}"
+                        f"{shard_path}: HDF5 field {key} must have shape "
+                        f"(N, {HAND_DIM}), got {dataset.shape}"
                     )
                 if key.startswith("index/") and dataset.ndim != 1:
                     raise ValueError(
-                        f"HDF5 field {key} must have shape (N,), "
+                        f"{shard_path}: HDF5 field {key} must have shape (N,), "
                         f"got {dataset.shape}"
                     )
                 dataset_rows = int(dataset.shape[0])
@@ -188,7 +228,9 @@ def load_sim_hand_hdf5(
                     )
 
     if declared_total == 0:
-        raise ValueError("Sim-Hand HDF5 dataset contains no transitions")
+        raise ValueError(
+            f"{root_path}: Sim-Hand HDF5 dataset contains no transitions"
+        )
 
     arrays = {}
     for key in HDF5_FIELDS:
@@ -225,11 +267,13 @@ def load_sim_hand_hdf5(
             arrays["index/episode_id"],
         )
     )
-    qpos = arrays.pop("robot/qpos")
-    target_before = arrays.pop("robot/target_before")
-    target_after = arrays.pop("robot/target_after")
+    qpos = arrays.pop("robot/qpos")[order]
+    target_before = arrays.pop("robot/target_before")[order]
+    action = arrays.pop("robot/target_after")[order]
     episode_id = arrays["index/episode_id"][order]
     env_id = arrays["index/env_id"][order]
+    ordered_step = arrays["index/step"][order]
+    del arrays
 
     episode_starts = np.flatnonzero(
         np.r_[
@@ -238,32 +282,54 @@ def load_sim_hand_hdf5(
         ]
     )
     episode_ends = np.r_[episode_starts[1:], len(order)].astype(np.int64)
-    ordered_step = arrays["index/step"][order]
-    del arrays
     for start, end in zip(episode_starts, episode_ends):
         episode_steps = ordered_step[start:end]
         expected_steps = np.arange(end - start, dtype=episode_steps.dtype)
         if not np.array_equal(episode_steps, expected_steps):
             raise ValueError(
-                "HDF5 episode "
+                f"{root_path}: HDF5 episode "
                 f"(episode_id={int(episode_id[start])}, "
                 f"env_id={int(env_id[start])}) steps must be contiguous "
                 "and start at zero"
             )
 
-    keep_episodes = (episode_ends - episode_starts) >= min_episode_length
+    return SimHandLeafArrays(
+        qpos=qpos.astype(np.float32, copy=False),
+        target_before=target_before.astype(np.float32, copy=False),
+        action=action.astype(np.float32, copy=False),
+        episode_ends=episode_ends,
+        episode_ids=episode_id[episode_starts].astype(np.int64, copy=False),
+        env_ids=env_id[episode_starts].astype(np.int32, copy=False),
+    )
+
+
+def load_sim_hand_hdf5(
+    dataset_path: str | Path,
+    *,
+    min_episode_length: int,
+) -> ReplayBuffer:
+    """Load HDF5 rollout shards and make every episode contiguous in memory."""
+    if type(min_episode_length) is not int or min_episode_length < 1:
+        raise ValueError(
+            "min_episode_length must be an integer >= 1, "
+            f"got {min_episode_length!r}"
+        )
+    leaf = load_sim_hand_leaf_arrays(dataset_path)
+    episode_starts = np.r_[0, leaf.episode_ends[:-1]]
+    lengths = leaf.episode_ends - episode_starts
+    keep_episodes = lengths >= min_episode_length
     if not np.any(keep_episodes):
         raise ValueError(
             "Sim-Hand HDF5 dataset contains no episodes with length >= "
             f"min_episode_length={min_episode_length}"
         )
 
-    kept_episode_starts = episode_starts[keep_episodes]
-    kept_episode_ends = episode_ends[keep_episodes]
-    kept_lengths = kept_episode_ends - kept_episode_starts
+    kept_starts = episode_starts[keep_episodes]
+    kept_ends = leaf.episode_ends[keep_episodes]
+    kept_lengths = kept_ends - kept_starts
     kept_rows = np.empty(int(kept_lengths.sum()), dtype=np.int64)
     kept_offset = 0
-    for start, end in zip(kept_episode_starts, kept_episode_ends):
+    for start, end in zip(kept_starts, kept_ends):
         episode_length = int(end - start)
         kept_rows[kept_offset : kept_offset + episode_length] = np.arange(
             start,
@@ -271,35 +337,20 @@ def load_sim_hand_hdf5(
             dtype=np.int64,
         )
         kept_offset += episode_length
-    replay_episode_ends = np.cumsum(kept_lengths, dtype=np.int64)
-    source_rows = order[kept_rows]
-    qpos = qpos[source_rows]
-    target_before = target_before[source_rows]
-    action = target_after[source_rows]
-    del target_after
-    obs = np.concatenate(
-        (qpos, target_before, target_before - qpos),
-        axis=-1,
-    ).astype(np.float32, copy=False)
-    del qpos
-    del target_before
+    qpos = leaf.qpos[kept_rows]
+    target_before = leaf.target_before[kept_rows]
+    action = leaf.action[kept_rows]
+    obs = compose_sim_hand_obs(qpos, target_before)
     assert obs.shape[1] == OBS_DIM
-
     replay_root = {
         "data": {
             "obs": obs,
             "action": action,
         },
         "meta": {
-            "episode_ends": replay_episode_ends,
-            "episode_ids": episode_id[kept_episode_starts].astype(
-                np.int64,
-                copy=False,
-            ),
-            "env_ids": env_id[kept_episode_starts].astype(
-                np.int32,
-                copy=False,
-            ),
+            "episode_ends": np.cumsum(kept_lengths, dtype=np.int64),
+            "episode_ids": leaf.episode_ids[keep_episodes],
+            "env_ids": leaf.env_ids[keep_episodes],
         },
     }
     return ReplayBuffer(root=replay_root)
