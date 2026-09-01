@@ -160,6 +160,58 @@ def _write_synthetic_hdf5_dataset(dataset_dir: Path):
     )
 
 
+def _write_synthetic_bulb_dataset(dataset_dir: Path):
+    for episode_id, length in enumerate([14, 15, 16, 17, 18]):
+        episode = dataset_dir / f"episode_{episode_id}"
+        episode.mkdir(parents=True)
+        state = np.zeros((length, 31), dtype=np.float32)
+        action = np.zeros((length, 31), dtype=np.float32)
+        values = (
+            episode_id * 10
+            + np.arange(length, dtype=np.float32)[:, None]
+            + np.arange(HAND_DIM, dtype=np.float32)[None, :] / 100
+        )
+        state[:, 9:31] = values
+        action[:, 9:31] = values + 0.25
+        np.save(episode / "state.npy", state)
+        np.save(episode / "action.npy", action)
+
+
+def _small_mixed_cpu_config(data_root: Path):
+    config = _compose_config(
+        overrides=[
+            "task=sim_hand_mixed",
+            "n_pred_action_steps=9",
+            f"task.data_root={data_root}",
+            "task.mixing.samples_per_epoch=40",
+        ]
+    )
+    with open_dict(config):
+        config.training.device = "cpu"
+        config.training.resume = False
+        config.training.num_epochs = 1
+        config.training.max_train_steps = 2
+        config.training.max_val_steps = 1
+        config.training.checkpoint_every = 1
+        config.training.val_every = 1
+        config.training.sample_every = 1
+        config.training.rollout_every = 1_000_000
+        config.dataloader.batch_size = 4
+        config.dataloader.num_workers = 0
+        config.dataloader.pin_memory = False
+        config.val_dataloader.batch_size = 4
+        config.val_dataloader.num_workers = 0
+        config.val_dataloader.pin_memory = False
+        config.policy.model.down_dims = [32, 64, 128]
+        config.policy.model.diffusion_step_embed_dim = 32
+        config.policy.model.kernel_size = 3
+        config.policy.noise_scheduler.num_train_timesteps = 10
+        config.policy.num_inference_steps = 2
+        config.logging.mode = "disabled"
+        config.logging.name = "sim-hand-mixed-smoke"
+    return config
+
+
 def _small_cpu_config(dataset_dir: Path):
     config = _compose_config(overrides=["n_pred_action_steps=9"])
     with open_dict(config):
@@ -259,6 +311,22 @@ def test_hydra_defaults_have_one_consistent_temporal_configuration():
     )
 
 
+def test_mixed_task_composes_without_changing_single_source_defaults():
+    single = _compose_config()
+    mixed = _compose_config(overrides=["task=sim_hand_mixed"])
+    assert single.task.name == "sim_hand_lowdim"
+    assert single.task.dataset._target_.endswith("SimHandLowdimDataset")
+    assert mixed.task.name == "sim_hand_mixed"
+    assert mixed.task.data_root == "/home/carus/mnt/bigai/Data"
+    assert OmegaConf.to_container(mixed.task.mixing.probabilities) == {
+        "expdata": 0.8,
+        "bulb_tac": 0.2,
+    }
+    assert mixed.task.dataset._target_.endswith("MixedLowdimDataset")
+    assert mixed.task.dataset.datasets.expdata.dataset_path.endswith("/exp_data")
+    assert mixed.task.dataset.datasets.bulb_tac.dataset_path.endswith("/bulb_tac_80")
+
+
 @pytest.mark.parametrize(
     ("prediction_steps", "expected_horizon", "expected_batch_size"),
     [
@@ -310,6 +378,54 @@ def test_distributed_train_sampler_assigns_disjoint_indices():
 
     assert rank_indices[0].isdisjoint(rank_indices[1])
     assert len(rank_indices[0] | rank_indices[1]) == 4
+
+
+class CustomSamplerDataset(TensorDataset):
+    source_names = ("expdata", "bulb_tac")
+
+    def __init__(self):
+        super().__init__(torch.arange(5))
+        self.request = None
+
+    def get_training_sampler(self, *, seed, num_replicas=1, rank=0):
+        self.request = (seed, num_replicas, rank)
+        return torch.utils.data.SequentialSampler(self)
+
+
+def test_train_loader_prefers_dataset_custom_sampler():
+    dataset = CustomSamplerDataset()
+    context = workspace_module.DistributedContext(
+        rank=1,
+        local_rank=1,
+        world_size=2,
+        device=torch.device("cpu"),
+    )
+    loader, sampler = workspace_module._make_train_dataloader(
+        dataset,
+        {"batch_size": 2, "num_workers": 0, "shuffle": True},
+        context,
+        seed=42,
+    )
+    assert isinstance(sampler, torch.utils.data.SequentialSampler)
+    assert dataset.request == (42, 2, 1)
+    assert list(iter(sampler)) == [0, 1, 2, 3, 4]
+    assert loader.sampler is sampler
+
+
+def test_source_fraction_log_uses_global_counts(monkeypatch):
+    counts = torch.tensor([8.0, 2.0], dtype=torch.float64)
+    log = workspace_module._source_fraction_log(
+        counts,
+        source_names=("expdata", "bulb_tac"),
+    )
+    assert log == {
+        "train/source_fraction/expdata": 0.8,
+        "train/source_fraction/bulb_tac": 0.2,
+    }
+
+
+def test_source_fraction_log_is_empty_without_source_metadata():
+    assert workspace_module._source_fraction_log(None, ()) == {}
 
 
 def test_distributed_initialization_uses_configured_timeout(monkeypatch):
@@ -412,6 +528,32 @@ def test_one_step_train_from_hdf5_dataset(tmp_path):
     assert math.isfinite(final_record["train_loss"])
     assert math.isfinite(final_record["val_loss"])
     assert (output_dir / "checkpoints" / "epoch_0001.ckpt").is_file()
+    assert (output_dir / "checkpoints" / "latest.ckpt").is_file()
+
+
+def test_one_step_mixed_training_logs_sources_and_checkpoint(tmp_path):
+    data_root = tmp_path / "Data"
+    expdata = data_root / "exp_data"
+    bulb_tac = data_root / "bulb_tac_80"
+    expdata.mkdir(parents=True)
+    bulb_tac.mkdir(parents=True)
+    _write_synthetic_hdf5_dataset(expdata)
+    _write_synthetic_bulb_dataset(bulb_tac)
+    output_dir = tmp_path / "output"
+    workspace = TrainDiffusionUnetSimHandWorkspace(
+        _small_mixed_cpu_config(data_root),
+        output_dir=str(output_dir),
+    )
+    workspace.run()
+
+    record = json.loads((output_dir / "logs.json.txt").read_text().splitlines()[-1])
+    assert math.isfinite(record["train_loss"])
+    assert math.isfinite(record["val_loss"])
+    exp_fraction = record["train/source_fraction/expdata"]
+    bulb_fraction = record["train/source_fraction/bulb_tac"]
+    assert exp_fraction + bulb_fraction == pytest.approx(1.0)
+    assert 0.0 <= exp_fraction <= 1.0
+    assert 0.0 <= bulb_fraction <= 1.0
     assert (output_dir / "checkpoints" / "latest.ckpt").is_file()
 
 

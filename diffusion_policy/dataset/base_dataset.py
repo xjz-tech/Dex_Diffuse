@@ -14,6 +14,18 @@ class BaseLowdimDataset(torch.utils.data.Dataset):
 
     def get_all_actions(self) -> torch.Tensor:
         raise NotImplementedError()
+
+    def get_training_sampler(
+        self,
+        *,
+        seed: int,
+        num_replicas: int = 1,
+        rank: int = 0,
+    ):
+        return None
+
+    def get_normalizer_sample_count(self) -> int:
+        return int(self.get_all_actions().shape[0])
     
     def __len__(self) -> int:
         return 0

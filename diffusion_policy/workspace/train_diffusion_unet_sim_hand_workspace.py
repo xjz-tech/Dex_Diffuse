@@ -103,7 +103,16 @@ def _make_train_dataloader(dataset, dataloader_cfg, context, seed):
         loader_cfg = dict(dataloader_cfg)
     shuffle = bool(loader_cfg.pop("shuffle", False))
     sampler = None
-    if context.enabled:
+    custom_sampler_factory = getattr(dataset, "get_training_sampler", None)
+    if callable(custom_sampler_factory):
+        sampler = custom_sampler_factory(
+            seed=int(seed),
+            num_replicas=context.world_size,
+            rank=context.rank,
+        )
+    if sampler is not None:
+        loader_cfg["sampler"] = sampler
+    elif context.enabled:
         sampler = DistributedSampler(
             dataset,
             num_replicas=context.world_size,
@@ -116,6 +125,18 @@ def _make_train_dataloader(dataset, dataloader_cfg, context, seed):
     else:
         loader_cfg["shuffle"] = shuffle
     return DataLoader(dataset, **loader_cfg), sampler
+
+
+def _source_fraction_log(counts, source_names):
+    if counts is None:
+        return {}
+    total = counts.sum().item()
+    if total <= 0:
+        return {}
+    return {
+        f"train/source_fraction/{name}": counts[index].item() / total
+        for index, name in enumerate(source_names)
+    }
 
 
 class TrainDiffusionUnetSimHandWorkspace(BaseWorkspace):
@@ -199,6 +220,7 @@ class TrainDiffusionUnetSimHandWorkspace(BaseWorkspace):
         dataset: BaseLowdimDataset = hydra.utils.instantiate(cfg.task.dataset)
         if not isinstance(dataset, BaseLowdimDataset):
             raise TypeError("Sim-Hand dataset must inherit BaseLowdimDataset")
+        source_names = tuple(getattr(dataset, "source_names", ()))
         train_dataloader, train_sampler = _make_train_dataloader(
             dataset,
             cfg.dataloader,
@@ -308,6 +330,7 @@ class TrainDiffusionUnetSimHandWorkspace(BaseWorkspace):
                         ema,
                         training_model,
                         context,
+                        source_names,
                     )
                     if context.is_main:
                         if train_sampling_batch is None:
@@ -390,10 +413,15 @@ class TrainDiffusionUnetSimHandWorkspace(BaseWorkspace):
         ema: EMAModel | None,
         training_model: torch.nn.Module,
         context: DistributedContext,
+        source_names,
     ) -> dict:
         self.model.train()
         self.optimizer.zero_grad(set_to_none=True)
         losses = []
+        source_counts = (
+            torch.zeros(len(source_names), device=device, dtype=torch.float64)
+            if source_names else None
+        )
         max_steps = cfg.training.max_train_steps
         with tqdm.tqdm(
             train_dataloader,
@@ -407,6 +435,13 @@ class TrainDiffusionUnetSimHandWorkspace(BaseWorkspace):
                     batch,
                     lambda value: value.to(device, non_blocking=True),
                 )
+                source_id = batch.pop("source_id", None)
+                if source_counts is not None:
+                    if source_id is None:
+                        raise RuntimeError("mixed training batch is missing source_id")
+                    source_counts += torch.bincount(
+                        source_id.reshape(-1), minlength=len(source_names)
+                    ).to(dtype=torch.float64)
                 reached_limit = (
                     max_steps is not None and batch_idx + 1 >= int(max_steps)
                 )
@@ -448,10 +483,14 @@ class TrainDiffusionUnetSimHandWorkspace(BaseWorkspace):
         )
         if context.enabled:
             dist.all_reduce(loss_stats, op=dist.ReduceOp.SUM)
-        return {
+        if context.enabled and source_counts is not None:
+            dist.all_reduce(source_counts, op=dist.ReduceOp.SUM)
+        result = {
             "train_loss": (loss_stats[0] / loss_stats[1]).item(),
             "lr": lr_scheduler.get_last_lr()[0],
         }
+        result.update(_source_fraction_log(source_counts, source_names))
+        return result
 
     def _validate_epoch(self, cfg, val_dataloader, device) -> float | None:
         self.model.eval()
@@ -462,6 +501,7 @@ class TrainDiffusionUnetSimHandWorkspace(BaseWorkspace):
                     batch,
                     lambda value: value.to(device, non_blocking=True),
                 )
+                batch.pop("source_id", None)
                 losses.append(self.model.compute_loss(batch))
                 if (
                     cfg.training.max_val_steps is not None
