@@ -40,6 +40,11 @@ if str(EVAL_DIR) not in sys.path:
     sys.path.insert(0, str(EVAL_DIR))
 
 from ipc_para import endpoint_for_path, recv_dealer, send_dealer  # noqa: E402
+from policy_observation import (  # noqa: E402
+    OBSERVATION_DIMS,
+    compose_policy_observation,
+    observation_dim,
+)
 from recording import RecordingConstructionHooks, RecordingRuntime  # noqa: E402
 from sim_eval import (  # noqa: E402
     ACTION_STEPS,
@@ -62,14 +67,15 @@ from sim_eval import (  # noqa: E402
 )
 
 
-EXPECTED_POLICY_SPEC = {
-    "obs_dim": HAND_DIM,
-    "action_dim": HAND_DIM,
-    "n_obs_steps": OBS_STEPS,
-    "n_pred_action_steps": 9,
-    "n_action_steps": ACTION_STEPS,
-    "horizon": 12,
-}
+def _expected_policy_spec(policy_obs_dim):
+    return {
+        "obs_dim": int(policy_obs_dim),
+        "action_dim": HAND_DIM,
+        "n_obs_steps": OBS_STEPS,
+        "n_pred_action_steps": 9,
+        "n_action_steps": ACTION_STEPS,
+        "horizon": 12,
+    }
 
 
 def _parse_args():
@@ -96,6 +102,15 @@ def _parse_args():
     parser.add_argument("--max-steps", type=int, default=0)
     parser.add_argument("--print-every", type=int, default=25)
     parser.add_argument("--request-timeout", type=float, default=600.0)
+    parser.add_argument(
+        "--observation-mode",
+        choices=tuple(OBSERVATION_DIMS),
+        default="qpos",
+        help=(
+            "qpos: 22-D joint positions; qpos-target-residual: 66-D "
+            "[qpos, target_before, target_before - qpos]."
+        ),
+    )
     parser.add_argument(
         "--wait",
         type=int,
@@ -172,8 +187,10 @@ class PendingRequest:
 class ZmqPolicyClient:
     """One-in-flight asynchronous DEALER client owned by the sim thread."""
 
-    def __init__(self, socket_path, timeout_seconds):
+    def __init__(self, socket_path, timeout_seconds, policy_obs_dim):
         self.timeout_seconds = float(timeout_seconds)
+        self.policy_obs_dim = int(policy_obs_dim)
+        self.expected_policy_spec = _expected_policy_spec(self.policy_obs_dim)
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.DEALER)
         self.socket.setsockopt(zmq.LINGER, 0)
@@ -208,9 +225,10 @@ class ZmqPolicyClient:
             raise RuntimeError("policy hello response id mismatch")
         if not response.get("ok", False):
             raise RuntimeError(response.get("error", "policy hello failed"))
-        if response.get("spec") != EXPECTED_POLICY_SPEC:
+        if response.get("spec") != self.expected_policy_spec:
             raise RuntimeError(
-                "checkpoint temporal spec mismatch: %r" % response.get("spec")
+                "checkpoint policy spec mismatch: got %r, expected %r"
+                % (response.get("spec"), self.expected_policy_spec)
             )
         return response
 
@@ -218,7 +236,7 @@ class ZmqPolicyClient:
         if self.pending is not None:
             raise RuntimeError("a policy request is already in flight")
         history = np.asarray(history, dtype=np.float32, order="C")
-        expected = (history.shape[0], OBS_STEPS, HAND_DIM)
+        expected = (history.shape[0], OBS_STEPS, self.policy_obs_dim)
         if history.shape != expected:
             raise ValueError("invalid observation history shape: %r" % (history.shape,))
         if not np.isfinite(history).all():
@@ -499,6 +517,7 @@ def _print_policy_info(client):
 
 def run(args):
     _validate_parallel_args(args)
+    policy_obs_dim = observation_dim(args.observation_mode)
     data_indices = _expand_data_indices(args.data_indices)
     controller_root, config_path, data_root, retarget_root = _validate_inputs(
         args,
@@ -572,12 +591,24 @@ def run(args):
             recording_runtime = RecordingRuntime(env, recording_config)
         renderer = ParallelRenderer(env, recording_runtime, args.render_hz)
 
-        client = ZmqPolicyClient(args.socket_path, args.request_timeout)
+        client = ZmqPolicyClient(
+            args.socket_path,
+            args.request_timeout,
+            policy_obs_dim,
+        )
         _print_policy_info(client)
 
         qpos = env._q.detach().cpu().numpy().astype(np.float32, copy=True)
-        history = np.repeat(qpos[:, None, :], OBS_STEPS, axis=1)
-        hold_targets = qpos.copy()
+        target_before = (
+            env.curr_targets.detach().cpu().numpy().astype(np.float32, copy=True)
+        )
+        observation = compose_policy_observation(
+            qpos,
+            target_before,
+            args.observation_mode,
+        )
+        history = np.repeat(observation[:, None, :], OBS_STEPS, axis=1)
+        hold_targets = target_before.copy()
         active_chunk = None
         chunk_cursor = 0
         generation = 0
@@ -878,17 +909,31 @@ def run(args):
                         recording_runtime.update_axes()
 
                 qpos = env._q.detach().cpu().numpy().astype(np.float32, copy=True)
+                # At this point curr_targets is the target already applied by
+                # the preceding env.step, i.e. target_before for the next
+                # control decision. It also reflects the environment's clamp.
+                target_before = (
+                    env.curr_targets.detach()
+                    .cpu()
+                    .numpy()
+                    .astype(np.float32, copy=True)
+                )
+                observation = compose_policy_observation(
+                    qpos,
+                    target_before,
+                    args.observation_mode,
+                )
                 history[:, :-1] = history[:, 1:]
-                history[:, -1] = qpos
+                history[:, -1] = observation
                 if reset_ids_np.size:
                     history[reset_ids_np] = np.repeat(
-                        qpos[reset_ids_np, None, :],
+                        observation[reset_ids_np, None, :],
                         OBS_STEPS,
                         axis=1,
                     )
                     # A reset env must hold its new initial configuration, not
                     # an absolute target from the previous episode.
-                    hold_targets[reset_ids_np] = qpos[reset_ids_np]
+                    hold_targets[reset_ids_np] = target_before[reset_ids_np]
 
                 submit_latest_state_if_needed()
 

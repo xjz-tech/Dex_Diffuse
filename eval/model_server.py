@@ -77,10 +77,18 @@ def _predict(policy, array, device):
         raise ValueError("predict request has no observation array")
     if array.dtype != np.float32:
         raise TypeError("observation array must be float32, got %s" % array.dtype)
-    if array.ndim != 3 or array.shape[1:] != (4, 22):
+    expected_observation_shape = (
+        int(policy.n_obs_steps),
+        int(policy.obs_dim),
+    )
+    if array.ndim != 3 or array.shape[1:] != expected_observation_shape:
         raise ValueError(
-            "observation must have shape (batch, 4, 22), got %s"
-            % (array.shape,)
+            "observation must have shape (batch, %d, %d), got %s"
+            % (
+                expected_observation_shape[0],
+                expected_observation_shape[1],
+                array.shape,
+            )
         )
     if not np.isfinite(array).all():
         raise ValueError("observation contains NaN or Inf")
@@ -90,9 +98,15 @@ def _predict(policy, array, device):
     with torch.inference_mode():
         result = policy.predict_action({"obs": observation})
         action = result["action"]
-    if tuple(action.shape) != (array.shape[0], 5, 22):
+    expected_action_shape = (
+        array.shape[0],
+        int(policy.n_action_steps),
+        int(policy.action_dim),
+    )
+    if tuple(action.shape) != expected_action_shape:
         raise RuntimeError(
-            "policy returned unexpected action shape %s" % (tuple(action.shape),)
+            "policy returned unexpected action shape %s, expected %s"
+            % (tuple(action.shape), expected_action_shape)
         )
     if not torch.isfinite(action).all():
         raise RuntimeError("policy returned NaN or Inf")
@@ -104,8 +118,15 @@ def _warm_up(policy, device, seed, obs_mean):
     torch.manual_seed(seed)
     if device.type == "cuda":
         torch.cuda.manual_seed_all(seed)
-    mean = np.asarray(obs_mean, dtype=np.float32).reshape(1, 1, 22)
-    observation = np.repeat(mean, 4, axis=1)
+    mean = np.asarray(obs_mean, dtype=np.float32)
+    expected_mean_shape = (int(policy.obs_dim),)
+    if mean.shape != expected_mean_shape:
+        raise ValueError(
+            "observation normalizer mean has shape %s, expected %s"
+            % (mean.shape, expected_mean_shape)
+        )
+    mean = mean.reshape(1, 1, expected_mean_shape[0])
+    observation = np.repeat(mean, int(policy.n_obs_steps), axis=1)
     _, elapsed = _predict(policy, observation, device)
     # Make the first real request reproducible independently of the warm-up.
     torch.manual_seed(seed)
@@ -249,4 +270,3 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\n[model] stopped", flush=True)
-

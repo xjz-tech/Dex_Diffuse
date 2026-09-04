@@ -474,8 +474,14 @@ def build_policy(loaded: LoadedCheckpoint):
     cfg = loaded.cfg
     if cfg is None:
         raise ValueError("checkpoint has no embedded configuration")
+    obs_dim = int(cfg["obs_dim"])
+    if obs_dim not in (22, 66):
+        raise ValueError(
+            "unsupported Sim-Hand checkpoint: obs_dim=%d, expected 22 or 66"
+            % obs_dim
+        )
     expected = {
-        "obs_dim": 22,
+        "obs_dim": obs_dim,
         "action_dim": 22,
         "n_obs_steps": 4,
         "n_pred_action_steps": 9,
