@@ -1,0 +1,39 @@
+name: bulb_image
+dataset_path: /home/wty/wangtianyu/TacMP/data/bulb_0705_dp
+
+image_shape: &image_shape [3, 240, 320]
+shape_meta: &shape_meta
+  obs:
+    front_image:
+      shape: *image_shape
+      type: rgb
+    wrist_image:
+      shape: *image_shape
+      type: rgb
+    # Relative to the latest observed EE frame when dataset.relative=true;
+    # otherwise this remains an absolute EE pose.
+    ee_pose:
+      shape: [9]
+      type: low_dim
+    # Absolute Allegro-hand joint positions.
+    hand_joint:
+      shape: [22]
+      type: low_dim
+  # EE pose/action mode is controlled by dataset.relative. Hand joints are absolute.
+  action:
+    shape: [31]
+
+env_runner:
+  _target_: diffusion_policy.env_runner.null_image_runner.NullImageRunner
+
+dataset:
+  _target_: diffusion_policy.dataset.bulb_image_dataset.BulbImageDataset
+  dataset_path: ${task.dataset_path}
+  relative: true
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  n_obs_steps: ${dataset_obs_steps}
+  seed: 42
+  val_ratio: 0.1
+  max_train_episodes: null

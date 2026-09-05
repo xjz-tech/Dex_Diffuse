@@ -1,21 +1,44 @@
 #!/usr/bin/env bash
 # Diffusion Policy inference on the real Franka + SharpA setup.
-# Action layout: relative EE pose (SE(3)) + absolute hand joints.
+# The EE action mode (absolute/relative) is read from the checkpoint config.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
-DP_CONDA_PREFIX="${DP_CONDA_PREFIX:-/home/frankagvl/anaconda3/envs/dp}"
+DP_CONDA_PREFIX="${DP_CONDA_PREFIX:-/home/frankagvl/anaconda3/envs/dp_w}"
 PYTHON="${PYTHON:-${DP_CONDA_PREFIX}/bin/python}"
 INFERENCE_SCRIPT="${INFERENCE_SCRIPT:-${SCRIPT_DIR}/inference_dp.py}"
 ROBOT_INIT_SCRIPT="${ROBOT_INIT_SCRIPT:-/home/frankagvl/workspace/dex_setup/TacMP/scripts/robot_init.py}"
 
-CKPT_PATH="${CKPT_PATH:-/media/frankagvl/WD_wty/work/TacMP/third_party/diffusion_policy/data/outputs/2026.08.08/13.12.38_train_diffusion_unet_dino_image_bulb_image/checkpoints/epoch=0049-val_loss=0.0824.ckpt}"
-DINOV2_REPO_OR_DIR="${DINOV2_REPO_OR_DIR:-/home/frankagvl/.cache/torch/hub/facebookresearch_dinov2_main}"
+# Select the checkpoint here. Keep the directory and epoch separate; the loss
+# suffix is discovered automatically from the checkpoint filename.
+CHECKPOINT_DIR="/media/frankagvl/U393/diffusion_policy/data/outputs/2026.09.03/23.53.01_train_diffusion_unet_dino_image_bulb_image/checkpoints"
+CKPT_EPOCH="200"
+
+if [[ ! "${CKPT_EPOCH}" =~ ^[0-9]+$ ]]; then
+  echo "CKPT_EPOCH must be a non-negative integer, got: ${CKPT_EPOCH}" >&2
+  exit 2
+fi
+printf -v CKPT_EPOCH_PADDED '%04d' "$((10#${CKPT_EPOCH}))"
+
+shopt -s nullglob
+checkpoint_candidates=("${CHECKPOINT_DIR}/epoch=${CKPT_EPOCH_PADDED}-"*.ckpt)
+shopt -u nullglob
+if [[ ${#checkpoint_candidates[@]} -ne 1 ]]; then
+  echo "Expected exactly one checkpoint for epoch ${CKPT_EPOCH_PADDED} in ${CHECKPOINT_DIR}; found ${#checkpoint_candidates[@]}" >&2
+  exit 1
+fi
+CKPT_PATH="${checkpoint_candidates[0]}"
+# This checkout contains the standalone diffusion_policy project one directory
+# below this launcher; use that as the runtime root used by the U393 version.
+RUNTIME_ROOT="${SCRIPT_DIR}/diffusion_policy"
+DINOV2_REPO_OR_DIR="${DINOV2_REPO_OR_DIR:-${RUNTIME_ROOT}/dinov2_assets/facebookresearch_dinov2_main}"
+DINOV2_WEIGHTS="${DINOV2_WEIGHTS:-${RUNTIME_ROOT}/dinov2_assets/dinov2_vits14_pretrain.pth}"
 DINOV2_SOURCE="${DINOV2_SOURCE:-local}"
+DEVICE="${DEVICE:-cuda:0}"
 NUM_INFERENCE_STEPS="${NUM_INFERENCE_STEPS:-100}"
-ACTION_CHUNK_STEPS="${ACTION_CHUNK_STEPS:-30}"
+ACTION_CHUNK_STEPS="${ACTION_CHUNK_STEPS:-8}"
 FRANKA_URDF="${FRANKA_URDF:-/home/frankagvl/workspace/dex_setup/simtoolreal2teleop/assets/urdf/fr3_sharpa_description/fr3.urdf}"
 FRANKA_HOST="${FRANKA_HOST:-172.16.0.10}"
 FRANKA_PORT="${FRANKA_PORT:-9090}"
@@ -27,10 +50,13 @@ FRONT_SERIAL="${FRONT_SERIAL:-}"
 WRIST_SERIAL="${WRIST_SERIAL:-}"
 CHECK_ONLY="${CHECK_ONLY:-0}"
 
-# This machine has CUDA/ROS library paths globally configured. Put the dp
-# environment first so its Pillow/OpenCV dependencies use its newer libstdc++.
+# Use the project code and local DINOv2 assets, even when the checkpoint was
+# produced on another machine and contains that machine's absolute paths.
+export PYTHONPATH="${RUNTIME_ROOT}:${SCRIPT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
+export DINOV2_REPO_OR_DIR DINOV2_WEIGHTS DINOV2_SOURCE
+# Put dp_w first so Pillow/OpenCV use its matching libstdc++; its CUDA 12.1
+# runtime also takes precedence over globally configured CUDA/ROS libraries.
 export LD_LIBRARY_PATH="${DP_CONDA_PREFIX}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-export DINOV2_REPO_OR_DIR DINOV2_SOURCE
 
 if [[ $# -ne 0 ]]; then
   echo "Usage: $(basename "$0")" >&2
@@ -43,6 +69,7 @@ fi
   echo "DINOv2 torch.hub repository not found: ${DINOV2_REPO_OR_DIR}" >&2
   exit 1
 }
+[[ -f "${DINOV2_WEIGHTS}" ]] || { echo "DINOv2 weights not found: ${DINOV2_WEIGHTS}" >&2; exit 1; }
 [[ "${CHECK_ONLY}" == 0 || "${CHECK_ONLY}" == 1 ]] || {
   echo "CHECK_ONLY must be 0 or 1, got: ${CHECK_ONLY}" >&2
   exit 2
@@ -50,12 +77,12 @@ fi
 
 echo "[python] ${PYTHON}"
 echo "[policy] ${CKPT_PATH}"
-echo "[vision] DINOv2 ViT-S/14 from ${DINOV2_REPO_OR_DIR} (${DINOV2_SOURCE})"
+echo "[vision] DINOv2 ViT-S/14 from ${DINOV2_REPO_OR_DIR} (${DINOV2_SOURCE}); weights=${DINOV2_WEIGHTS}"
 if [[ "${CHECK_ONLY}" == 1 ]]; then
   echo "[mode] CHECK ONLY: load checkpoint and run one synthetic inference; hardware is not connected"
   exec "${PYTHON}" "${INFERENCE_SCRIPT}" \
     --checkpoint "${CKPT_PATH}" \
-    --device cuda:0 \
+    --device "${DEVICE}" \
     --num_inference_steps "${NUM_INFERENCE_STEPS}" \
     --action_chunk_steps "${ACTION_CHUNK_STEPS}" \
     --check_only
@@ -92,7 +119,7 @@ echo "[schedule] infer -> execute all ${ACTION_CHUNK_STEPS} actions -> observe -
 
 exec "${PYTHON}" "${INFERENCE_SCRIPT}" \
   --checkpoint "${CKPT_PATH}" \
-  --device cuda:0 \
+  --device "${DEVICE}" \
   --num_inference_steps "${NUM_INFERENCE_STEPS}" \
   --action_chunk_steps "${ACTION_CHUNK_STEPS}" \
   --serial_chunks \

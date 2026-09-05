@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
 import time
 from collections import deque
 from pathlib import Path
@@ -25,10 +24,6 @@ import numpy as np  # noqa: E402
 import torch  # noqa: E402
 from omegaconf import OmegaConf  # noqa: E402
 
-DP_DIR = Path(__file__).resolve().parent
-THIRD_PARTY_DIR = DP_DIR.parent
-sys.path.insert(0, str(THIRD_PARTY_DIR / "ViTacFormer"))
-
 from direct_robot_env import ACTION_DIM, DirectRobotEnv  # noqa: E402
 from diffusion_policy.dataset.bulb_image_dataset import (  # noqa: E402
     ee_pose_relative_to,
@@ -40,8 +35,6 @@ from diffusion_policy.workspace.base_workspace import BaseWorkspace  # noqa: E40
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
 EE_DIM = 9
-IMAGE_WIDTH = 320
-IMAGE_HEIGHT = 240
 
 
 class DiffusionDirectRobotEnv(DirectRobotEnv):
@@ -64,6 +57,21 @@ def load_policy(checkpoint: Path, device: torch.device, num_inference_steps: int
         checkpoint.open("rb"), pickle_module=dill, map_location="cpu"
     )
     cfg = payload["cfg"]
+
+    # Checkpoints retain the absolute DINOv2 paths from the training machine.
+    # Relocate those assets before Hydra constructs the policy in this checkout.
+    rgb_model_cfg = OmegaConf.select(cfg, "policy.obs_encoder.rgb_model")
+    if rgb_model_cfg is not None:
+        repo_or_dir = os.environ.get("DINOV2_REPO_OR_DIR")
+        weights = os.environ.get("DINOV2_WEIGHTS")
+        source = os.environ.get("DINOV2_SOURCE")
+        if repo_or_dir:
+            rgb_model_cfg.repo_or_dir = str(Path(repo_or_dir).expanduser().resolve())
+        if weights:
+            rgb_model_cfg.weights = str(Path(weights).expanduser().resolve())
+        if source:
+            rgb_model_cfg.source = source
+
     workspace_cls = hydra.utils.get_class(cfg._target_)
     workspace: BaseWorkspace = workspace_cls(cfg)
     workspace.load_payload(payload, exclude_keys=None, include_keys=None)
@@ -77,19 +85,26 @@ def load_policy(checkpoint: Path, device: torch.device, num_inference_steps: int
     return cfg, policy
 
 
-def resize_chw_float(image: np.ndarray) -> np.ndarray:
+def resize_chw_float(image: np.ndarray, shape: tuple[int, int, int]) -> np.ndarray:
+    channels, height, width = shape
+    if channels != 3:
+        raise ValueError(f"Expected a 3-channel RGB input, got shape={shape}")
     resized = cv2.resize(
         np.asarray(image),
-        (IMAGE_WIDTH, IMAGE_HEIGHT),
+        (width, height),
         interpolation=cv2.INTER_AREA,
     )
     return np.moveaxis(resized.astype(np.float32) / 255.0, -1, 0)
 
 
-def capture_obs(obs: dict) -> dict:
+def capture_obs(obs: dict, rgb_shapes: dict[str, tuple[int, int, int]]) -> dict:
     return {
-        "front_image": resize_chw_float(obs["/observe/vision/front/rgb"]),
-        "wrist_image": resize_chw_float(obs["/observe/vision/wrist/rgb"]),
+        "front_image": resize_chw_float(
+            obs["/observe/vision/front/rgb"], rgb_shapes["front_image"]
+        ),
+        "wrist_image": resize_chw_float(
+            obs["/observe/vision/wrist/rgb"], rgb_shapes["wrist_image"]
+        ),
         "ee_pose": np.asarray(obs["/state/arm/eef_pose"], dtype=np.float32),
         "hand_joint": np.asarray(
             obs["/state/hand/joint_angle"], dtype=np.float32
@@ -97,11 +112,15 @@ def capture_obs(obs: dict) -> dict:
     }
 
 
-def build_policy_obs(obs_history, device: torch.device):
+def build_policy_obs(obs_history, device: torch.device, relative_ee: bool):
     observations = list(obs_history)
     base_ee_pose = observations[-1]["ee_pose"]
     absolute_ee = np.stack([obs["ee_pose"] for obs in observations])
-    relative_ee = ee_pose_relative_to(absolute_ee, base_ee_pose)
+    policy_ee = (
+        ee_pose_relative_to(absolute_ee, base_ee_pose)
+        if relative_ee
+        else absolute_ee
+    )
 
     def tensor(values):
         return torch.from_numpy(np.stack(values)[None]).float().to(device)
@@ -109,7 +128,7 @@ def build_policy_obs(obs_history, device: torch.device):
     policy_obs = {
         "front_image": tensor([obs["front_image"] for obs in observations]),
         "wrist_image": tensor([obs["wrist_image"] for obs in observations]),
-        "ee_pose": torch.from_numpy(relative_ee[None]).float().to(device),
+        "ee_pose": torch.from_numpy(policy_ee[None]).float().to(device),
         "hand_joint": tensor([obs["hand_joint"] for obs in observations]),
     }
     return policy_obs, base_ee_pose
@@ -211,16 +230,33 @@ def main():
     cfg, policy = load_policy(checkpoint, device, args.num_inference_steps)
     n_obs_steps = int(cfg.n_obs_steps)
     trained_action_steps = int(cfg.n_action_steps)
-    action_chunk_steps = args.action_chunk_steps or trained_action_steps
-    if action_chunk_steps > trained_action_steps:
+    inference_action_steps = int(cfg.horizon) - n_obs_steps + 1
+    if inference_action_steps <= 0:
+        raise ValueError(
+            f"Invalid inference action length: horizon={int(cfg.horizon)}, "
+            f"n_obs_steps={n_obs_steps}"
+        )
+    # The diffusion model predicts the full horizon. Training's A8 only selects
+    # eight actions from it; deployment can consume all actions from To - 1 to T.
+    policy.n_action_steps = inference_action_steps
+    relative_ee = bool(OmegaConf.select(cfg, "task.dataset.relative", default=True))
+    rgb_shapes = {
+        key: tuple(int(x) for x in cfg.shape_meta.obs[key].shape)
+        for key in ("front_image", "wrist_image")
+    }
+    action_chunk_steps = args.action_chunk_steps or inference_action_steps
+    if action_chunk_steps > inference_action_steps:
         raise ValueError(
             f"--action_chunk_steps={action_chunk_steps} exceeds the policy output "
-            f"length {trained_action_steps}"
+            f"length {inference_action_steps}"
         )
     print(
         f"[policy] loaded n_obs_steps={n_obs_steps} "
-        f"n_action_steps={trained_action_steps} horizon={int(cfg.horizon)} "
-        f"num_inference_steps={policy.num_inference_steps}"
+        f"trained_n_action_steps={trained_action_steps} "
+        f"inference_n_action_steps={inference_action_steps} "
+        f"horizon={int(cfg.horizon)} "
+        f"num_inference_steps={policy.num_inference_steps} "
+        f"ee_mode={'relative' if relative_ee else 'absolute'}"
     )
     if n_obs_steps <= 0:
         raise ValueError(f"Checkpoint has invalid n_obs_steps={n_obs_steps}")
@@ -231,10 +267,10 @@ def main():
     if args.check_only:
         dummy_obs = {
             "front_image": torch.zeros(
-                1, n_obs_steps, 3, IMAGE_HEIGHT, IMAGE_WIDTH, device=device
+                1, n_obs_steps, *rgb_shapes["front_image"], device=device
             ),
             "wrist_image": torch.zeros(
-                1, n_obs_steps, 3, IMAGE_HEIGHT, IMAGE_WIDTH, device=device
+                1, n_obs_steps, *rgb_shapes["wrist_image"], device=device
             ),
             "ee_pose": torch.zeros(1, n_obs_steps, EE_DIM, device=device),
             "hand_joint": torch.zeros(
@@ -243,7 +279,7 @@ def main():
         }
         with torch.inference_mode():
             check_action = policy.predict_action(dummy_obs)["action"]
-        expected_shape = (1, trained_action_steps, ACTION_DIM)
+        expected_shape = (1, inference_action_steps, ACTION_DIM)
         if tuple(check_action.shape) != expected_shape:
             raise ValueError(
                 f"Expected policy action shape {expected_shape}, got "
@@ -291,11 +327,12 @@ def main():
     )
 
     try:
-        first_obs = capture_obs(env.reset())
+        first_obs = capture_obs(env.reset(), rgb_shapes)
         obs_history = deque([first_obs] * n_obs_steps, maxlen=n_obs_steps)
         print(
             f"[mode] {'LIVE' if args.live else 'dry-run'}: "
-            f"relative EEF + absolute hand, {args.hz:g} Hz, "
+            f"{'relative' if relative_ee else 'absolute'} EEF + absolute hand, "
+            f"{args.hz:g} Hz, "
             f"{action_chunk_steps} actions/query"
         )
         if args.serial_chunks:
@@ -305,13 +342,18 @@ def main():
             )
 
         while True:
-            policy_obs, base_ee_pose = build_policy_obs(obs_history, device)
+            policy_obs, base_ee_pose = build_policy_obs(
+                obs_history, device, relative_ee
+            )
             with torch.inference_mode():
                 prediction = policy.predict_action(policy_obs)
             mixed_actions = prediction["action"][0].detach().cpu().numpy()
-            absolute_actions = mixed_actions_to_absolute(
-                mixed_actions, base_ee_pose
-            )[:action_chunk_steps]
+            if relative_ee:
+                absolute_actions = mixed_actions_to_absolute(
+                    mixed_actions, base_ee_pose
+                )[:action_chunk_steps]
+            else:
+                absolute_actions = mixed_actions[:action_chunk_steps]
             if len(absolute_actions) != action_chunk_steps:
                 raise RuntimeError(
                     f"Expected {action_chunk_steps} actions, got "
@@ -329,7 +371,7 @@ def main():
             executed_steps = 0
             for step_idx, action in enumerate(absolute_actions):
                 obs = env.step_single(action, step_idx)
-                obs_history.append(capture_obs(obs))
+                obs_history.append(capture_obs(obs, rgb_shapes))
                 executed_steps += 1
                 next_deadline += 1.0 / args.hz
                 remaining = next_deadline - time.monotonic()

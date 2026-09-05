@@ -47,8 +47,8 @@ from typing import Sequence
 import numpy as np
 
 
-DEFAULT_SRC = "/home/wangtianyu/workspace/TacMP/data/bulb_tac_80"
-DEFAULT_OUT = "/home/wangtianyu/workspace/TacMP/data/bulb_tac_80_dp"
+DEFAULT_SRC = "/home/bighand/wangtianyu/projects/TacMP/data/bulb_rotate_0903"
+DEFAULT_OUT = "/mnt/work/dexIL/Dex_Diffuse/data/bulb_rotate_0903_dp"
 
 ARM_DIM = 9
 HAND_DIM = 22
