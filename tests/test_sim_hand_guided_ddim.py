@@ -6,6 +6,7 @@ from unittest.mock import patch
 import diffusers
 import pytest
 import torch
+import torch.nn as nn
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 
 from diffusion_policy.guidance.guided_ddim import (
@@ -13,7 +14,6 @@ from diffusion_policy.guidance.guided_ddim import (
     assert_pinned_diffusers_version,
     create_ddim_scheduler,
     guided_ddim_step,
-    mse_guidance_gradient,
     sample_guided_trajectory,
     verify_zero_guidance_equivalence,
 )
@@ -113,92 +113,6 @@ def test_factory_production_has_no_hardcoded_timesteps() -> None:
     assert str(EXPECTED_CURRENT_TIMESTEPS) not in source
 
 
-def _assert_closed_form_gradient(
-    *,
-    batch: int,
-    horizon: int,
-    action_dim: int,
-    guidance_slice: slice,
-) -> None:
-    base_sample = torch.randn(batch, horizon, action_dim)
-    reference = torch.randn(batch, guidance_slice.stop - guidance_slice.start, action_dim)
-    gradient = mse_guidance_gradient(base_sample, reference, guidance_slice)
-
-    expected = torch.zeros_like(base_sample)
-    expected[:, guidance_slice] = (
-        2.0 / (reference.shape[1] * reference.shape[2])
-    ) * (base_sample[:, guidance_slice] - reference)
-    torch.testing.assert_close(gradient, expected)
-
-
-def test_gradient_matches_closed_form_for_2_12_22_slice_3_8() -> None:
-    _assert_closed_form_gradient(
-        batch=2,
-        horizon=12,
-        action_dim=22,
-        guidance_slice=slice(3, 8),
-    )
-
-
-def test_gradient_matches_closed_form_for_2_8_22_slice_1_4() -> None:
-    _assert_closed_form_gradient(
-        batch=2,
-        horizon=8,
-        action_dim=22,
-        guidance_slice=slice(1, 4),
-    )
-
-
-def test_gradient_rejects_mismatched_batch() -> None:
-    base_sample = torch.randn(2, 12, 22)
-    reference = torch.randn(1, 5, 22)
-    with pytest.raises(ValueError, match="batch"):
-        mse_guidance_gradient(base_sample, reference, slice(3, 8))
-
-
-def test_gradient_rejects_mismatched_action_dim() -> None:
-    base_sample = torch.randn(2, 12, 22)
-    reference = torch.randn(2, 5, 21)
-    with pytest.raises(ValueError, match="action dim"):
-        mse_guidance_gradient(base_sample, reference, slice(3, 8))
-
-
-def test_gradient_rejects_mismatched_slice_length() -> None:
-    base_sample = torch.randn(2, 12, 22)
-    reference = torch.randn(2, 4, 22)
-    with pytest.raises(ValueError, match="slice"):
-        mse_guidance_gradient(base_sample, reference, slice(3, 8))
-
-
-def test_gradient_rejects_dtype_mismatch() -> None:
-    base_sample = torch.randn(2, 12, 22, dtype=torch.float32)
-    reference = torch.randn(2, 5, 22, dtype=torch.float64)
-    with pytest.raises(ValueError, match="dtype"):
-        mse_guidance_gradient(base_sample, reference, slice(3, 8))
-
-
-def test_gradient_rejects_device_mismatch() -> None:
-    if not torch.cuda.is_available():
-        pytest.skip("CUDA required for device mismatch test")
-    base_sample = torch.randn(2, 12, 22, device="cpu")
-    reference = torch.randn(2, 5, 22, device="cuda")
-    with pytest.raises(ValueError, match="device"):
-        mse_guidance_gradient(base_sample, reference, slice(3, 8))
-
-
-def test_gradient_rejects_non_finite_inputs() -> None:
-    base_sample = torch.randn(2, 12, 22)
-    reference = torch.randn(2, 5, 22)
-    base_sample[0, 0, 0] = float("nan")
-    with pytest.raises(ValueError, match="finite"):
-        mse_guidance_gradient(base_sample, reference, slice(3, 8))
-
-    base_sample = torch.randn(2, 12, 22)
-    reference[0, 0, 0] = float("inf")
-    with pytest.raises(ValueError, match="finite"):
-        mse_guidance_gradient(base_sample, reference, slice(3, 8))
-
-
 def _prepared_ddim(num_train_timesteps: int, inference_steps: int):
     ddim = create_ddim_scheduler(
         _training_scheduler(num_train_timesteps=num_train_timesteps)
@@ -221,44 +135,6 @@ def _clipping_triggering_pair(
     assert bool((x0_raw.abs() > 1.0).any())
     assert not torch.equal(x0_raw, x0_raw.clamp(-1.0, 1.0))
     return sample, model_output
-
-
-def _independent_prev_alpha(scheduler, timestep: int) -> torch.Tensor:
-    step_ratio = scheduler.config.num_train_timesteps // scheduler.num_inference_steps
-    prev_t = int(timestep) - step_ratio
-    if prev_t >= 0:
-        return scheduler.alphas_cumprod[prev_t]
-    return scheduler.final_alpha_cumprod
-
-
-def _independent_raw_variance(scheduler, timestep: int) -> torch.Tensor:
-    t = int(timestep)
-    alpha_t = scheduler.alphas_cumprod[t]
-    alpha_prev = _independent_prev_alpha(scheduler, t)
-    return ((1.0 - alpha_prev) / (1.0 - alpha_t)) * (1.0 - alpha_t / alpha_prev)
-
-
-def _independent_ddim_base_values(
-    scheduler,
-    timestep: int,
-    sample: torch.Tensor,
-    model_output: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    alpha_t = scheduler.alphas_cumprod[int(timestep)]
-    alpha_prev = _independent_prev_alpha(scheduler, timestep)
-    x0_raw = (
-        sample - (1.0 - alpha_t).sqrt() * model_output
-    ) / alpha_t.sqrt()
-    x0_base = (
-        x0_raw.clamp(-1.0, 1.0)
-        if scheduler.config.clip_sample
-        else x0_raw
-    )
-    base_prev_sample = (
-        alpha_prev.sqrt() * x0_base
-        + (1.0 - alpha_prev).sqrt() * model_output
-    )
-    return x0_base, base_prev_sample
 
 
 def _assert_zero_scale_matches_official(
@@ -336,216 +212,103 @@ def test_zero_scale_custom_step_matches_official_for_each_60_10_timestep() -> No
     )
 
 
-def test_guidance_updates_reverse_mean_without_modifying_predicted_x0() -> None:
+def test_x0_vjp_guidance_matches_official_ddim_with_guided_epsilon() -> None:
     scheduler = _prepared_ddim(100, 12)
     timestep = int(scheduler.timesteps[3])
     guidance_slice = slice(3, 8)
-    sample, model_output = _clipping_triggering_pair(
-        scheduler, timestep, (2, 12, 22), seed=3
+    sample = torch.randn(2, 12, 22, requires_grad=True)
+    model_scale = 0.25
+    model_output = model_scale * sample + 0.03
+    reference = torch.full((2, 5, 22), 0.2)
+    guidance_scale = 1.5
+
+    alpha_t = scheduler.alphas_cumprod[timestep]
+    sqrt_beta_t = (1.0 - alpha_t).sqrt()
+    x0_raw = (sample - sqrt_beta_t * model_output) / alpha_t.sqrt()
+    expected_gradient = torch.zeros_like(sample)
+    expected_gradient[:, guidance_slice] = (
+        2.0
+        / (reference.shape[1] * reference.shape[2])
+        * (x0_raw[:, guidance_slice] - reference)
+        * (1.0 - sqrt_beta_t * model_scale)
+        / alpha_t.sqrt()
     )
-    reference = torch.zeros(2, 5, 22)
-    guided = guided_ddim_step(
-        scheduler=scheduler,
-        model_output=model_output,
+    expected_epsilon = (
+        model_output + sqrt_beta_t * guidance_scale * expected_gradient
+    )
+    expected = scheduler.step(
+        model_output=expected_epsilon.detach(),
         timestep=timestep,
-        sample=sample,
-        reference=reference,
-        guidance_scale=2.5,
-        guidance_slice=guidance_slice,
-    )
-    expected_x0, expected_base_prev = _independent_ddim_base_values(
-        scheduler,
-        timestep,
-        sample,
-        model_output,
-    )
-    variance = _independent_raw_variance(scheduler, timestep)
-    gradient = mse_guidance_gradient(
-        expected_base_prev,
-        reference,
-        guidance_slice,
-    )
-    expected_guided_prev = expected_base_prev - 2.5 * variance * gradient
-
-    torch.testing.assert_close(
-        guided.pred_original_sample,
-        expected_x0,
-    )
-    torch.testing.assert_close(
-        guided.base_prev_sample,
-        expected_base_prev,
-    )
-    torch.testing.assert_close(
-        guided.prev_sample,
-        expected_guided_prev,
-    )
-    assert not torch.allclose(
-        guided.prev_sample[:, guidance_slice],
-        guided.base_prev_sample[:, guidance_slice],
-    )
-    torch.testing.assert_close(
-        guided.prev_sample[:, : guidance_slice.start],
-        guided.base_prev_sample[:, : guidance_slice.start],
-    )
-    torch.testing.assert_close(
-        guided.prev_sample[:, guidance_slice.stop :],
-        guided.base_prev_sample[:, guidance_slice.stop :],
+        sample=sample.detach(),
+        eta=0.0,
     )
 
-
-def test_raw_variance_matches_independent_formula_for_each_dynamic_timestep() -> None:
-    fixtures = (
-        (100, 12, (2, 12, 22), slice(3, 8)),
-        (60, 10, (2, 8, 22), slice(1, 4)),
-    )
-    for num_train, inference_steps, shape, guidance_slice in fixtures:
-        scheduler = _prepared_ddim(num_train, inference_steps)
-        reference = torch.zeros(
-            shape[0],
-            guidance_slice.stop - guidance_slice.start,
-            shape[2],
-        )
-        for timestep in map(int, scheduler.timesteps):
-            sample, model_output = _clipping_triggering_pair(
-                scheduler, timestep, shape, seed=timestep
-            )
-            output = guided_ddim_step(
-                scheduler=scheduler,
-                model_output=model_output,
-                timestep=timestep,
-                sample=sample,
-                reference=reference,
-                guidance_scale=1.0,
-                guidance_slice=guidance_slice,
-            )
-            expected = _independent_raw_variance(scheduler, timestep)
-            torch.testing.assert_close(output.raw_variance, expected)
-
-
-def test_guided_reverse_mean_uses_variance_not_standard_deviation() -> None:
-    scheduler = _prepared_ddim(100, 12)
-    timestep = int(scheduler.timesteps[0])
-    guidance_slice = slice(3, 8)
-    sample, model_output = _clipping_triggering_pair(
-        scheduler, timestep, (2, 12, 22), seed=11
-    )
-    reference = torch.full((2, 5, 22), -0.5)
     output = guided_ddim_step(
         scheduler=scheduler,
         model_output=model_output,
         timestep=timestep,
         sample=sample,
         reference=reference,
-        guidance_scale=3.0,
+        guidance_scale=guidance_scale,
         guidance_slice=guidance_slice,
+        eta=0.0,
     )
-    variance = _independent_raw_variance(scheduler, timestep)
-    expected_x0, expected_base_prev = _independent_ddim_base_values(
-        scheduler,
-        timestep,
-        sample,
-        model_output,
+
+    torch.testing.assert_close(output.prev_sample, expected.prev_sample)
+    torch.testing.assert_close(
+        output.pred_original_sample,
+        expected.pred_original_sample,
     )
-    gradient = mse_guidance_gradient(
-        expected_base_prev, reference, guidance_slice
-    )
-    expected_from_variance = (
-        expected_base_prev - 3.0 * variance * gradient
-    )
-    expected_from_std = (
-        expected_base_prev - 3.0 * variance.sqrt() * gradient
-    )
-    assert not torch.allclose(expected_from_variance, expected_from_std)
-    torch.testing.assert_close(output.pred_original_sample, expected_x0)
-    torch.testing.assert_close(output.base_prev_sample, expected_base_prev)
-    torch.testing.assert_close(output.prev_sample, expected_from_variance)
-    assert not torch.allclose(output.prev_sample, expected_from_std)
 
 
-def test_final_timestep_zero_variance_makes_reverse_mean_guidance_a_noop() -> None:
+def test_positive_guidance_sampler_works_inside_inference_mode() -> None:
+    scheduler = create_ddim_scheduler(
+        _training_scheduler(num_train_timesteps=60)
+    )
+    with torch.inference_mode():
+        result = sample_guided_trajectory(
+            model=_DeterministicEpsilonModel(scale=0.2),
+            scheduler=scheduler,
+            initial_noise=torch.randn(1, 8, 22),
+            global_cond=torch.randn(1, 44),
+            reference=torch.zeros(1, 3, 22),
+            num_inference_steps=5,
+            guidance_scale=1.0,
+            guidance_slice=slice(1, 4),
+            eta=0.0,
+        )
+
+    assert torch.isfinite(result.trajectory).all()
+    assert not result.trajectory.requires_grad
+
+
+def test_x0_guidance_remains_active_at_final_ddim_timestep() -> None:
     scheduler = _prepared_ddim(100, 12)
     timestep = int(scheduler.timesteps[-1])
     assert timestep == 0
     guidance_slice = slice(3, 8)
-    sample, model_output = _clipping_triggering_pair(
-        scheduler, timestep, (2, 12, 22), seed=0
+    sample = torch.zeros(2, 12, 22, requires_grad=True)
+    model_output = torch.zeros_like(sample)
+    reference = torch.ones(2, 5, 22)
+    base = scheduler.step(
+        model_output=model_output,
+        timestep=timestep,
+        sample=sample,
+        eta=0.0,
     )
-    reference = torch.full((2, 5, 22), 0.25)
     output = guided_ddim_step(
         scheduler=scheduler,
         model_output=model_output,
         timestep=timestep,
         sample=sample,
         reference=reference,
-        guidance_scale=4.0,
+        guidance_scale=100.0,
         guidance_slice=guidance_slice,
     )
-    expected_variance = _independent_raw_variance(scheduler, timestep)
-    torch.testing.assert_close(
-        expected_variance,
-        torch.zeros_like(expected_variance),
-        atol=0.0,
-        rtol=0.0,
-    )
-    expected_x0, expected_base_prev = _independent_ddim_base_values(
-        scheduler,
-        timestep,
-        sample,
-        model_output,
-    )
-    gradient = mse_guidance_gradient(
-        expected_base_prev, reference, guidance_slice
-    )
-    assert not torch.allclose(gradient, torch.zeros_like(gradient))
-    torch.testing.assert_close(output.pred_original_sample, expected_x0)
-    torch.testing.assert_close(output.base_prev_sample, expected_base_prev)
-    torch.testing.assert_close(output.prev_sample, expected_base_prev)
-    torch.testing.assert_close(output.raw_variance, expected_variance)
+    assert not torch.allclose(output.prev_sample, base.prev_sample)
 
 
-def test_guided_reverse_mean_is_not_clipped() -> None:
-    scheduler = _prepared_ddim(100, 12)
-    timestep = int(scheduler.timesteps[0])
-    guidance_slice = slice(3, 8)
-    sample, model_output = _clipping_triggering_pair(
-        scheduler, timestep, (2, 12, 22), seed=5
-    )
-    reference = torch.full((2, 5, 22), 80.0)
-    output = guided_ddim_step(
-        scheduler=scheduler,
-        model_output=model_output,
-        timestep=timestep,
-        sample=sample,
-        reference=reference,
-        guidance_scale=50.0,
-        guidance_slice=guidance_slice,
-    )
-    expected_x0, expected_base_prev = _independent_ddim_base_values(
-        scheduler,
-        timestep,
-        sample,
-        model_output,
-    )
-    assert bool((expected_x0.abs() <= 1.0).all())
-    variance = _independent_raw_variance(scheduler, timestep)
-    gradient = mse_guidance_gradient(
-        expected_base_prev, reference, guidance_slice
-    )
-    expected_unclipped = (
-        expected_base_prev - 50.0 * variance * gradient
-    )
-    assert bool((expected_unclipped.abs() > 1.0).any())
-    torch.testing.assert_close(output.pred_original_sample, expected_x0)
-    torch.testing.assert_close(output.base_prev_sample, expected_base_prev)
-    torch.testing.assert_close(output.prev_sample, expected_unclipped)
-    assert bool((output.prev_sample.abs() > 1.0).any())
-    assert not torch.allclose(
-        output.prev_sample,
-        output.prev_sample.clamp(-1.0, 1.0),
-    )
-
-
-def test_zero_reference_distance_has_zero_update() -> None:
+def test_zero_x0_reference_distance_has_zero_update() -> None:
     scheduler = _prepared_ddim(60, 10)
     timestep = int(scheduler.timesteps[2])
     guidance_slice = slice(1, 4)
@@ -562,7 +325,12 @@ def test_zero_reference_distance_has_zero_update() -> None:
         guidance_scale=0.0,
         guidance_slice=guidance_slice,
     )
-    matched_reference = base.prev_sample[:, guidance_slice].clone()
+    alpha_t = scheduler.alphas_cumprod[timestep]
+    raw_x0 = (
+        sample - (1.0 - alpha_t).sqrt() * model_output
+    ) / alpha_t.sqrt()
+    matched_reference = raw_x0[:, guidance_slice].clone()
+    sample.requires_grad_(True)
     output = guided_ddim_step(
         scheduler=scheduler,
         model_output=model_output,
@@ -580,13 +348,14 @@ def test_zero_reference_distance_has_zero_update() -> None:
     torch.testing.assert_close(output.prev_sample, base.prev_sample)
 
 
-def test_guidance_losses_are_measured_on_reverse_mean() -> None:
+def test_guidance_losses_are_measured_on_raw_x0_estimates() -> None:
     scheduler = _prepared_ddim(100, 12)
     timestep = int(scheduler.timesteps[2])
     guidance_slice = slice(3, 8)
     sample, model_output = _clipping_triggering_pair(
         scheduler, timestep, (2, 12, 22), seed=17
     )
+    sample.requires_grad_(True)
     reference = torch.full((2, 5, 22), 0.4)
     output = guided_ddim_step(
         scheduler=scheduler,
@@ -597,11 +366,15 @@ def test_guidance_losses_are_measured_on_reverse_mean() -> None:
         guidance_scale=2.0,
         guidance_slice=guidance_slice,
     )
+    alpha_t = scheduler.alphas_cumprod[timestep]
+    base_raw_x0 = (
+        sample - (1.0 - alpha_t).sqrt() * model_output
+    ) / alpha_t.sqrt()
     expected_before = (
-        output.base_prev_sample[:, guidance_slice] - reference
+        base_raw_x0[:, guidance_slice] - reference
     ).square().mean(dim=(1, 2))
     expected_after = (
-        output.prev_sample[:, guidance_slice] - reference
+        output.raw_pred_original_sample[:, guidance_slice] - reference
     ).square().mean(dim=(1, 2))
 
     torch.testing.assert_close(output.guidance_loss_before, expected_before)
@@ -629,6 +402,24 @@ def test_negative_scale_and_nonzero_eta_are_rejected() -> None:
         guided_ddim_step(**kwargs, guidance_scale=1.0, eta=0.1)
 
 
+@pytest.mark.parametrize("guidance_scale", [float("nan"), float("inf")])
+def test_step_rejects_non_finite_guidance_scale(guidance_scale: float) -> None:
+    scheduler = _prepared_ddim(60, 10)
+    timestep = int(scheduler.timesteps[0])
+    sample = torch.zeros(1, 8, 22, requires_grad=True)
+    with pytest.raises(ValueError, match="finite"):
+        guided_ddim_step(
+            scheduler=scheduler,
+            model_output=torch.zeros_like(sample),
+            timestep=timestep,
+            sample=sample,
+            reference=torch.zeros(1, 3, 22),
+            guidance_scale=guidance_scale,
+            guidance_slice=slice(1, 4),
+            eta=0.0,
+        )
+
+
 def test_step_rejects_shape_dtype_device_and_finite_violations() -> None:
     scheduler = _prepared_ddim(100, 12)
     timestep = int(scheduler.timesteps[1])
@@ -654,6 +445,14 @@ def test_step_rejects_shape_dtype_device_and_finite_violations() -> None:
         guided_ddim_step(
             **{**base_kwargs, "reference": torch.zeros(1, 5, 22)},
         )
+    with pytest.raises(ValueError, match="action dim"):
+        guided_ddim_step(
+            **{**base_kwargs, "reference": torch.zeros(2, 5, 21)},
+        )
+    with pytest.raises(ValueError, match="slice"):
+        guided_ddim_step(
+            **{**base_kwargs, "reference": torch.zeros(2, 4, 22)},
+        )
     with pytest.raises(ValueError, match="dtype"):
         guided_ddim_step(
             **{
@@ -665,6 +464,10 @@ def test_step_rejects_shape_dtype_device_and_finite_violations() -> None:
         bad_sample = sample.clone()
         bad_sample[0, 0, 0] = float("nan")
         guided_ddim_step(**{**base_kwargs, "sample": bad_sample})
+    with pytest.raises(ValueError, match="finite"):
+        bad_reference = reference.clone()
+        bad_reference[0, 0, 0] = float("inf")
+        guided_ddim_step(**{**base_kwargs, "reference": bad_reference})
     unset = create_ddim_scheduler(_training_scheduler(num_train_timesteps=100))
     with pytest.raises(ValueError, match="inference"):
         guided_ddim_step(**{**base_kwargs, "scheduler": unset})
@@ -704,7 +507,7 @@ class _RecordingEpsilonModel(_DeterministicEpsilonModel):
         self.inputs: list[torch.Tensor] = []
 
     def __call__(self, sample, timestep, global_cond=None):
-        self.inputs.append(sample.clone())
+        self.inputs.append(sample.detach().clone())
         return super().__call__(sample, timestep, global_cond)
 
 
@@ -720,6 +523,15 @@ class _WrongShapeEpsilonModel(_DeterministicEpsilonModel):
     def __call__(self, sample, timestep, global_cond=None):
         out = super().__call__(sample, timestep, global_cond)
         return out[..., :-1]
+
+
+class _ParamEpsilonModel(nn.Module):
+    def __init__(self, *, scale: float = 0.2) -> None:
+        super().__init__()
+        self.scale = nn.Parameter(torch.tensor(scale))
+
+    def forward(self, sample, timestep, global_cond=None):
+        return self.scale * sample
 
 
 def _assert_sampler_chain(
@@ -787,6 +599,25 @@ def test_sampler_chain_matches_dynamic_timesteps_for_60_10() -> None:
         cond_dim=44,
         guidance_slice=slice(1, 4),
     )
+
+
+def test_sampler_does_not_accumulate_model_parameter_grads() -> None:
+    training = _training_scheduler(num_train_timesteps=60)
+    scheduler = create_ddim_scheduler(training)
+    model = _ParamEpsilonModel()
+    result = sample_guided_trajectory(
+        model=model,
+        scheduler=scheduler,
+        initial_noise=torch.randn(1, 8, 22),
+        global_cond=torch.randn(1, 44),
+        reference=torch.zeros(1, 3, 22),
+        num_inference_steps=5,
+        guidance_scale=1.5,
+        guidance_slice=slice(1, 4),
+        eta=0.0,
+    )
+    assert torch.isfinite(result.trajectory).all()
+    assert model.scale.grad is None
 
 
 def test_sampler_rejects_nonpositive_inference_steps() -> None:

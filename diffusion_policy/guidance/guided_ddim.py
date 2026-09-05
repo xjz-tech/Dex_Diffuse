@@ -32,49 +32,42 @@ def create_ddim_scheduler(training_scheduler: DDPMScheduler) -> DDIMScheduler:
     )
 
 
-def mse_guidance_gradient(
-    base_sample: torch.Tensor,
+def _validate_guidance_reference(
+    predicted_x0: torch.Tensor,
     reference: torch.Tensor,
     guidance_slice: slice,
-) -> torch.Tensor:
-    if base_sample.shape[0] != reference.shape[0]:
+) -> None:
+    if predicted_x0.shape[0] != reference.shape[0]:
         raise ValueError(
-            f"batch mismatch: base sample batch {base_sample.shape[0]} != "
+            f"batch mismatch: predicted x0 batch {predicted_x0.shape[0]} != "
             f"reference batch {reference.shape[0]}"
         )
-    if base_sample.shape[2] != reference.shape[2]:
+    if predicted_x0.shape[2] != reference.shape[2]:
         raise ValueError(
-            f"action dim mismatch: base sample dim {base_sample.shape[2]} != "
+            f"action dim mismatch: predicted x0 dim {predicted_x0.shape[2]} != "
             f"reference dim {reference.shape[2]}"
         )
-    sliced = base_sample[:, guidance_slice]
+    sliced = predicted_x0[:, guidance_slice]
     if sliced.shape != reference.shape:
         raise ValueError(
-            f"slice length mismatch: base_sample[{guidance_slice}] shape "
+            f"slice length mismatch: predicted_x0[{guidance_slice}] shape "
             f"{tuple(sliced.shape)} != reference shape {tuple(reference.shape)}"
         )
-    if base_sample.dtype != reference.dtype:
+    if predicted_x0.dtype != reference.dtype:
         raise ValueError(
-            f"dtype mismatch: base sample {base_sample.dtype} != "
+            f"dtype mismatch: predicted x0 {predicted_x0.dtype} != "
             f"reference {reference.dtype}"
         )
-    if base_sample.device != reference.device:
+    if predicted_x0.device != reference.device:
         raise ValueError(
-            f"device mismatch: base sample {base_sample.device} != "
+            f"device mismatch: predicted x0 {predicted_x0.device} != "
             f"reference {reference.device}"
         )
     if not (
-        torch.isfinite(base_sample).all()
+        torch.isfinite(predicted_x0).all()
         and torch.isfinite(reference).all()
     ):
         raise ValueError("non-finite inputs are not supported")
-
-    gradient = torch.zeros_like(base_sample)
-    scale = 2.0 / (reference.shape[1] * reference.shape[2])
-    gradient[:, guidance_slice] = scale * (
-        base_sample[:, guidance_slice] - reference
-    )
-    return gradient
 
 
 @dataclass(frozen=True)
@@ -86,10 +79,23 @@ class GuidedDDIMStepOutput:
     raw_pred_original_sample: torch.Tensor
     alpha_bar_t: torch.Tensor
     alpha_bar_prev: torch.Tensor
-    raw_variance: torch.Tensor
     direction_coefficient: torch.Tensor
     guidance_loss_before: torch.Tensor
     guidance_loss_after: torch.Tensor
+
+
+@dataclass(frozen=True)
+class GuidedDDIMSampleOutput:
+    trajectory: torch.Tensor
+    steps: tuple[GuidedDDIMStepOutput, ...]
+
+
+@dataclass(frozen=True)
+class ZeroGuidanceReport:
+    timesteps: tuple[int, ...]
+    terminal_shape: tuple[int, ...]
+    max_x0_error: float
+    max_prev_error: float
 
 
 def _require_matching_sample_and_epsilon(
@@ -121,6 +127,11 @@ def _slice_mse(
     return (pred[:, guidance_slice] - reference).square().mean(dim=(1, 2))
 
 
+def _require_finite_guidance_scale(guidance_scale: float) -> None:
+    if not torch.isfinite(torch.as_tensor(guidance_scale)):
+        raise ValueError("guidance_scale must be finite")
+
+
 def guided_ddim_step(
     scheduler: DDIMScheduler,
     model_output: torch.Tensor,
@@ -138,6 +149,7 @@ def guided_ddim_step(
         )
     if eta != 0.0:
         raise ValueError("eta must be 0.0 for guided DDIM")
+    _require_finite_guidance_scale(guidance_scale)
     if guidance_scale < 0:
         raise ValueError("guidance_scale must be non-negative")
 
@@ -154,59 +166,55 @@ def guided_ddim_step(
         if prev_t >= 0
         else scheduler.final_alpha_cumprod
     ).to(device=sample.device, dtype=sample.dtype)
-    beta_t = 1.0 - alpha_t
-    x0_raw = (sample - beta_t.sqrt() * model_output) / alpha_t.sqrt()
+    sqrt_alpha_t = alpha_t.sqrt()
+    sqrt_beta_t = (1.0 - alpha_t).sqrt()
+    x0_raw = (sample - sqrt_beta_t * model_output) / sqrt_alpha_t
     x0_base = x0_raw.clamp(-1.0, 1.0) if scheduler.config.clip_sample else x0_raw
-    raw_variance = scheduler._get_variance(t, prev_t).to(
-        device=sample.device, dtype=sample.dtype
+    _validate_guidance_reference(x0_raw, reference, guidance_slice)
+    # Scheme B: ε_guided = εθ + b_t * λ * ∇_{x_t} D(x0_hat, y), including ∂x0_hat/∂x_t.
+    if guidance_scale > 0:
+        if not sample.requires_grad:
+            raise ValueError(
+                "sample must require gradients when guidance_scale is positive"
+            )
+        guidance_loss = _slice_mse(x0_raw, reference, guidance_slice).sum()
+        gradient = torch.autograd.grad(guidance_loss, sample)[0]
+    else:
+        gradient = torch.zeros_like(sample)
+    guided_epsilon = model_output + sqrt_beta_t * guidance_scale * gradient
+    guided_x0_raw = (sample - sqrt_beta_t * guided_epsilon) / sqrt_alpha_t
+    guided_x0 = (
+        guided_x0_raw.clamp(-1.0, 1.0)
+        if scheduler.config.clip_sample
+        else guided_x0_raw
     )
     direction = (1.0 - alpha_prev).sqrt()
     base_prev_sample = (
         alpha_prev.sqrt() * x0_base + direction * model_output
     )
-    gradient = mse_guidance_gradient(
-        base_prev_sample,
-        reference,
-        guidance_slice,
-    )
     prev_sample = (
-        base_prev_sample - guidance_scale * raw_variance * gradient
+        alpha_prev.sqrt() * guided_x0 + direction * guided_epsilon
     )
     return GuidedDDIMStepOutput(
         timestep=t,
-        prev_sample=prev_sample,
-        base_prev_sample=base_prev_sample,
-        pred_original_sample=x0_base,
-        raw_pred_original_sample=x0_raw,
+        prev_sample=prev_sample.detach(),
+        base_prev_sample=base_prev_sample.detach(),
+        pred_original_sample=guided_x0.detach(),
+        raw_pred_original_sample=guided_x0_raw.detach(),
         alpha_bar_t=alpha_t,
         alpha_bar_prev=alpha_prev,
-        raw_variance=raw_variance,
         direction_coefficient=direction,
         guidance_loss_before=_slice_mse(
-            base_prev_sample,
+            x0_raw,
             reference,
             guidance_slice,
-        ),
+        ).detach(),
         guidance_loss_after=_slice_mse(
-            prev_sample,
+            guided_x0_raw,
             reference,
             guidance_slice,
-        ),
+        ).detach(),
     )
-
-
-@dataclass(frozen=True)
-class GuidedDDIMSampleOutput:
-    trajectory: torch.Tensor
-    steps: tuple[GuidedDDIMStepOutput, ...]
-
-
-@dataclass(frozen=True)
-class ZeroGuidanceReport:
-    timesteps: tuple[int, ...]
-    terminal_shape: tuple[int, ...]
-    max_x0_error: float
-    max_prev_error: float
 
 
 def sample_guided_trajectory(
@@ -228,28 +236,47 @@ def sample_guided_trajectory(
         num_inference_steps,
         device=initial_noise.device,
     )
-    trajectory = initial_noise.clone()
+    trajectory = initial_noise
     outputs: list[GuidedDDIMStepOutput] = []
-    with torch.no_grad():
-        for timestep in scheduler.timesteps:
-            model_output = model(
-                trajectory,
-                timestep,
-                global_cond=global_cond,
-            )
-            output = guided_ddim_step(
-                scheduler=scheduler,
-                model_output=model_output,
-                timestep=timestep,
-                sample=trajectory,
-                reference=reference,
-                guidance_scale=guidance_scale,
-                guidance_slice=guidance_slice,
-                eta=eta,
-            )
-            outputs.append(output)
-            trajectory = output.prev_sample
-    return GuidedDDIMSampleOutput(trajectory, tuple(outputs))
+    for timestep in scheduler.timesteps:
+        if guidance_scale > 0:
+            with torch.inference_mode(False), torch.enable_grad():
+                xt = trajectory.detach().clone().requires_grad_(True)
+                model_output = model(
+                    xt,
+                    timestep,
+                    global_cond=global_cond,
+                )
+                output = guided_ddim_step(
+                    scheduler=scheduler,
+                    model_output=model_output,
+                    timestep=timestep,
+                    sample=xt,
+                    reference=reference,
+                    guidance_scale=guidance_scale,
+                    guidance_slice=guidance_slice,
+                    eta=eta,
+                )
+        else:
+            with torch.no_grad():
+                model_output = model(
+                    trajectory,
+                    timestep,
+                    global_cond=global_cond,
+                )
+                output = guided_ddim_step(
+                    scheduler=scheduler,
+                    model_output=model_output,
+                    timestep=timestep,
+                    sample=trajectory,
+                    reference=reference,
+                    guidance_scale=guidance_scale,
+                    guidance_slice=guidance_slice,
+                    eta=eta,
+                )
+        outputs.append(output)
+        trajectory = output.prev_sample.detach()
+    return GuidedDDIMSampleOutput(trajectory.detach(), tuple(outputs))
 
 
 def verify_zero_guidance_equivalence(
