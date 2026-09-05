@@ -42,9 +42,10 @@ policy:
       _target_: diffusion_policy.model.vision.model_getter.get_dinov2
       name: dinov2_vits14
       pretrained: True
-      repo_or_dir: ${oc.env:DINOV2_REPO_OR_DIR,facebookresearch/dinov2}
-      source: ${oc.env:DINOV2_SOURCE,github}
-      weights: ${oc.env:DINOV2_WEIGHTS,null}
+      # train_bulb_dino.sh pins these to project-local assets.
+      repo_or_dir: ${oc.env:DINOV2_REPO_OR_DIR,/mnt/work/dexIL/Dex_Diffuse/assets/dinov2_assets/facebookresearch_dinov2_main}
+      source: ${oc.env:DINOV2_SOURCE,local}
+      weights: ${oc.env:DINOV2_WEIGHTS,/mnt/work/dexIL/Dex_Diffuse/assets/dinov2_assets/dinov2_vits14_pretrain.pth}
       freeze: True
     resize_shape: [240, 320]
     # DINOv2 ViT-S/14 requires both crop dimensions to be divisible by 14.
@@ -139,7 +140,7 @@ hydra:
   job:
     override_dirname: ${name}
   run:
-    dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+    dir: /mnt/work/dexIL/Dex_Diffuse/runs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
   sweep:
-    dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+    dir: /mnt/work/dexIL/Dex_Diffuse/runs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
     subdir: ${hydra.job.num}

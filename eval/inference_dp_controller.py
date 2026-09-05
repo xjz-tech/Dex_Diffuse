@@ -1,0 +1,684 @@
+#!/usr/bin/env python3
+"""Run Real-DP proposals through a guided Sim-Hand DDIM controller.
+
+The image Diffusion Policy supplies the task-level 31-D action chunk.  Its
+22-D hand part is used as an energy guide during every reverse DDIM step of the
+simulation-trained hand policy.  The 9-D arm part is kept unchanged.  Only a
+short prefix is executed before both policies are replanned from fresh state.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import time
+from collections import deque
+from dataclasses import dataclass
+from pathlib import Path
+
+import dill
+import hydra
+import numpy as np
+import torch
+from diffusers.schedulers.scheduling_ddim import DDIMScheduler
+from omegaconf import OmegaConf
+
+from checkpoint_loader import build_policy as build_controller_policy
+from checkpoint_loader import load_checkpoint as load_controller_checkpoint
+from diffusion_policy.workspace.base_workspace import BaseWorkspace
+from policy_observation import (
+    QPOS_OBSERVATION,
+    QPOS_TARGET_RESIDUAL_OBSERVATION,
+    compose_policy_observation,
+)
+
+
+ARM_DIM = 9
+HAND_DIM = 22
+ACTION_DIM = ARM_DIM + HAND_DIM
+
+
+@dataclass(frozen=True)
+class GuidanceStats:
+    mse_before: float
+    mse_after: float
+
+
+class GuidedDDIMController:
+    """Simulation hand prior with analytic action-reference guidance."""
+
+    def __init__(
+        self,
+        checkpoint: Path,
+        device: torch.device,
+        *,
+        inference_steps: int,
+        execution_steps: int,
+        guidance_scale: float,
+        guidance_clip: float,
+        smoothness_scale: float,
+        fixed_noise: bool,
+        seed: int,
+        allow_salvage: bool,
+    ) -> None:
+        loaded = load_controller_checkpoint(checkpoint, allow_salvage=allow_salvage)
+        policy, spec = build_controller_policy(loaded)
+        policy = policy.to(device).eval()
+        for parameter in policy.parameters():
+            parameter.requires_grad_(False)
+
+        if inference_steps <= 0:
+            raise ValueError("controller inference_steps must be positive")
+        if execution_steps <= 0 or execution_steps > int(spec["n_action_steps"]):
+            raise ValueError(
+                "execution_steps must be in [1, %d], got %d"
+                % (int(spec["n_action_steps"]), execution_steps)
+            )
+        if guidance_scale < 0.0:
+            raise ValueError("guidance_scale must be non-negative")
+        if guidance_clip <= 0.0:
+            raise ValueError("guidance_clip must be positive")
+        if smoothness_scale < 0.0:
+            raise ValueError("smoothness_scale must be non-negative")
+        if policy.noise_scheduler.config.prediction_type != "epsilon":
+            raise ValueError("guided DDIM requires an epsilon-prediction controller")
+        if not bool(policy.obs_as_global_cond):
+            raise ValueError("guided DDIM requires global observation conditioning")
+
+        self.policy = policy
+        self.spec = {key: int(value) for key, value in spec.items()}
+        self.device = device
+        self.inference_steps = int(inference_steps)
+        self.execution_steps = int(execution_steps)
+        self.guidance_scale = float(guidance_scale)
+        self.guidance_clip = float(guidance_clip)
+        self.smoothness_scale = float(smoothness_scale)
+        self.fixed_noise = bool(fixed_noise)
+        self.generator = torch.Generator(device=device)
+        self.generator.manual_seed(int(seed))
+        self._fixed_noise: torch.Tensor | None = None
+        self.scheduler = DDIMScheduler.from_config(
+            policy.noise_scheduler.config,
+            set_alpha_to_one=True,
+            steps_offset=0,
+            timestep_spacing="leading",
+        )
+
+        self.action_start = self.spec["n_obs_steps"] - 1
+        self.reference_steps = self.spec["n_pred_action_steps"]
+        self.reference_slice = slice(
+            self.action_start,
+            self.action_start + self.reference_steps,
+        )
+        if self.reference_slice.stop > self.spec["horizon"]:
+            raise ValueError("controller reference slice exceeds diffusion horizon")
+
+        self.observation_mode = (
+            QPOS_OBSERVATION
+            if self.spec["obs_dim"] == HAND_DIM
+            else QPOS_TARGET_RESIDUAL_OBSERVATION
+        )
+        print(
+            "[controller] loaded %s | weights=%s obs_dim=%d horizon=%d "
+            "guide_steps=%d execute_steps=%d sampler=DDIM ddim_steps=%d"
+            % (
+                checkpoint,
+                loaded.weight_source,
+                self.spec["obs_dim"],
+                self.spec["horizon"],
+                self.reference_steps,
+                self.execution_steps,
+                self.inference_steps,
+            ),
+            flush=True,
+        )
+        if loaded.salvaged:
+            print(
+                "[controller] WARNING: incomplete checkpoint; using strictly "
+                "recovered base-model weights",
+                flush=True,
+            )
+
+    def compose_observation(
+        self,
+        qpos: np.ndarray,
+        target_before: np.ndarray,
+    ) -> np.ndarray:
+        return compose_policy_observation(qpos, target_before, self.observation_mode)
+
+    def _noise(self, batch_size: int, dtype: torch.dtype) -> torch.Tensor:
+        shape = (batch_size, self.spec["horizon"], HAND_DIM)
+        if self.fixed_noise:
+            if self._fixed_noise is None or tuple(self._fixed_noise.shape) != shape:
+                self._fixed_noise = torch.randn(
+                    shape,
+                    device=self.device,
+                    dtype=dtype,
+                    generator=self.generator,
+                )
+            return self._fixed_noise.clone()
+        return torch.randn(
+            shape,
+            device=self.device,
+            dtype=dtype,
+            generator=self.generator,
+        )
+
+    def _energy_gradient(
+        self,
+        clean: torch.Tensor,
+        reference: torch.Tensor,
+    ) -> torch.Tensor:
+        """Gradient of action MSE plus DP-relative-motion MSE."""
+        guided = clean[:, self.reference_slice, :]
+        gradient = guided - reference
+        if self.smoothness_scale > 0.0 and self.reference_steps > 1:
+            delta_error = (
+                guided[:, 1:, :]
+                - guided[:, :-1, :]
+                - reference[:, 1:, :]
+                + reference[:, :-1, :]
+            )
+            smooth_gradient = torch.zeros_like(guided)
+            smooth_gradient[:, :-1, :] -= delta_error
+            smooth_gradient[:, 1:, :] += delta_error
+            gradient = gradient + self.smoothness_scale * smooth_gradient
+        result = torch.zeros_like(clean)
+        result[:, self.reference_slice, :] = gradient
+        return result.clamp(-self.guidance_clip, self.guidance_clip)
+
+    def _guided_step(
+        self,
+        sample: torch.Tensor,
+        epsilon: torch.Tensor,
+        timestep: torch.Tensor,
+        next_timestep: int,
+        reference: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Apply an x0-energy correction to the deterministic DDIM mean."""
+        base_output = self.scheduler.step(
+            model_output=epsilon,
+            timestep=timestep,
+            sample=sample,
+            eta=0.0,
+        )
+        if next_timestep >= 0:
+            alpha_prev = self.scheduler.alphas_cumprod[next_timestep].to(
+                device=sample.device, dtype=sample.dtype
+            )
+        else:
+            alpha_prev = self.scheduler.final_alpha_cumprod.to(
+                device=sample.device, dtype=sample.dtype
+            )
+        clean = base_output.pred_original_sample
+        clip_range = (
+            float(getattr(self.scheduler.config, "clip_sample_range", 1.0))
+            if bool(self.scheduler.config.clip_sample)
+            else None
+        )
+
+        before = clean[:, self.reference_slice, :]
+        gradient = self._energy_gradient(clean, reference)
+        guided_clean = clean - self.guidance_scale * gradient
+        if clip_range is not None:
+            guided_clean = guided_clean.clamp(-clip_range, clip_range)
+
+        # Shift only the predicted-clean contribution to the reverse-step mean.
+        # This preserves the checkpoint's official DDIM direction and makes
+        # guidance_scale=0 exactly equivalent to DDIMScheduler.step(..., eta=0).
+        prev_sample = base_output.prev_sample + alpha_prev.sqrt() * (
+            guided_clean - clean
+        )
+        after = guided_clean[:, self.reference_slice, :]
+        return prev_sample, before, after
+
+    @torch.inference_mode()
+    def predict(
+        self,
+        observation_history: np.ndarray,
+        hand_reference: np.ndarray,
+    ) -> tuple[np.ndarray, GuidanceStats]:
+        history = torch.as_tensor(
+            observation_history,
+            device=self.device,
+            dtype=self.policy.dtype,
+        )
+        if history.ndim == 2:
+            history = history.unsqueeze(0)
+        expected_history = (
+            history.shape[0],
+            self.spec["n_obs_steps"],
+            self.spec["obs_dim"],
+        )
+        if tuple(history.shape) != expected_history:
+            raise ValueError(
+                "controller observation history must have shape %s, got %s"
+                % (expected_history, tuple(history.shape))
+            )
+
+        reference = torch.as_tensor(
+            hand_reference,
+            device=self.device,
+            dtype=self.policy.dtype,
+        )
+        if reference.ndim == 2:
+            reference = reference.unsqueeze(0)
+        if reference.ndim != 3 or reference.shape[0] != history.shape[0]:
+            raise ValueError("hand reference must have shape (batch, steps, 22)")
+        if reference.shape[-1] != HAND_DIM:
+            raise ValueError("hand reference last dimension must be 22")
+        if reference.shape[1] < self.reference_steps:
+            raise ValueError(
+                "DP hand chunk has %d steps, but controller guidance needs %d"
+                % (reference.shape[1], self.reference_steps)
+            )
+        if not torch.isfinite(history).all() or not torch.isfinite(reference).all():
+            raise ValueError("controller history/reference contains NaN or Inf")
+
+        nobs = self.policy.normalizer["obs"].normalize(history)
+        global_cond = nobs[:, : self.spec["n_obs_steps"]].reshape(history.shape[0], -1)
+        reference = self.policy.normalizer["action"].normalize(
+            reference[:, : self.reference_steps]
+        )
+        trajectory = self._noise(history.shape[0], history.dtype)
+        self.scheduler.set_timesteps(self.inference_steps, device=self.device)
+
+        mse_before = torch.tensor(0.0, device=self.device)
+        mse_after = torch.tensor(0.0, device=self.device)
+        timesteps = self.scheduler.timesteps
+        for index, timestep in enumerate(timesteps):
+            epsilon = self.policy.model(
+                trajectory,
+                timestep,
+                local_cond=None,
+                global_cond=global_cond,
+            )
+            next_timestep = (
+                int(timesteps[index + 1].item())
+                if index + 1 < len(timesteps)
+                else -1
+            )
+            trajectory, before, after = self._guided_step(
+                trajectory,
+                epsilon,
+                timestep,
+                next_timestep,
+                reference,
+            )
+            mse_before = (before - reference).square().mean()
+            mse_after = (after - reference).square().mean()
+
+        action_norm = trajectory[
+            :,
+            self.action_start : self.action_start + self.execution_steps,
+            :,
+        ]
+        action = self.policy.normalizer["action"].unnormalize(action_norm)
+        if not torch.isfinite(action).all():
+            raise RuntimeError("guided DDIM controller produced NaN or Inf")
+        stats = GuidanceStats(
+            mse_before=float(mse_before.item()),
+            mse_after=float(mse_after.item()),
+        )
+        return action.detach().cpu().numpy(), stats
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dp-checkpoint", required=True, type=Path)
+    parser.add_argument("--controller-checkpoint", required=True, type=Path)
+    parser.add_argument("--device", default="cuda:0")
+    parser.add_argument("--dp-inference-steps", type=int, default=16)
+    parser.add_argument("--ddim-inference-steps", type=int, default=12)
+    parser.add_argument("--execution-steps", type=int, default=2)
+    parser.add_argument("--guidance-scale", type=float, default=0.10)
+    parser.add_argument("--guidance-clip", type=float, default=1.0)
+    parser.add_argument("--smoothness-scale", type=float, default=0.10)
+    parser.add_argument("--fixed-noise", type=int, choices=(0, 1), default=1)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--no-salvage", action="store_true")
+    parser.add_argument("--check-only", action="store_true")
+    parser.add_argument("--max-chunks", type=int, default=0)
+    parser.add_argument("--hz", type=float, default=30.0)
+    parser.add_argument("--live", action="store_true")
+
+    parser.add_argument("--franka-host", default="172.16.0.10")
+    parser.add_argument("--franka-port", type=int, default=9090)
+    parser.add_argument("--franka-timeout-ms", type=int, default=2000)
+    parser.add_argument(
+        "--franka-control-mode", choices=("joints", "cartesian"), default="joints"
+    )
+    parser.add_argument("--franka-urdf", default=None)
+    parser.add_argument("--max-joint-step", type=float, default=0.05)
+    parser.add_argument("--ik-dq-max", type=float, default=0.5)
+    parser.add_argument("--ik-damping", type=float, default=1e-4)
+    parser.add_argument("--max-arm-xyz-step", type=float, default=0.03)
+    parser.add_argument("--max-hand-step", type=float, default=0.03)
+    parser.add_argument("--disable-clamp", action="store_true")
+    parser.add_argument("--hand-host", default="localhost")
+    parser.add_argument("--hand-port", type=int, default=5570)
+    parser.add_argument("--hand-timeout-ms", type=int, default=2000)
+    parser.add_argument("--hand-interpolate", action="store_true")
+    parser.add_argument("--camera-fps", type=int, default=30)
+    parser.add_argument("--camera-timeout-ms", type=int, default=1000)
+    parser.add_argument("--front-serial", default=None)
+    parser.add_argument("--wrist-serial", default=None)
+    parser.add_argument("--front-resolution", default="640x480")
+    parser.add_argument("--wrist-resolution", default="640x480")
+    parser.add_argument("--rotate-wrist-camera-180", action="store_true", default=True)
+    parser.add_argument(
+        "--no-rotate-wrist-camera-180",
+        dest="rotate_wrist_camera_180",
+        action="store_false",
+    )
+    parser.add_argument("--show-camera-input", action="store_true")
+    parser.add_argument("--stop-on-close", action="store_true")
+    return parser.parse_args()
+
+
+def _validate_args(args: argparse.Namespace) -> torch.device:
+    for name in ("dp_checkpoint", "controller_checkpoint"):
+        path = Path(getattr(args, name)).expanduser().resolve()
+        if not path.is_file():
+            raise FileNotFoundError("%s not found: %s" % (name, path))
+        setattr(args, name, path)
+    if args.dp_inference_steps <= 0 or args.ddim_inference_steps <= 0:
+        raise ValueError("inference step counts must be positive")
+    if args.max_chunks < 0:
+        raise ValueError("max_chunks cannot be negative")
+    if args.hz <= 0.0:
+        raise ValueError("hz must be positive")
+    device = torch.device(args.device)
+    if device.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA was requested but is unavailable")
+    torch.manual_seed(args.seed)
+    if device.type == "cuda":
+        torch.cuda.manual_seed_all(args.seed)
+    np.random.seed(args.seed)
+    return device
+
+
+def _load_real_policy(
+    checkpoint: Path,
+    device: torch.device,
+    inference_steps: int,
+):
+    payload = torch.load(
+        checkpoint.open("rb"),
+        pickle_module=dill,
+        map_location="cpu",
+    )
+    if "cfg" not in payload:
+        raise ValueError("real DP checkpoint has no embedded configuration")
+    cfg = payload["cfg"]
+
+    # Training checkpoints may retain absolute DINOv2 paths from another host.
+    rgb_model_cfg = OmegaConf.select(cfg, "policy.obs_encoder.rgb_model")
+    if rgb_model_cfg is not None:
+        if os.environ.get("DINOV2_REPO_OR_DIR"):
+            rgb_model_cfg.repo_or_dir = str(
+                Path(os.environ["DINOV2_REPO_OR_DIR"]).expanduser().resolve()
+            )
+        if os.environ.get("DINOV2_WEIGHTS"):
+            rgb_model_cfg.weights = str(
+                Path(os.environ["DINOV2_WEIGHTS"]).expanduser().resolve()
+            )
+        if os.environ.get("DINOV2_SOURCE"):
+            rgb_model_cfg.source = os.environ["DINOV2_SOURCE"]
+
+    workspace_cls = hydra.utils.get_class(cfg._target_)
+    workspace: BaseWorkspace = workspace_cls(cfg)
+    workspace.load_payload(payload, exclude_keys=None, include_keys=None)
+    policy = workspace.model
+    if bool(cfg.training.use_ema) and getattr(workspace, "ema_model", None) is not None:
+        policy = workspace.ema_model
+    policy.num_inference_steps = int(inference_steps)
+    policy = policy.to(device).eval()
+    for parameter in policy.parameters():
+        parameter.requires_grad_(False)
+    return cfg, policy
+
+
+def _real_policy_metadata(cfg, policy) -> tuple[int, int, bool, dict[str, tuple[int, ...]]]:
+    n_obs_steps = int(policy.n_obs_steps)
+    action_steps = int(policy.horizon) - n_obs_steps + 1
+    if action_steps <= 0:
+        raise ValueError("real DP has no usable action steps")
+    if int(policy.action_dim) != ACTION_DIM:
+        raise ValueError(
+            "real DP action_dim must be %d, got %d" % (ACTION_DIM, policy.action_dim)
+        )
+    policy.n_action_steps = action_steps
+    relative_ee = bool(OmegaConf.select(cfg, "task.dataset.relative", default=True))
+    rgb_shapes = {
+        key: tuple(int(value) for value in cfg.shape_meta.obs[key].shape)
+        for key in ("front_image", "wrist_image")
+    }
+    return n_obs_steps, action_steps, relative_ee, rgb_shapes
+
+
+def _synthetic_real_observation(
+    n_obs_steps: int,
+    rgb_shapes: dict[str, tuple[int, ...]],
+    device: torch.device,
+) -> dict[str, torch.Tensor]:
+    return {
+        "front_image": torch.zeros(1, n_obs_steps, *rgb_shapes["front_image"], device=device),
+        "wrist_image": torch.zeros(1, n_obs_steps, *rgb_shapes["wrist_image"], device=device),
+        "ee_pose": torch.zeros(1, n_obs_steps, ARM_DIM, device=device),
+        "hand_joint": torch.zeros(1, n_obs_steps, HAND_DIM, device=device),
+    }
+
+
+def _run_check(
+    real_policy,
+    controller: GuidedDDIMController,
+    n_obs_steps: int,
+    action_steps: int,
+    rgb_shapes: dict[str, tuple[int, ...]],
+    device: torch.device,
+) -> None:
+    with torch.inference_mode():
+        proposal = real_policy.predict_action(
+            _synthetic_real_observation(n_obs_steps, rgb_shapes, device)
+        )["action"]
+    expected = (1, action_steps, ACTION_DIM)
+    if tuple(proposal.shape) != expected:
+        raise RuntimeError(
+            "real DP returned shape %s, expected %s" % (tuple(proposal.shape), expected)
+        )
+    observation_mean = (
+        controller.policy.normalizer.get_input_stats()["obs"]["mean"]
+        .detach()
+        .cpu()
+        .numpy()
+        .astype(np.float32)
+    )
+    history = np.repeat(
+        observation_mean[None, :], controller.spec["n_obs_steps"], axis=0
+    )
+    hand_guide = proposal[0, :, ARM_DIM:].detach().cpu().numpy()
+    guided, stats = controller.predict(history, hand_guide)
+    expected_guided = (1, controller.execution_steps, HAND_DIM)
+    if guided.shape != expected_guided:
+        raise RuntimeError(
+            "controller returned shape %s, expected %s" % (guided.shape, expected_guided)
+        )
+    print(
+        "[check] passed: DP %s -> hand guide %s -> guided DDIM %s | "
+        "final_mse %.6f -> %.6f"
+        % (expected, hand_guide.shape, guided.shape, stats.mse_before, stats.mse_after),
+        flush=True,
+    )
+
+
+def main() -> int:
+    args = parse_args()
+    device = _validate_args(args)
+
+    print("[dp] loading %s" % args.dp_checkpoint, flush=True)
+    real_cfg, real_policy = _load_real_policy(
+        args.dp_checkpoint,
+        device,
+        args.dp_inference_steps,
+    )
+    n_obs_steps, action_steps, relative_ee, rgb_shapes = _real_policy_metadata(
+        real_cfg, real_policy
+    )
+    controller = GuidedDDIMController(
+        args.controller_checkpoint,
+        device,
+        inference_steps=args.ddim_inference_steps,
+        execution_steps=args.execution_steps,
+        guidance_scale=args.guidance_scale,
+        guidance_clip=args.guidance_clip,
+        smoothness_scale=args.smoothness_scale,
+        fixed_noise=bool(args.fixed_noise),
+        seed=args.seed,
+        allow_salvage=not args.no_salvage,
+    )
+    if action_steps < controller.reference_steps:
+        raise ValueError(
+            "real DP provides %d usable steps, but controller needs %d guide steps"
+            % (action_steps, controller.reference_steps)
+        )
+    print(
+        "[pipeline] Real DP (%d-step task proposal) -> guided Sim-Hand DDIM "
+        "(%d-step micro-chunk) -> execute %d -> observe/replan"
+        % (action_steps, controller.reference_steps, controller.execution_steps),
+        flush=True,
+    )
+    print(
+        "[guidance] scale=%.4f clip=%.4f smoothness=%.4f fixed_noise=%s"
+        % (
+            controller.guidance_scale,
+            controller.guidance_clip,
+            controller.smoothness_scale,
+            controller.fixed_noise,
+        ),
+        flush=True,
+    )
+
+    if args.check_only:
+        _run_check(
+            real_policy,
+            controller,
+            n_obs_steps,
+            action_steps,
+            rgb_shapes,
+            device,
+        )
+        return 0
+
+    # Hardware/camera dependencies are needed only after both models pass the
+    # model-only checks above.
+    import inference_dp as real_dp
+
+    env = real_dp.DiffusionDirectRobotEnv(
+        action_dim=ACTION_DIM,
+        live=args.live,
+        franka_host=args.franka_host,
+        franka_port=args.franka_port,
+        franka_timeout_ms=args.franka_timeout_ms,
+        hand_host=args.hand_host,
+        hand_port=args.hand_port,
+        hand_timeout_ms=args.hand_timeout_ms,
+        franka_control_mode=args.franka_control_mode,
+        franka_urdf=args.franka_urdf,
+        max_joint_step=args.max_joint_step,
+        ik_dq_max=args.ik_dq_max,
+        ik_damping=args.ik_damping,
+        max_arm_xyz_step=args.max_arm_xyz_step,
+        max_hand_step=args.max_hand_step,
+        disable_clamp=args.disable_clamp,
+        hand_interpolate=args.hand_interpolate,
+        action_chunk_steps=1,
+        hz=args.hz,
+        log_action_steps=True,
+        use_tactile=False,
+        camera_fps=args.camera_fps,
+        camera_timeout_ms=args.camera_timeout_ms,
+        front_serial=args.front_serial,
+        wrist_serial=args.wrist_serial,
+        front_resolution=args.front_resolution,
+        wrist_resolution=args.wrist_resolution,
+        rotate_wrist_camera_180=args.rotate_wrist_camera_180,
+        show_camera_input=args.show_camera_input,
+        stop_on_close=args.stop_on_close,
+    )
+
+    try:
+        first_raw_obs = env.reset()
+        first_obs = real_dp.capture_obs(first_raw_obs, rgb_shapes)
+        real_history = deque([first_obs] * n_obs_steps, maxlen=n_obs_steps)
+        qpos = first_obs["hand_joint"]
+        controller_obs = controller.compose_observation(qpos, qpos)
+        controller_history = deque(
+            [controller_obs] * controller.spec["n_obs_steps"],
+            maxlen=controller.spec["n_obs_steps"],
+        )
+
+        while args.max_chunks == 0 or env.chunk_idx < args.max_chunks:
+            policy_obs, base_ee_pose = real_dp.build_policy_obs(
+                real_history,
+                device,
+                relative_ee,
+            )
+            with torch.inference_mode():
+                proposal = real_policy.predict_action(policy_obs)["action"][0]
+            mixed_actions = proposal.detach().cpu().numpy()
+            absolute_dp_actions = (
+                real_dp.mixed_actions_to_absolute(mixed_actions, base_ee_pose)
+                if relative_ee
+                else mixed_actions.copy()
+            )
+            hand_reference = absolute_dp_actions[:, ARM_DIM:]
+            started = time.perf_counter()
+            guided_hand, stats = controller.predict(
+                np.stack(controller_history),
+                hand_reference,
+            )
+            inference_seconds = time.perf_counter() - started
+            execute_count = controller.execution_steps
+            guided_actions = absolute_dp_actions[:execute_count].copy()
+            guided_actions[:, ARM_DIM:] = guided_hand[0]
+            if not np.isfinite(guided_actions).all():
+                raise RuntimeError("combined guided action contains NaN or Inf")
+
+            print(
+                "[guided chunk %04d] proposal=%s guide=%s execute=%s "
+                "mse=%.6f->%.6f controller_s=%.3f"
+                % (
+                    env.chunk_idx,
+                    tuple(absolute_dp_actions.shape),
+                    tuple(hand_reference[: controller.reference_steps].shape),
+                    tuple(guided_actions.shape),
+                    stats.mse_before,
+                    stats.mse_after,
+                    inference_seconds,
+                ),
+                flush=True,
+            )
+
+            next_deadline = time.monotonic()
+            for step_idx, action in enumerate(guided_actions):
+                raw_obs = env.step_single(action, step_idx)
+                captured = real_dp.capture_obs(raw_obs, rgb_shapes)
+                real_history.append(captured)
+                actual_qpos = captured["hand_joint"]
+                target_before = np.asarray(env.previous_action[ARM_DIM:], dtype=np.float32)
+                controller_history.append(
+                    controller.compose_observation(actual_qpos, target_before)
+                )
+                next_deadline += 1.0 / args.hz
+                remaining = next_deadline - time.monotonic()
+                if remaining > 0.0:
+                    time.sleep(remaining)
+            env.chunk_idx += 1
+    finally:
+        env.close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

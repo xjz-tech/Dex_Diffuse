@@ -10,7 +10,8 @@ shape_meta: &shape_meta
     wrist_image:
       shape: *image_shape
       type: rgb
-    # Relative to the latest observed EE frame.
+    # Relative to the latest observed EE frame when dataset.relative=true;
+    # otherwise this remains an absolute EE pose.
     ee_pose:
       shape: [9]
       type: low_dim
@@ -18,7 +19,7 @@ shape_meta: &shape_meta
     hand_joint:
       shape: [22]
       type: low_dim
-  # [relative EE xyz + relative EE rotation-6D + absolute hand joints]
+  # EE pose/action mode is controlled by dataset.relative. Hand joints are absolute.
   action:
     shape: [31]
 
@@ -28,6 +29,7 @@ env_runner:
 dataset:
   _target_: diffusion_policy.dataset.bulb_image_dataset.BulbImageDataset
   dataset_path: ${task.dataset_path}
+  relative: true
   horizon: ${horizon}
   pad_before: ${eval:'${n_obs_steps}-1'}
   pad_after: ${eval:'${n_action_steps}-1'}

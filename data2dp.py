@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import hashlib
 import os
 import os.path as osp
 import shutil
@@ -80,6 +81,9 @@ class Episode:
     wrist_paths: list[str]
     keep: np.ndarray
     source_length: int
+    dropped_image_frames: int
+    dropped_stalled_frames: int
+    dropped_npy_frames: int
 
     @property
     def length(self) -> int:
@@ -100,13 +104,17 @@ def _numpy_major(python: str) -> int | None:
 
 def _find_numpy2_python() -> str | None:
     candidates = [
+        os.environ.get("NUMPY2_PYTHON"),
         sys.executable,
+        "/home/bighand/miniconda3/envs/tianji/bin/python",
         "/home/wty/miniconda3/bin/python",
         "python3",
         "python",
     ]
     seen: set[str] = set()
     for python in candidates:
+        if not python:
+            continue
         if python in seen:
             continue
         seen.add(python)
@@ -178,13 +186,69 @@ def downsample_indices(length: int, ratio: int) -> np.ndarray:
     )
 
 
+def index_image_paths(directory: str) -> dict[int, str]:
+    """Index PNG files by their integer filename stem."""
+    result: dict[int, str] = {}
+    for path in glob.glob(osp.join(directory, "*.png")):
+        stem = osp.splitext(osp.basename(path))[0]
+        try:
+            frame_index = int(stem)
+        except ValueError:
+            continue
+        if frame_index in result:
+            raise ValueError(
+                f"{directory}: duplicate image index {frame_index}: "
+                f"{result[frame_index]} and {path}"
+            )
+        result[frame_index] = path
+    return result
+
+
+def image_signature(path: str | None) -> bytes | None:
+    """Return a decoded RGB fingerprint, or None for a missing/broken image."""
+    if path is None or not osp.isfile(path) or osp.getsize(path) == 0:
+        return None
+    try:
+        from PIL import Image
+
+        with Image.open(path) as image:
+            rgb = image.convert("RGB")
+            digest = hashlib.blake2b(digest_size=16)
+            digest.update(f"{rgb.width}x{rgb.height}:".encode("ascii"))
+            digest.update(rgb.tobytes())
+        return digest.digest()
+    except (OSError, SyntaxError, ValueError):
+        return None
+
+
+def inspect_camera_frames(
+    paths_by_index: dict[int, str], length: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return readable and stalled masks for one camera sequence."""
+    readable = np.zeros(length, dtype=bool)
+    stalled = np.zeros(length, dtype=bool)
+    previous_signature: bytes | None = None
+    for frame_index in range(length):
+        signature = image_signature(paths_by_index.get(frame_index))
+        if signature is None:
+            # Keep the last readable signature so a camera that remains frozen
+            # across one or more missing frames is still detected afterwards.
+            continue
+        readable[frame_index] = True
+        if previous_signature is not None and signature == previous_signature:
+            stalled[frame_index] = True
+        previous_signature = signature
+    return readable, stalled
+
+
 def inspect_episode(path: str, downsample: int) -> Episode:
-    front_paths = sorted(glob.glob(osp.join(path, "front", "*.png")))
-    wrist_paths = sorted(glob.glob(osp.join(path, "wrist", "*.png")))
-    state = np.load(osp.join(path, "state.npy"), mmap_mode="r")
-    action = np.load(osp.join(path, "action.npy"), mmap_mode="r")
-    torque = np.load(osp.join(path, "hand_joint_torque.npy"), mmap_mode="r")
-    f6 = load_tactile_f6(path)
+    try:
+        state = np.load(osp.join(path, "state.npy"), mmap_mode="r")
+        action = np.load(osp.join(path, "action.npy"), mmap_mode="r")
+        torque = np.load(osp.join(path, "hand_joint_torque.npy"), mmap_mode="r")
+        f6 = load_tactile_f6(path)
+    except Exception as exc:
+        raise ValueError(f"failed to load required NPY data: {exc}") from exc
 
     if state.ndim != 2 or state.shape[1] != STATE_DIM:
         raise ValueError(f"{path}/state.npy: expected (T, {STATE_DIM}), got {state.shape}")
@@ -196,8 +260,6 @@ def inspect_episode(path: str, downsample: int) -> Episode:
         )
 
     lengths = {
-        "front": len(front_paths),
-        "wrist": len(wrist_paths),
         "state": state.shape[0],
         "action": action.shape[0],
         "hand_joint_torque": torque.shape[0],
@@ -210,17 +272,59 @@ def inspect_episode(path: str, downsample: int) -> Episode:
     length = state.shape[0]
     if length == 0:
         raise ValueError(f"{path}: empty episode")
+
+    try:
+        finite_mask = (
+            np.isfinite(state).all(axis=1)
+            & np.isfinite(action).all(axis=1)
+            & np.isfinite(torque).all(axis=1)
+            & np.isfinite(f6).all(axis=(1, 2))
+        )
+    except TypeError as exc:
+        raise ValueError(f"{path}: NPY data must contain numeric values") from exc
+
+    front_by_index = index_image_paths(osp.join(path, "front"))
+    wrist_by_index = index_image_paths(osp.join(path, "wrist"))
+    front_readable, front_stalled = inspect_camera_frames(front_by_index, length)
+    wrist_readable, wrist_stalled = inspect_camera_frames(wrist_by_index, length)
+    image_mask = front_readable & wrist_readable
+    stalled_mask = image_mask & (front_stalled | wrist_stalled)
+
+    valid_indices = np.flatnonzero(finite_mask & image_mask & ~stalled_mask)
+    if valid_indices.size == 0:
+        raise ValueError(f"{path}: no frame has valid NPY data and both camera images")
+
+    selected_positions = downsample_indices(valid_indices.size, downsample)
+    keep = valid_indices[selected_positions]
     return Episode(
         path=path,
-        front_paths=front_paths,
-        wrist_paths=wrist_paths,
-        keep=downsample_indices(length, downsample),
+        front_paths=[front_by_index[int(i)] for i in keep],
+        wrist_paths=[wrist_by_index[int(i)] for i in keep],
+        keep=keep,
         source_length=length,
+        dropped_image_frames=int((~image_mask).sum()),
+        dropped_stalled_frames=int(stalled_mask.sum()),
+        dropped_npy_frames=int((~finite_mask).sum()),
     )
 
 
 def load_rgb_batch(paths: Sequence[str], width: int, height: int) -> np.ndarray:
-    import cv2
+    try:
+        import cv2
+    except ImportError:
+        from PIL import Image
+
+        result = np.empty((len(paths), height, width, 3), dtype=np.uint8)
+        for index, path in enumerate(paths):
+            try:
+                with Image.open(path) as image:
+                    image = image.convert("RGB")
+                    if image.size != (width, height):
+                        image = image.resize((width, height), Image.Resampling.BOX)
+                    result[index] = np.asarray(image, dtype=np.uint8)
+            except (OSError, SyntaxError, ValueError) as exc:
+                raise RuntimeError(f"failed to read image: {path}") from exc
+        return result
 
     result = np.empty((len(paths), height, width, 3), dtype=np.uint8)
     for index, path in enumerate(paths):
@@ -251,16 +355,28 @@ def convert(args: argparse.Namespace) -> str | None:
     total = 0
     print(f"[data2dp] inspecting {len(episode_dirs)} episode(s) under {args.src}")
     for path in episode_dirs:
-        episode = inspect_episode(path, args.downsample)
+        try:
+            episode = inspect_episode(path, args.downsample)
+        except (OSError, RuntimeError, ValueError) as exc:
+            print(
+                f"  WARNING: skipping {osp.basename(path)}: {exc}",
+                file=sys.stderr,
+            )
+            continue
         episodes.append(episode)
         total += episode.length
         print(
             f"  {osp.basename(path)}: {episode.source_length} -> "
-            f"{episode.length} frame(s)"
+            f"{episode.length} frame(s); dropped for missing/broken image="
+            f"{episode.dropped_image_frames}, stalled image="
+            f"{episode.dropped_stalled_frames}, "
+            f"NPY={episode.dropped_npy_frames}"
         )
+    if not episodes:
+        raise RuntimeError("no valid episodes remain after input validation")
     print(f"[data2dp] total output frames: {total}")
     if args.dry_run:
-        print("[data2dp] dry-run complete; no output was written")
+        print("[data2dp] dry-run complete; no replay-buffer output was written")
         return None
 
     # Import these here so --dry-run can validate source data in a lightweight
@@ -340,13 +456,12 @@ def convert(args: argparse.Namespace) -> str | None:
             # Decode a small batch at a time to keep peak memory bounded.
             for local_start in range(0, episode.length, args.image_batch_size):
                 local_end = min(local_start + args.image_batch_size, episode.length)
-                selected = keep[local_start:local_end]
                 target = slice(start + local_start, start + local_end)
                 arrays["front_image"][target] = load_rgb_batch(
-                    [episode.front_paths[i] for i in selected], args.width, args.height
+                    episode.front_paths[local_start:local_end], args.width, args.height
                 )
                 arrays["wrist_image"][target] = load_rgb_batch(
-                    [episode.wrist_paths[i] for i in selected], args.width, args.height
+                    episode.wrist_paths[local_start:local_end], args.width, args.height
                 )
 
             cursor = end
