@@ -18,15 +18,12 @@ from diffusion_policy.guidance.guided_ddpm import (
     verify_zero_guidance_equivalence,
 )
 
-try:
-    from diffusers.utils.torch_utils import randn_tensor
-except ImportError:  # pragma: no cover - pinned 0.11.1 layout
-    from diffusers.utils import randn_tensor
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GUIDED_DDPM_PATH = REPO_ROOT / "diffusion_policy" / "guidance" / "guided_ddpm.py"
 
-EXPECTED_CURRENT_TIMESTEPS = (88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8, 0)
+# diffusers 0.11.1 DDPMScheduler.set_timesteps(100 train, 12 infer):
+# arange(0, 100, 100//12)[::-1] == 96, 88, ..., 0 (13 steps).
+EXPECTED_CURRENT_TIMESTEPS = (96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8, 0)
 
 
 def _training_scheduler(*, num_train_timesteps: int, prediction_type: str = "epsilon") -> DDPMScheduler:
@@ -55,7 +52,9 @@ def _assert_dynamic_scheduler(
         rtol=0.0,
         atol=0.0,
     )
-    assert len(ddpm.timesteps) == inference_steps
+    official = DDPMScheduler.from_config(training.config)
+    official.set_timesteps(inference_steps)
+    assert len(ddpm.timesteps) == len(official.timesteps)
     assert int(ddpm.timesteps.max()) < training.config.num_train_timesteps
     if expected_timesteps is not None:
         assert tuple(map(int, ddpm.timesteps)) == expected_timesteps
@@ -69,9 +68,9 @@ def test_version_assert_pinned_diffusers_version_matches_expected_constant() -> 
 def test_version_rejects_wrong_diffusers_version() -> None:
     training = _training_scheduler(num_train_timesteps=100)
     with patch("diffusion_policy.guidance.guided_ddpm.diffusers.__version__", "0.12.0"):
-        with pytest.raises(RuntimeError, match="0.29.2"):
+        with pytest.raises(RuntimeError, match="0.11.1"):
             assert_pinned_diffusers_version()
-        with pytest.raises(RuntimeError, match="0.29.2"):
+        with pytest.raises(RuntimeError, match="0.11.1"):
             create_ddpm_scheduler(training)
 
 
@@ -143,13 +142,6 @@ def _clipping_triggering_pair(
     return sample, model_output
 
 
-def _previous_timestep(scheduler, timestep: int) -> int:
-    if hasattr(scheduler, "previous_timestep"):
-        prev = scheduler.previous_timestep(timestep)
-        return int(prev)
-    return int(timestep) - 1
-
-
 def _independent_ddpm_mean(
     scheduler,
     timestep: int,
@@ -157,25 +149,16 @@ def _independent_ddpm_mean(
     model_output: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     t = int(timestep)
-    prev_t = _previous_timestep(scheduler, t)
     alpha_prod_t = scheduler.alphas_cumprod[t]
-    alpha_prod_t_prev = (
-        scheduler.alphas_cumprod[prev_t] if prev_t >= 0 else scheduler.one
-    )
+    alpha_prod_t_prev = scheduler.alphas_cumprod[t - 1] if t > 0 else scheduler.one
     beta_prod_t = 1 - alpha_prod_t
-    current_alpha_t = alpha_prod_t / alpha_prod_t_prev
-    current_beta_t = 1 - current_alpha_t
+    beta_prod_t_prev = 1 - alpha_prod_t_prev
     x0_raw = (sample - beta_prod_t ** (0.5) * model_output) / alpha_prod_t ** (0.5)
-    clip_range = float(getattr(scheduler.config, "clip_sample_range", 1.0))
-    x0 = (
-        x0_raw.clamp(-clip_range, clip_range)
-        if scheduler.config.clip_sample
-        else x0_raw
-    )
+    x0 = x0_raw.clamp(-1, 1) if scheduler.config.clip_sample else x0_raw
     mu = (
-        (alpha_prod_t_prev ** (0.5) * current_beta_t) / beta_prod_t
+        (alpha_prod_t_prev ** (0.5) * scheduler.betas[t]) / beta_prod_t
     ) * x0 + (
-        current_alpha_t ** (0.5) * (1 - alpha_prod_t_prev) / beta_prod_t
+        scheduler.alphas[t] ** (0.5) * beta_prod_t_prev / beta_prod_t
     ) * sample
     return x0_raw, x0, mu
 
@@ -197,7 +180,7 @@ def _official_noise_term(
     if t <= 0:
         return torch.zeros(shape, device=device, dtype=dtype)
     variance = scheduler._get_variance(t)
-    variance_noise = randn_tensor(
+    variance_noise = torch.randn(
         shape, generator=generator, device=device, dtype=dtype
     )
     return (variance ** 0.5) * variance_noise
@@ -564,13 +547,14 @@ def _assert_sampler_chain(
         guidance_slice=guidance_slice,
         generator=generator,
     )
-    assert len(result.steps) == num_inference_steps
+    expected_len = len(scheduler.timesteps)
+    assert len(result.steps) == expected_len
     assert tuple(step.timestep for step in result.steps) == tuple(
         map(int, scheduler.timesteps)
     )
     assert result.trajectory.shape == initial_noise.shape
     assert all(not step.prev_sample.requires_grad for step in result.steps)
-    assert len(model.inputs) == num_inference_steps
+    assert len(model.inputs) == expected_len
     torch.testing.assert_close(model.inputs[0], initial_noise)
     for model_input, previous_step in zip(model.inputs[1:], result.steps[:-1]):
         torch.testing.assert_close(model_input, previous_step.prev_sample)
@@ -685,7 +669,7 @@ def _assert_zero_guidance_full_chain_oracle(
     probe.set_timesteps(num_inference_steps)
     expected_timesteps = tuple(map(int, probe.timesteps))
     assert report.timesteps == expected_timesteps
-    assert len(report.timesteps) == num_inference_steps
+    assert len(report.timesteps) == len(expected_timesteps)
     if (num_train_timesteps, num_inference_steps) != (100, 12):
         assert report.timesteps != EXPECTED_CURRENT_TIMESTEPS
     assert report.terminal_shape == tuple(shape)

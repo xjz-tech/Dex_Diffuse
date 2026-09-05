@@ -6,14 +6,7 @@ import diffusers
 import torch
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 
-try:
-    from diffusers.utils.torch_utils import randn_tensor
-except ImportError:  # pragma: no cover - pinned 0.11.1 layout
-    from diffusers.utils import randn_tensor
-
-# DDIM guidance still documents 0.11.1, but this environment and the
-# official DDPMScheduler.previous_timestep API we match are 0.29.2.
-EXPECTED_DIFFUSERS_VERSION = "0.29.2"
+EXPECTED_DIFFUSERS_VERSION = "0.11.1"
 
 
 def assert_pinned_diffusers_version() -> None:
@@ -123,51 +116,36 @@ def _slice_mse(
     return (pred[:, guidance_slice] - reference).square().mean(dim=(1, 2))
 
 
-def _previous_timestep(scheduler: DDPMScheduler, timestep: int) -> int:
-    if hasattr(scheduler, "previous_timestep"):
-        return int(scheduler.previous_timestep(timestep))
-    return int(timestep) - 1
-
-
-def _alpha_one(scheduler: DDPMScheduler) -> torch.Tensor:
-    one = getattr(scheduler, "one", None)
-    if one is None:
-        return torch.tensor(1.0)
-    return one
-
-
 def _official_ddpm_mean(
     scheduler: DDPMScheduler,
     model_output: torch.Tensor,
     timestep: int,
     sample: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    # Match diffusers 0.11.1 DDPMScheduler.step mean exactly: previous
+    # alpha is t-1, coefficients use betas[t] and alphas[t].
     t = int(timestep)
-    prev_t = _previous_timestep(scheduler, t)
-    alpha_prod_t = scheduler.alphas_cumprod[t]
-    alpha_prod_t_prev = (
-        scheduler.alphas_cumprod[prev_t] if prev_t >= 0 else _alpha_one(scheduler)
+    alpha_prod_t = scheduler.alphas_cumprod[t].to(
+        device=sample.device, dtype=sample.dtype
     )
+    alpha_prod_t_prev = (
+        scheduler.alphas_cumprod[t - 1] if t > 0 else scheduler.one
+    ).to(device=sample.device, dtype=sample.dtype)
     beta_prod_t = 1 - alpha_prod_t
     beta_prod_t_prev = 1 - alpha_prod_t_prev
-    current_alpha_t = alpha_prod_t / alpha_prod_t_prev
-    current_beta_t = 1 - current_alpha_t
+    beta_t = scheduler.betas[t].to(device=sample.device, dtype=sample.dtype)
+    alpha_t = scheduler.alphas[t].to(device=sample.device, dtype=sample.dtype)
 
     x0_raw = (sample - beta_prod_t ** (0.5) * model_output) / alpha_prod_t ** (0.5)
     if getattr(scheduler.config, "thresholding", False):
         raise ValueError("Dynamic thresholding is not supported")
     if scheduler.config.clip_sample:
-        clip_range = float(getattr(scheduler.config, "clip_sample_range", 1.0))
-        x0 = x0_raw.clamp(-clip_range, clip_range)
+        x0 = x0_raw.clamp(-1, 1)
     else:
         x0 = x0_raw
 
-    pred_original_sample_coeff = (
-        alpha_prod_t_prev ** (0.5) * current_beta_t
-    ) / beta_prod_t
-    current_sample_coeff = (
-        current_alpha_t ** (0.5) * beta_prod_t_prev / beta_prod_t
-    )
+    pred_original_sample_coeff = (alpha_prod_t_prev ** (0.5) * beta_t) / beta_prod_t
+    current_sample_coeff = alpha_t ** (0.5) * beta_prod_t_prev / beta_prod_t
     mu = pred_original_sample_coeff * x0 + current_sample_coeff * sample
     return x0_raw, x0, mu, alpha_prod_t, alpha_prod_t_prev
 
@@ -182,7 +160,7 @@ def _official_ddpm_noise(
     t = int(timestep)
     if t <= 0:
         return torch.zeros_like(model_output)
-    variance_noise = randn_tensor(
+    variance_noise = torch.randn(
         model_output.shape,
         generator=generator,
         device=model_output.device,
