@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Real image DP -> guided Sim-Hand DDIM controller -> short closed-loop execute.
+# Real image DP -> repeated guided Sim-Hand DDIM / short closed-loop execution.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,10 +10,9 @@ die() {
     exit 2
 }
 
-# The task DP checkpoint is machine/deployment specific, so require it instead
-# of silently selecting an unrelated checkpoint.  The simulation controller is
-# the local 66-D state model by default; set CONTROLLER_CKPT_PATH to use 22-D.
-DP_CKPT_PATH="${DP_CKPT_PATH:-}"
+# Default to the bulb-task DP checkpoint and the local 66-D simulation
+# controller. Both paths can still be overridden through environment variables.
+DP_CKPT_PATH="${DP_CKPT_PATH:-${DEX_ROOT}/runs/2026.09.03_23.53.01_train_diffusion_unet_dino_image_bulb_image/checkpoints/epoch=0300-train_loss=0.0144.ckpt}"
 CONTROLLER_CKPT_PATH="${CONTROLLER_CKPT_PATH:-${DEX_ROOT}/runs/obs_4-66.ckpt}"
 INFERENCE_SCRIPT="${INFERENCE_SCRIPT:-${SCRIPT_DIR}/inference_dp_controller.py}"
 
@@ -32,25 +31,31 @@ fi
 
 DEVICE="${DEVICE:-cuda:0}"
 DP_INFERENCE_STEPS="${DP_INFERENCE_STEPS:-16}"
-DDIM_INFERENCE_STEPS="${DDIM_INFERENCE_STEPS:-12}"
-EXECUTION_STEPS="${EXECUTION_STEPS:-2}"
-GUIDANCE_SCALE="${GUIDANCE_SCALE:-0.10}"
+DDIM_INFERENCE_STEPS="${DDIM_INFERENCE_STEPS:-8}"
+# Actions executed after each controller call (1..5). EXECUTION_STEPS is a
+# legacy fallback; CONTROLLER_ACTION_CHUNK_SIZE takes precedence when set.
+CONTROLLER_ACTION_CHUNK_SIZE="${CONTROLLER_ACTION_CHUNK_SIZE:-${EXECUTION_STEPS:-5}}"
+# Reuse one DP proposal for this many controller calls, with fresh state and
+# a reference window shifted by CONTROLLER_ACTION_CHUNK_SIZE after each call.
+# Full guidance must fit: (calls - 1) * chunk_size + 9 <= DP action chunk size.
+CONTROLLER_CALLS_PER_DP="${CONTROLLER_CALLS_PER_DP:-2}"
+GUIDANCE_SCALE="${GUIDANCE_SCALE:-0.4}"
 GUIDANCE_CLIP="${GUIDANCE_CLIP:-1.0}"
 SMOOTHNESS_SCALE="${SMOOTHNESS_SCALE:-0.10}"
 FIXED_NOISE="${FIXED_NOISE:-1}"
 SEED="${SEED:-42}"
 ALLOW_SALVAGE="${ALLOW_SALVAGE:-1}"
+# MAX_CHUNKS counts executed controller chunks, not Real DP proposals (0=unlimited).
 MAX_CHUNKS="${MAX_CHUNKS:-0}"
 HZ="${HZ:-30}"
 
-# Safety default: validate both checkpoints and run one fully guided synthetic
-# inference without opening cameras or connecting to the robot.  Explicitly set
-# CHECK_ONLY=0 and LIVE=1 for hardware execution.
-CHECK_ONLY="${CHECK_ONLY:-1}"
-LIVE="${LIVE:-0}"
+# Run the full hardware evaluation by default. Override with CHECK_ONLY=1 and
+# LIVE=0 when only checkpoint validation and synthetic inference are needed.
+CHECK_ONLY="${CHECK_ONLY:-0}"
+LIVE="${LIVE:-1}"
 
-DINOV2_REPO_OR_DIR="${DINOV2_REPO_OR_DIR:-${DEX_ROOT}/diffusion_policy/dinov2_assets/facebookresearch_dinov2_main}"
-DINOV2_WEIGHTS="${DINOV2_WEIGHTS:-${DEX_ROOT}/diffusion_policy/dinov2_assets/dinov2_vits14_pretrain.pth}"
+DINOV2_REPO_OR_DIR="${DINOV2_REPO_OR_DIR:-${DEX_ROOT}/assets/dinov2_assets/facebookresearch_dinov2_main}"
+DINOV2_WEIGHTS="${DINOV2_WEIGHTS:-${DEX_ROOT}/assets/dinov2_assets/dinov2_vits14_pretrain.pth}"
 DINOV2_SOURCE="${DINOV2_SOURCE:-local}"
 
 FRANKA_HOST="${FRANKA_HOST:-172.16.0.10}"
@@ -62,7 +67,7 @@ FRONT_SERIAL="${FRONT_SERIAL:-}"
 WRIST_SERIAL="${WRIST_SERIAL:-}"
 SHOW_CAMERA_INPUT="${SHOW_CAMERA_INPUT:-1}"
 STOP_ON_CLOSE="${STOP_ON_CLOSE:-1}"
-ROBOT_INIT_SCRIPT="${ROBOT_INIT_SCRIPT:-}"
+ROBOT_INIT_SCRIPT="${ROBOT_INIT_SCRIPT:-/home/frankagvl/workspace/dex_setup/TacMP/scripts/robot_init.py}"
 
 [[ $# -eq 0 ]] || die "this launcher takes no positional arguments; use environment variables"
 [[ -n "${DP_CKPT_PATH}" ]] || die "set DP_CKPT_PATH to the real-task Diffusion Policy checkpoint"
@@ -78,6 +83,8 @@ ROBOT_INIT_SCRIPT="${ROBOT_INIT_SCRIPT:-}"
 [[ "${ALLOW_SALVAGE}" =~ ^[01]$ ]] || die "ALLOW_SALVAGE must be 0 or 1"
 [[ "${SHOW_CAMERA_INPUT}" =~ ^[01]$ ]] || die "SHOW_CAMERA_INPUT must be 0 or 1"
 [[ "${STOP_ON_CLOSE}" =~ ^[01]$ ]] || die "STOP_ON_CLOSE must be 0 or 1"
+[[ "${CONTROLLER_ACTION_CHUNK_SIZE}" =~ ^[1-5]$ ]] || die "CONTROLLER_ACTION_CHUNK_SIZE must be an integer from 1 to 5"
+[[ "${CONTROLLER_CALLS_PER_DP}" =~ ^[1-9][0-9]*$ ]] || die "CONTROLLER_CALLS_PER_DP must be a positive integer"
 if [[ "${CHECK_ONLY}" == "0" && "${LIVE}" != "1" ]]; then
     die "hardware evaluation requires LIVE=1 (or leave CHECK_ONLY=1 for a safe model check)"
 fi
@@ -107,7 +114,8 @@ ARGS=(
     --device "${DEVICE}"
     --dp-inference-steps "${DP_INFERENCE_STEPS}"
     --ddim-inference-steps "${DDIM_INFERENCE_STEPS}"
-    --execution-steps "${EXECUTION_STEPS}"
+    --controller-action-chunk-size "${CONTROLLER_ACTION_CHUNK_SIZE}"
+    --controller-calls-per-dp "${CONTROLLER_CALLS_PER_DP}"
     --guidance-scale "${GUIDANCE_SCALE}"
     --guidance-clip "${GUIDANCE_CLIP}"
     --smoothness-scale "${SMOOTHNESS_SCALE}"
@@ -145,7 +153,7 @@ else
     fi
 fi
 
-echo "[pipeline] Real DP action chunk -> guided Sim-Hand DDIM -> execute ${EXECUTION_STEPS} -> observe/replan"
+echo "[pipeline] Real DP -> ${CONTROLLER_CALLS_PER_DP} x (guided Sim-Hand DDIM -> execute ${CONTROLLER_ACTION_CHUNK_SIZE} -> observe) -> replan DP"
 echo "[dp] ${DP_CKPT_PATH} (steps=${DP_INFERENCE_STEPS})"
 echo "[controller] ${CONTROLLER_CKPT_PATH} (DDIM steps=${DDIM_INFERENCE_STEPS})"
 echo "[guidance] scale=${GUIDANCE_SCALE} clip=${GUIDANCE_CLIP} smoothness=${SMOOTHNESS_SCALE} fixed_noise=${FIXED_NOISE}"
@@ -169,10 +177,13 @@ for label, host, port in (
 if failures:
     raise SystemExit("hardware preflight failed; no command sent:\n  " + "\n  ".join(failures))
 PY
-    if [[ -n "${ROBOT_INIT_SCRIPT}" ]]; then
-        [[ -f "${ROBOT_INIT_SCRIPT}" ]] || die "ROBOT_INIT_SCRIPT not found: ${ROBOT_INIT_SCRIPT}"
+    [[ -f "${ROBOT_INIT_SCRIPT}" ]] || die "ROBOT_INIT_SCRIPT not found: ${ROBOT_INIT_SCRIPT}"
+    env \
+        FRANKA_HOST="${FRANKA_HOST}" \
+        FRANKA_PORT="${FRANKA_PORT}" \
+        HAND_HOST="${HAND_HOST}" \
+        HAND_PORT="${HAND_PORT}" \
         "${MODEL_PYTHON}" "${ROBOT_INIT_SCRIPT}"
-    fi
 fi
 
 exec env \

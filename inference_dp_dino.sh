@@ -30,11 +30,9 @@ if [[ ${#checkpoint_candidates[@]} -ne 1 ]]; then
   exit 1
 fi
 CKPT_PATH="${checkpoint_candidates[0]}"
-# This checkout contains the standalone diffusion_policy project one directory
-# below this launcher; use that as the runtime root used by the U393 version.
-RUNTIME_ROOT="${SCRIPT_DIR}/diffusion_policy"
-DINOV2_REPO_OR_DIR="${DINOV2_REPO_OR_DIR:-${RUNTIME_ROOT}/dinov2_assets/facebookresearch_dinov2_main}"
-DINOV2_WEIGHTS="${DINOV2_WEIGHTS:-${RUNTIME_ROOT}/dinov2_assets/dinov2_vits14_pretrain.pth}"
+# Use the same local DINOv2 assets as the training launchers.
+DINOV2_REPO_OR_DIR="${DINOV2_REPO_OR_DIR:-${SCRIPT_DIR}/assets/dinov2_assets/facebookresearch_dinov2_main}"
+DINOV2_WEIGHTS="${DINOV2_WEIGHTS:-${SCRIPT_DIR}/assets/dinov2_assets/dinov2_vits14_pretrain.pth}"
 DINOV2_SOURCE="${DINOV2_SOURCE:-local}"
 DEVICE="${DEVICE:-cuda:0}"
 NUM_INFERENCE_STEPS="${NUM_INFERENCE_STEPS:-100}"
@@ -52,7 +50,7 @@ CHECK_ONLY="${CHECK_ONLY:-0}"
 
 # Use the project code and local DINOv2 assets, even when the checkpoint was
 # produced on another machine and contains that machine's absolute paths.
-export PYTHONPATH="${RUNTIME_ROOT}:${SCRIPT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
+export PYTHONPATH="${SCRIPT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
 export DINOV2_REPO_OR_DIR DINOV2_WEIGHTS DINOV2_SOURCE
 # Put dp_w first so Pillow/OpenCV use its matching libstdc++; its CUDA 12.1
 # runtime also takes precedence over globally configured CUDA/ROS libraries.

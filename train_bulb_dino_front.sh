@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Train Diffusion Policy with a frozen DINOv2 ViT-S/14 encoder on bulb_0705_dp.
+# Train Diffusion Policy with front-camera images and a frozen DINOv2 ViT-S/14.
 # RELATIVE=1: relative EE pose + absolute hand joints.
 # RELATIVE=0: absolute EE pose + absolute hand joints.
 set -euo pipefail
@@ -64,7 +64,7 @@ mkdir -p "$WANDB_DIR" "$MPLCONFIGDIR"
 
 exec "$PYTHON" train.py \
     --config-name=train_diffusion_unet_dino_image_workspace \
-    task=bulb_image \
+    task=bulb_front_image \
     horizon="$HORIZON" \
     n_obs_steps="$N_OBS_STEPS" \
     n_action_steps="$N_ACTION_STEPS" \
@@ -85,7 +85,7 @@ exec "$PYTHON" train.py \
     val_dataloader.persistent_workers=True \
     logging.project=tacmp_diffusion_policy \
     logging.mode="$WANDB_MODE" \
-    logging.name="bulb_rotate_${ACTION_MODE}" \
+    logging.name="bulb_rotate_front_${ACTION_MODE}" \
     checkpoint.topk.monitor_key=train_loss \
     checkpoint.topk.mode=min \
     "checkpoint.topk.format_str='epoch={epoch:04d}-train_loss={train_loss:.4f}.ckpt'" \

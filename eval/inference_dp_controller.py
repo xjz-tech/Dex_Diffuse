@@ -3,8 +3,9 @@
 
 The image Diffusion Policy supplies the task-level 31-D action chunk.  Its
 22-D hand part is used as an energy guide during every reverse DDIM step of the
-simulation-trained hand policy.  The 9-D arm part is kept unchanged.  Only a
-short prefix is executed before both policies are replanned from fresh state.
+simulation-trained hand policy.  The 9-D arm part is kept unchanged.  One DP
+proposal guides multiple controller calls.  After each short execution chunk,
+the controller uses fresh state and the next window of the same DP proposal.
 """
 
 from __future__ import annotations
@@ -330,7 +331,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--dp-inference-steps", type=int, default=16)
     parser.add_argument("--ddim-inference-steps", type=int, default=12)
-    parser.add_argument("--execution-steps", type=int, default=2)
+    parser.add_argument(
+        "--controller-action-chunk-size", "--execution-steps",
+        dest="execution_steps", type=int, default=5,
+        help="Actions executed after each controller call (1..5; default: 5)",
+    )
+    parser.add_argument(
+        "--controller-calls-per-dp", type=int, default=2,
+        help="Controller calls reusing one DP proposal (default: 2)",
+    )
     parser.add_argument("--guidance-scale", type=float, default=0.10)
     parser.add_argument("--guidance-clip", type=float, default=1.0)
     parser.add_argument("--smoothness-scale", type=float, default=0.10)
@@ -338,7 +347,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-salvage", action="store_true")
     parser.add_argument("--check-only", action="store_true")
-    parser.add_argument("--max-chunks", type=int, default=0)
+    parser.add_argument(
+        "--max-chunks", type=int, default=0,
+        help="Maximum executed controller chunks, not DP proposals (0: unlimited)",
+    )
     parser.add_argument("--hz", type=float, default=30.0)
     parser.add_argument("--live", action="store_true")
 
@@ -384,6 +396,10 @@ def _validate_args(args: argparse.Namespace) -> torch.device:
         setattr(args, name, path)
     if args.dp_inference_steps <= 0 or args.ddim_inference_steps <= 0:
         raise ValueError("inference step counts must be positive")
+    if args.execution_steps <= 0:
+        raise ValueError("controller action chunk size must be positive")
+    if args.controller_calls_per_dp <= 0:
+        raise ValueError("controller_calls_per_dp must be positive")
     if args.max_chunks < 0:
         raise ValueError("max_chunks cannot be negative")
     if args.hz <= 0.0:
@@ -457,6 +473,41 @@ def _real_policy_metadata(cfg, policy) -> tuple[int, int, bool, dict[str, tuple[
     return n_obs_steps, action_steps, relative_ee, rgb_shapes
 
 
+def _controller_windows(
+    action_steps: int,
+    execution_steps: int,
+    controller_calls_per_dp: int,
+    reference_steps: int,
+) -> tuple[tuple[slice, slice], ...]:
+    """Return DP execution/guidance slices for each controller call.
+
+    Every call needs the full guidance horizon, including the unexecuted tail.
+    Never pad a short reference or silently reduce the requested call count.
+    """
+    if min(action_steps, execution_steps, controller_calls_per_dp, reference_steps) <= 0:
+        raise ValueError("DP/controller lengths and controller call count must be positive")
+    execution_total = controller_calls_per_dp * execution_steps
+    if execution_total > action_steps:
+        raise ValueError(
+            "controller_calls_per_dp * controller_action_chunk_size = %d * %d = %d "
+            "exceeds real DP action chunk size %d"
+            % (controller_calls_per_dp, execution_steps, execution_total, action_steps)
+        )
+    required_steps = (controller_calls_per_dp - 1) * execution_steps + reference_steps
+    if required_steps > action_steps:
+        raise ValueError(
+            "last controller call needs DP guidance [%d:%d], but DP only provides %d "
+            "steps; require (controller_calls_per_dp - 1) * "
+            "controller_action_chunk_size + guide_steps <= DP action chunk size "
+            "(guide_steps=%d)"
+            % (required_steps - reference_steps, required_steps, action_steps, reference_steps)
+        )
+    return tuple(
+        (slice(start, start + execution_steps), slice(start, start + reference_steps))
+        for start in range(0, execution_total, execution_steps)
+    )
+
+
 def _synthetic_real_observation(
     n_obs_steps: int,
     rgb_shapes: dict[str, tuple[int, ...]],
@@ -477,6 +528,7 @@ def _run_check(
     action_steps: int,
     rgb_shapes: dict[str, tuple[int, ...]],
     device: torch.device,
+    controller_windows: tuple[tuple[slice, slice], ...],
 ) -> None:
     with torch.inference_mode():
         proposal = real_policy.predict_action(
@@ -497,19 +549,27 @@ def _run_check(
     history = np.repeat(
         observation_mean[None, :], controller.spec["n_obs_steps"], axis=0
     )
-    hand_guide = proposal[0, :, ARM_DIM:].detach().cpu().numpy()
-    guided, stats = controller.predict(history, hand_guide)
+    hand_reference = proposal[0, :, ARM_DIM:].detach().cpu().numpy()
     expected_guided = (1, controller.execution_steps, HAND_DIM)
-    if guided.shape != expected_guided:
-        raise RuntimeError(
-            "controller returned shape %s, expected %s" % (guided.shape, expected_guided)
+    # Synthetic shape/inference check only: no robot feedback is available here.
+    for controller_idx, (execute_slice, guide_slice) in enumerate(controller_windows):
+        hand_guide = hand_reference[guide_slice]
+        guided, stats = controller.predict(history, hand_guide)
+        if guided.shape != expected_guided:
+            raise RuntimeError(
+                "controller returned shape %s, expected %s" % (guided.shape, expected_guided)
+            )
+        print(
+            "[check] passed: controller=%d/%d DP %s guide=[%d:%d] %s "
+            "execute=[%d:%d] %s | final_mse %.6f -> %.6f"
+            % (
+                controller_idx + 1, len(controller_windows), expected,
+                guide_slice.start, guide_slice.stop, hand_guide.shape,
+                execute_slice.start, execute_slice.stop, guided.shape,
+                stats.mse_before, stats.mse_after,
+            ),
+            flush=True,
         )
-    print(
-        "[check] passed: DP %s -> hand guide %s -> guided DDIM %s | "
-        "final_mse %.6f -> %.6f"
-        % (expected, hand_guide.shape, guided.shape, stats.mse_before, stats.mse_after),
-        flush=True,
-    )
 
 
 def main() -> int:
@@ -537,15 +597,17 @@ def main() -> int:
         seed=args.seed,
         allow_salvage=not args.no_salvage,
     )
-    if action_steps < controller.reference_steps:
-        raise ValueError(
-            "real DP provides %d usable steps, but controller needs %d guide steps"
-            % (action_steps, controller.reference_steps)
-        )
+    controller_windows = _controller_windows(
+        action_steps, controller.execution_steps,
+        args.controller_calls_per_dp, controller.reference_steps,
+    )
     print(
-        "[pipeline] Real DP (%d-step task proposal) -> guided Sim-Hand DDIM "
-        "(%d-step micro-chunk) -> execute %d -> observe/replan"
-        % (action_steps, controller.reference_steps, controller.execution_steps),
+        "[pipeline] Real DP (%d-step task proposal) -> %d x "
+        "(guided Sim-Hand DDIM, %d-step guide -> execute %d -> observe) -> replan DP"
+        % (
+            action_steps, args.controller_calls_per_dp,
+            controller.reference_steps, controller.execution_steps,
+        ),
         flush=True,
     )
     print(
@@ -567,6 +629,7 @@ def main() -> int:
             action_steps,
             rgb_shapes,
             device,
+            controller_windows,
         )
         return 0
 
@@ -618,6 +681,7 @@ def main() -> int:
             maxlen=controller.spec["n_obs_steps"],
         )
 
+        dp_idx = 0
         while args.max_chunks == 0 or env.chunk_idx < args.max_chunks:
             policy_obs, base_ee_pose = real_dp.build_policy_obs(
                 real_history,
@@ -632,49 +696,68 @@ def main() -> int:
                 if relative_ee
                 else mixed_actions.copy()
             )
-            hand_reference = absolute_dp_actions[:, ARM_DIM:]
-            started = time.perf_counter()
-            guided_hand, stats = controller.predict(
-                np.stack(controller_history),
-                hand_reference,
-            )
-            inference_seconds = time.perf_counter() - started
-            execute_count = controller.execution_steps
-            guided_actions = absolute_dp_actions[:execute_count].copy()
-            guided_actions[:, ARM_DIM:] = guided_hand[0]
-            if not np.isfinite(guided_actions).all():
-                raise RuntimeError("combined guided action contains NaN or Inf")
-
-            print(
-                "[guided chunk %04d] proposal=%s guide=%s execute=%s "
-                "mse=%.6f->%.6f controller_s=%.3f"
-                % (
-                    env.chunk_idx,
-                    tuple(absolute_dp_actions.shape),
-                    tuple(hand_reference[: controller.reference_steps].shape),
-                    tuple(guided_actions.shape),
-                    stats.mse_before,
-                    stats.mse_after,
-                    inference_seconds,
-                ),
-                flush=True,
-            )
-
-            next_deadline = time.monotonic()
-            for step_idx, action in enumerate(guided_actions):
-                raw_obs = env.step_single(action, step_idx)
-                captured = real_dp.capture_obs(raw_obs, rgb_shapes)
-                real_history.append(captured)
-                actual_qpos = captured["hand_joint"]
-                target_before = np.asarray(env.previous_action[ARM_DIM:], dtype=np.float32)
-                controller_history.append(
-                    controller.compose_observation(actual_qpos, target_before)
+            if absolute_dp_actions.shape != (action_steps, ACTION_DIM):
+                raise RuntimeError(
+                    "real DP returned shape %s, expected %s"
+                    % (absolute_dp_actions.shape, (action_steps, ACTION_DIM))
                 )
-                next_deadline += 1.0 / args.hz
-                remaining = next_deadline - time.monotonic()
-                if remaining > 0.0:
-                    time.sleep(remaining)
-            env.chunk_idx += 1
+            if not np.isfinite(absolute_dp_actions).all():
+                raise RuntimeError("real DP proposal contains NaN or Inf")
+
+            for controller_idx, (execute_slice, guide_slice) in enumerate(controller_windows):
+                if args.max_chunks and env.chunk_idx >= args.max_chunks:
+                    break
+                # Replan from feedback after the previous execution chunk, while
+                # advancing BOTH the arm actions and hand guide in the cached DP.
+                hand_reference = absolute_dp_actions[guide_slice, ARM_DIM:]
+                started = time.perf_counter()
+                guided_hand, stats = controller.predict(
+                    np.stack(controller_history),
+                    hand_reference,
+                )
+                inference_seconds = time.perf_counter() - started
+                guided_actions = absolute_dp_actions[execute_slice].copy()
+                expected_hand = (1, controller.execution_steps, HAND_DIM)
+                if guided_hand.shape != expected_hand:
+                    raise RuntimeError(
+                        "controller returned shape %s, expected %s"
+                        % (guided_hand.shape, expected_hand)
+                    )
+                guided_actions[:, ARM_DIM:] = guided_hand[0]
+                if not np.isfinite(guided_actions).all():
+                    raise RuntimeError("combined guided action contains NaN or Inf")
+
+                print(
+                    "[guided chunk %04d] dp=%04d controller=%d/%d proposal=%s "
+                    "guide=[%d:%d] execute=[%d:%d] %s "
+                    "mse=%.6f->%.6f controller_s=%.3f"
+                    % (
+                        env.chunk_idx, dp_idx, controller_idx + 1, len(controller_windows),
+                        tuple(absolute_dp_actions.shape),
+                        guide_slice.start, guide_slice.stop,
+                        execute_slice.start, execute_slice.stop,
+                        tuple(guided_actions.shape),
+                        stats.mse_before, stats.mse_after, inference_seconds,
+                    ),
+                    flush=True,
+                )
+
+                next_deadline = time.monotonic()
+                for step_idx, action in enumerate(guided_actions):
+                    raw_obs = env.step_single(action, step_idx)
+                    captured = real_dp.capture_obs(raw_obs, rgb_shapes)
+                    real_history.append(captured)
+                    actual_qpos = captured["hand_joint"]
+                    target_before = np.asarray(env.previous_action[ARM_DIM:], dtype=np.float32)
+                    controller_history.append(
+                        controller.compose_observation(actual_qpos, target_before)
+                    )
+                    next_deadline += 1.0 / args.hz
+                    remaining = next_deadline - time.monotonic()
+                    if remaining > 0.0:
+                        time.sleep(remaining)
+                env.chunk_idx += 1
+            dp_idx += 1
     finally:
         env.close()
     return 0
