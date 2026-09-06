@@ -2,10 +2,14 @@
 # Train Diffusion Policy with front-camera images and a frozen DINOv2 ViT-S/14.
 # RELATIVE=1: relative EE pose + absolute hand joints.
 # RELATIVE=0: absolute EE pose + absolute hand joints.
+# Usage: task_name=manipulate_bulb bash train_bulb_dino_front.sh
+# Checkpoints are saved under $OUTPUT_DIR/checkpoints.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+task_name="${task_name:-manipulate_bulb}"
+OUTPUT_DIR="${SCRIPT_DIR}/runs/${task_name}"
 
 PYTHON="${PYTHON:-/home/bighand/miniconda3/envs/dp/bin/python}"
 DATASET_PATH="${DATASET_PATH:-/mnt/work/dexIL/Dex_Diffuse/data/real_data/bulb_tac_80_dp_}"
@@ -74,8 +78,8 @@ exec "$PYTHON" train.py \
     optimizer.lr="$LEARNING_RATE" \
     optimizer.weight_decay="$WEIGHT_DECAY" \
     training.device=cuda:0 \
-    training.num_epochs=1000 \
-    training.checkpoint_every=10 \
+    training.num_epochs=500 \
+    training.checkpoint_every=20 \
     training.rollout_every=50 \
     dataloader.batch_size=64 \
     dataloader.num_workers=16 \
@@ -89,4 +93,5 @@ exec "$PYTHON" train.py \
     checkpoint.topk.monitor_key=train_loss \
     checkpoint.topk.mode=min \
     "checkpoint.topk.format_str='epoch={epoch:04d}-train_loss={train_loss:.4f}.ckpt'" \
+    "hydra.run.dir='${OUTPUT_DIR}'" \
     "$@"

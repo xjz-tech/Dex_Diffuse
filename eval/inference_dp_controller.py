@@ -70,10 +70,15 @@ class GuidedDDIMController:
 
         if inference_steps <= 0:
             raise ValueError("controller inference_steps must be positive")
-        if execution_steps <= 0 or execution_steps > int(spec["n_action_steps"]):
+        # DDIM generates the full horizon. n_action_steps is the training-time
+        # execution default, not the number of available future predictions.
+        action_start = int(spec["n_obs_steps"]) - 1
+        max_execution_steps = int(spec["horizon"]) - action_start
+        if execution_steps <= 0 or execution_steps > max_execution_steps:
             raise ValueError(
-                "execution_steps must be in [1, %d], got %d"
-                % (int(spec["n_action_steps"]), execution_steps)
+                "execution_steps must be in [1, %d], got %d "
+                "(controller horizon=%d, action_start=%d)"
+                % (max_execution_steps, execution_steps, int(spec["horizon"]), action_start)
             )
         if guidance_scale < 0.0:
             raise ValueError("guidance_scale must be non-negative")
@@ -91,6 +96,7 @@ class GuidedDDIMController:
         self.device = device
         self.inference_steps = int(inference_steps)
         self.execution_steps = int(execution_steps)
+        self.max_execution_steps = max_execution_steps
         self.guidance_scale = float(guidance_scale)
         self.guidance_clip = float(guidance_clip)
         self.smoothness_scale = float(smoothness_scale)
@@ -121,7 +127,7 @@ class GuidedDDIMController:
         )
         print(
             "[controller] loaded %s | weights=%s obs_dim=%d horizon=%d "
-            "guide_steps=%d execute_steps=%d sampler=DDIM ddim_steps=%d"
+            "guide_steps=%d execute_steps=%d max_execute_steps=%d sampler=DDIM ddim_steps=%d"
             % (
                 checkpoint,
                 loaded.weight_source,
@@ -129,6 +135,7 @@ class GuidedDDIMController:
                 self.spec["horizon"],
                 self.reference_steps,
                 self.execution_steps,
+                self.max_execution_steps,
                 self.inference_steps,
             ),
             flush=True,
@@ -334,7 +341,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--controller-action-chunk-size", "--execution-steps",
         dest="execution_steps", type=int, default=5,
-        help="Actions executed after each controller call (1..5; default: 5)",
+        help="Actions executed per call, up to horizon - n_obs_steps + 1 (default: 5)",
     )
     parser.add_argument(
         "--controller-calls-per-dp", type=int, default=2,
@@ -347,6 +354,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-salvage", action="store_true")
     parser.add_argument("--check-only", action="store_true")
+    parser.add_argument(
+        "--validate-only", action="store_true",
+        help="Load models and validate execution/guidance lengths without hardware or sampling",
+    )
     parser.add_argument(
         "--max-chunks", type=int, default=0,
         help="Maximum executed controller chunks, not DP proposals (0: unlimited)",
@@ -499,8 +510,11 @@ def _controller_windows(
             "last controller call needs DP guidance [%d:%d], but DP only provides %d "
             "steps; require (controller_calls_per_dp - 1) * "
             "controller_action_chunk_size + guide_steps <= DP action chunk size "
-            "(guide_steps=%d)"
-            % (required_steps - reference_steps, required_steps, action_steps, reference_steps)
+            "(calls=%d, chunk_size=%d, guide_steps=%d, required=%d, available=%d). "
+            "Parameters were not adjusted."
+            % (required_steps - reference_steps, required_steps, action_steps,
+               controller_calls_per_dp, execution_steps, reference_steps,
+               required_steps, action_steps)
         )
     return tuple(
         (slice(start, start + execution_steps), slice(start, start + reference_steps))
@@ -620,6 +634,10 @@ def main() -> int:
         ),
         flush=True,
     )
+
+    if args.validate_only:
+        print("[check] model and schedule validation passed; hardware was not connected", flush=True)
+        return 0
 
     if args.check_only:
         _run_check(

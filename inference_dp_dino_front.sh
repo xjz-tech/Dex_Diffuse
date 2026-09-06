@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Diffusion Policy inference on the real Franka + SharpA setup.
+# Front-image-only Diffusion Policy inference on the real Franka + SharpA setup.
 # The EE action mode (absolute/relative) is read from the checkpoint config.
 set -euo pipefail
 
@@ -8,31 +8,34 @@ cd "${SCRIPT_DIR}"
 
 DP_CONDA_PREFIX="${DP_CONDA_PREFIX:-/home/frankagvl/anaconda3/envs/dp_w}"
 PYTHON="${PYTHON:-${DP_CONDA_PREFIX}/bin/python}"
-INFERENCE_SCRIPT="${INFERENCE_SCRIPT:-${SCRIPT_DIR}/inference_dp.py}"
+INFERENCE_SCRIPT="${INFERENCE_SCRIPT:-${SCRIPT_DIR}/inference_dp_front.py}"
 ROBOT_INIT_SCRIPT="${ROBOT_INIT_SCRIPT:-${SCRIPT_DIR}/eval/real/robot_init.py}"
 
-### Select the checkpoint here.
-CHECKPOINT_DIR="/media/frankagvl/U393/Dex_Diffuse/runs/0906_manip_bulb"
-# CHECKPOINT_DIR="/media/frankagvl/U393/Dex_Diffuse/runs/0905_rotate_bulb_20"
-CKPT_EPOCH="300"
+# Set CKPT_PATH to a front-only checkpoint, or select CHECKPOINT_DIR + CKPT_EPOCH.
+# Example: CKPT_PATH=/path/to/front/checkpoints/latest.ckpt CHECK_ONLY=1 bash inference_dp_dino_front.sh
+CKPT_PATH="${CKPT_PATH:-}"
+CHECKPOINT_DIR="${CHECKPOINT_DIR:-/media/frankagvl/U393/Dex_Diffuse/runs/0906_manip_bulb_front}"
+CKPT_EPOCH="${CKPT_EPOCH:-600}"
 
-if [[ ! "${CKPT_EPOCH}" =~ ^[0-9]+$ ]]; then
-  echo "CKPT_EPOCH must be a non-negative integer, got: ${CKPT_EPOCH}" >&2
-  exit 2
+if [[ -z "${CKPT_PATH}" ]]; then
+  [[ -n "${CHECKPOINT_DIR}" ]] || {
+    echo "Set CKPT_PATH or CHECKPOINT_DIR to a checkpoint trained with task=bulb_front_image." >&2
+    exit 2
+  }
+  if [[ ! "${CKPT_EPOCH}" =~ ^[0-9]+$ ]]; then
+    echo "CKPT_EPOCH must be a non-negative integer, got: ${CKPT_EPOCH}" >&2
+    exit 2
+  fi
+  printf -v CKPT_EPOCH_PADDED '%04d' "$((10#${CKPT_EPOCH}))"
+  shopt -s nullglob
+  checkpoint_candidates=("${CHECKPOINT_DIR}/epoch=${CKPT_EPOCH_PADDED}-"*.ckpt)
+  shopt -u nullglob
+  if [[ ${#checkpoint_candidates[@]} -ne 1 ]]; then
+    echo "Expected exactly one checkpoint for epoch ${CKPT_EPOCH_PADDED} in ${CHECKPOINT_DIR}; found ${#checkpoint_candidates[@]}" >&2
+    exit 1
+  fi
+  CKPT_PATH="${checkpoint_candidates[0]}"
 fi
-printf -v CKPT_EPOCH_PADDED '%04d' "$((10#${CKPT_EPOCH}))"
-
-shopt -s nullglob
-checkpoint_candidates=("${CHECKPOINT_DIR}/epoch=${CKPT_EPOCH_PADDED}-"*.ckpt)
-shopt -u nullglob
-if [[ ${#checkpoint_candidates[@]} -ne 1 ]]; then
-  echo "Expected exactly one checkpoint for epoch ${CKPT_EPOCH_PADDED} in ${CHECKPOINT_DIR}; found ${#checkpoint_candidates[@]}" >&2
-  exit 1
-fi
-CKPT_PATH="${checkpoint_candidates[0]}"
-
-# CKPT_PATH="/media/frankagvl/U393/Dex_Diffuse/runs/dp_xjz/epoch=0700.ckpt"
-
 # Use the same local DINOv2 assets as the training launchers.
 DINOV2_REPO_OR_DIR="${DINOV2_REPO_OR_DIR:-${SCRIPT_DIR}/assets/dinov2_assets/facebookresearch_dinov2_main}"
 DINOV2_WEIGHTS="${DINOV2_WEIGHTS:-${SCRIPT_DIR}/assets/dinov2_assets/dinov2_vits14_pretrain.pth}"
@@ -45,10 +48,8 @@ FRANKA_HOST="${FRANKA_HOST:-172.16.0.10}"
 FRANKA_PORT="${FRANKA_PORT:-9090}"
 HAND_HOST="${HAND_HOST:-localhost}"
 HAND_PORT="${HAND_PORT:-5570}"
-# Leave serials empty by default and assign camera roles by model:
-# D435/D455 -> front, D405 -> wrist. Set either variable to override.
+# Auto-select a D435/D455 front camera, or specify its serial explicitly.
 FRONT_SERIAL="${FRONT_SERIAL:-}"
-WRIST_SERIAL="${WRIST_SERIAL:-}"
 CHECK_ONLY="${CHECK_ONLY:-0}"
 
 # Use the project code and local DINOv2 assets, even when the checkpoint was
@@ -116,7 +117,7 @@ PY
   --franka-host "${FRANKA_HOST}" --franka-port "${FRANKA_PORT}" \
   --hand-host "${HAND_HOST}" --hand-port "${HAND_PORT}"
 echo "[hardware] Franka ${FRANKA_HOST}:${FRANKA_PORT} (joints server); SharpA ${HAND_HOST}:${HAND_PORT}"
-echo "[cameras] front=${FRONT_SERIAL:-auto}; wrist=${WRIST_SERIAL:-auto}"
+echo "[cameras] front=${FRONT_SERIAL:-auto} (front-only)"
 echo "[mode] LIVE, no tactile: serial ${ACTION_CHUNK_STEPS}-step chunks at 30 Hz"
 echo "[schedule] infer -> execute all ${ACTION_CHUNK_STEPS} actions -> observe -> infer"
 
@@ -135,6 +136,5 @@ exec "${PYTHON}" "${INFERENCE_SCRIPT}" \
   --hand_host "${HAND_HOST}" \
   --hand_port "${HAND_PORT}" \
   --front_serial "${FRONT_SERIAL}" \
-  --wrist_serial "${WRIST_SERIAL}" \
   --show_camera_input \
   --stop_on_close

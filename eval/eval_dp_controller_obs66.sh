@@ -12,8 +12,10 @@ die() {
 
 # Default to the bulb-task DP checkpoint and the local 66-D simulation
 # controller. Both paths can still be overridden through environment variables.
-DP_CKPT_PATH="${DP_CKPT_PATH:-${DEX_ROOT}/runs/2026.09.03_23.53.01_train_diffusion_unet_dino_image_bulb_image/checkpoints/epoch=0300-train_loss=0.0144.ckpt}"
-CONTROLLER_CKPT_PATH="${CONTROLLER_CKPT_PATH:-${DEX_ROOT}/runs/obs_4-66.ckpt}"
+DP_CKPT_PATH="${DP_CKPT_PATH:-/media/frankagvl/U393/Dex_Diffuse/runs/0906_manip_bulb/epoch=0400-train_loss=0.0057.ckpt}"
+# DP_CKPT_PATH="${DP_CKPT_PATH:-/media/frankagvl/U393/Dex_Diffuse/runs/0905_rotate_bulb_20/epoch=0300-train_loss=0.0145.ckpt}"
+CONTROLLER_CKPT_PATH="${CONTROLLER_CKPT_PATH:-/media/frankagvl/U393/Dex_Diffuse/runs/8_2_mixed.ckpt}"
+# CONTROLLER_CKPT_PATH="${CONTROLLER_CKPT_PATH:-/media/frankagvl/U393/Dex_Diffuse/runs/obs_4-66.ckpt}"
 INFERENCE_SCRIPT="${INFERENCE_SCRIPT:-${SCRIPT_DIR}/inference_dp_controller.py}"
 
 MODEL_PYTHON="${MODEL_PYTHON:-}"
@@ -32,14 +34,12 @@ fi
 DEVICE="${DEVICE:-cuda:0}"
 DP_INFERENCE_STEPS="${DP_INFERENCE_STEPS:-16}"
 DDIM_INFERENCE_STEPS="${DDIM_INFERENCE_STEPS:-8}"
-# Actions executed after each controller call (1..5). EXECUTION_STEPS is a
+# Actions executed per call; the checkpoint determines the output length limit.
+# EXECUTION_STEPS is a
 # legacy fallback; CONTROLLER_ACTION_CHUNK_SIZE takes precedence when set.
 CONTROLLER_ACTION_CHUNK_SIZE="${CONTROLLER_ACTION_CHUNK_SIZE:-${EXECUTION_STEPS:-5}}"
-# Reuse one DP proposal for this many controller calls, with fresh state and
-# a reference window shifted by CONTROLLER_ACTION_CHUNK_SIZE after each call.
-# Full guidance must fit: (calls - 1) * chunk_size + 9 <= DP action chunk size.
 CONTROLLER_CALLS_PER_DP="${CONTROLLER_CALLS_PER_DP:-2}"
-GUIDANCE_SCALE="${GUIDANCE_SCALE:-0.4}"
+GUIDANCE_SCALE="${GUIDANCE_SCALE:-0.5}"
 GUIDANCE_CLIP="${GUIDANCE_CLIP:-1.0}"
 SMOOTHNESS_SCALE="${SMOOTHNESS_SCALE:-0.10}"
 FIXED_NOISE="${FIXED_NOISE:-1}"
@@ -67,7 +67,7 @@ FRONT_SERIAL="${FRONT_SERIAL:-}"
 WRIST_SERIAL="${WRIST_SERIAL:-}"
 SHOW_CAMERA_INPUT="${SHOW_CAMERA_INPUT:-1}"
 STOP_ON_CLOSE="${STOP_ON_CLOSE:-1}"
-ROBOT_INIT_SCRIPT="${ROBOT_INIT_SCRIPT:-/home/frankagvl/workspace/dex_setup/TacMP/scripts/robot_init.py}"
+ROBOT_INIT_SCRIPT="${ROBOT_INIT_SCRIPT:-${SCRIPT_DIR}/real/robot_init.py}"
 
 [[ $# -eq 0 ]] || die "this launcher takes no positional arguments; use environment variables"
 [[ -n "${DP_CKPT_PATH}" ]] || die "set DP_CKPT_PATH to the real-task Diffusion Policy checkpoint"
@@ -83,7 +83,7 @@ ROBOT_INIT_SCRIPT="${ROBOT_INIT_SCRIPT:-/home/frankagvl/workspace/dex_setup/TacM
 [[ "${ALLOW_SALVAGE}" =~ ^[01]$ ]] || die "ALLOW_SALVAGE must be 0 or 1"
 [[ "${SHOW_CAMERA_INPUT}" =~ ^[01]$ ]] || die "SHOW_CAMERA_INPUT must be 0 or 1"
 [[ "${STOP_ON_CLOSE}" =~ ^[01]$ ]] || die "STOP_ON_CLOSE must be 0 or 1"
-[[ "${CONTROLLER_ACTION_CHUNK_SIZE}" =~ ^[1-5]$ ]] || die "CONTROLLER_ACTION_CHUNK_SIZE must be an integer from 1 to 5"
+[[ "${CONTROLLER_ACTION_CHUNK_SIZE}" =~ ^[1-9][0-9]*$ ]] || die "CONTROLLER_ACTION_CHUNK_SIZE must be a positive integer"
 [[ "${CONTROLLER_CALLS_PER_DP}" =~ ^[1-9][0-9]*$ ]] || die "CONTROLLER_CALLS_PER_DP must be a positive integer"
 if [[ "${CHECK_ONLY}" == "0" && "${LIVE}" != "1" ]]; then
     die "hardware evaluation requires LIVE=1 (or leave CHECK_ONLY=1 for a safe model check)"
@@ -160,6 +160,7 @@ echo "[guidance] scale=${GUIDANCE_SCALE} clip=${GUIDANCE_CLIP} smoothness=${SMOO
 
 if [[ "${CHECK_ONLY}" == "0" ]]; then
     [[ -f "${FRANKA_URDF}" ]] || die "Franka URDF not found: ${FRANKA_URDF}"
+    # Reset first; the inference entrypoint loads and validates both models afterward.
     "${MODEL_PYTHON}" - "${FRANKA_HOST}" "${FRANKA_PORT}" "${HAND_HOST}" "${HAND_PORT}" <<'PY'
 import socket
 import sys
@@ -178,12 +179,15 @@ if failures:
     raise SystemExit("hardware preflight failed; no command sent:\n  " + "\n  ".join(failures))
 PY
     [[ -f "${ROBOT_INIT_SCRIPT}" ]] || die "ROBOT_INIT_SCRIPT not found: ${ROBOT_INIT_SCRIPT}"
+    echo "[init] SharpA target: HAND_READY_JOINTS in ${ROBOT_INIT_SCRIPT}"
     env \
-        FRANKA_HOST="${FRANKA_HOST}" \
-        FRANKA_PORT="${FRANKA_PORT}" \
-        HAND_HOST="${HAND_HOST}" \
-        HAND_PORT="${HAND_PORT}" \
-        "${MODEL_PYTHON}" "${ROBOT_INIT_SCRIPT}"
+        PYTHONDONTWRITEBYTECODE=1 \
+        LD_LIBRARY_PATH="${RUNTIME_LD_LIBRARY_PATH}" \
+        "${MODEL_PYTHON}" "${ROBOT_INIT_SCRIPT}" \
+        --franka-host "${FRANKA_HOST}" \
+        --franka-port "${FRANKA_PORT}" \
+        --hand-host "${HAND_HOST}" \
+        --hand-port "${HAND_PORT}"
 fi
 
 exec env \

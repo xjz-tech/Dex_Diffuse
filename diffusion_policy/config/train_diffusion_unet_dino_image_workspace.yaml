@@ -133,14 +133,14 @@ checkpoint:
   save_last_snapshot: False
 
 multi_run:
-  run_dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+  run_dir: runs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
   wandb_name_base: ${now:%Y.%m.%d-%H.%M.%S}_${name}_${task_name}
 
 hydra:
   job:
     override_dirname: ${name}
   run:
-    dir: /mnt/work/dexIL/Dex_Diffuse/runs/${now:%Y.%m.%d}_${now:%H.%M.%S}_${name}_${task_name}
+    dir: runs/${now:%Y.%m.%d}_${now:%H.%M.%S}_${name}_${task_name}
   sweep:
-    dir: /mnt/work/dexIL/Dex_Diffuse/runs/${now:%Y.%m.%d}_${now:%H.%M.%S}_${name}_${task_name}
+    dir: runs/${now:%Y.%m.%d}_${now:%H.%M.%S}_${name}_${task_name}
     subdir: ${hydra.job.num}
