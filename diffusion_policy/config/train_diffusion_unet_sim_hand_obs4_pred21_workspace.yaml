@@ -1,0 +1,126 @@
+defaults:
+  - _self_
+  - task: sim_hand_lowdim
+
+name: train_diffusion_unet_sim_hand_obs4_pred21
+_target_: diffusion_policy.workspace.train_diffusion_unet_sim_hand_workspace.TrainDiffusionUnetSimHandWorkspace
+
+task_name: ${task.name}
+obs_dim: ${task.obs_dim}
+action_dim: ${task.action_dim}
+exp_name: host_mmap_obs4_pred21
+
+n_obs_steps: 4
+n_pred_action_steps: 21
+n_action_steps: 5
+horizon: ${eval:'${n_obs_steps}+${n_pred_action_steps}-1'}
+obs_as_global_cond: True
+oa_step_convention: True
+
+policy:
+  _target_: diffusion_policy.policy.diffusion_unet_sim_hand_policy.DiffusionUnetSimHandPolicy
+
+  model:
+    _target_: diffusion_policy.model.diffusion.conditional_unet1d.ConditionalUnet1D
+    input_dim: ${action_dim}
+    local_cond_dim: null
+    global_cond_dim: ${eval:'${obs_dim}*${n_obs_steps}'}
+    diffusion_step_embed_dim: 256
+    down_dims: [256, 512, 1024]
+    kernel_size: 5
+    n_groups: 8
+    cond_predict_scale: True
+
+  noise_scheduler:
+    _target_: diffusers.schedulers.scheduling_ddpm.DDPMScheduler
+    num_train_timesteps: 100
+    beta_start: 0.0001
+    beta_end: 0.02
+    beta_schedule: squaredcos_cap_v2
+    variance_type: fixed_small
+    clip_sample: True
+    prediction_type: epsilon
+
+  horizon: ${horizon}
+  obs_dim: ${obs_dim}
+  action_dim: ${action_dim}
+  n_obs_steps: ${n_obs_steps}
+  n_pred_action_steps: ${n_pred_action_steps}
+  n_action_steps: ${n_action_steps}
+  num_inference_steps: 100
+  obs_as_global_cond: ${obs_as_global_cond}
+  oa_step_convention: ${oa_step_convention}
+  return_full_prediction: False
+
+ema:
+  _target_: diffusion_policy.model.diffusion.ema_model.EMAModel
+  update_after_step: 0
+  inv_gamma: 1.0
+  power: 0.75
+  min_value: 0.0
+  max_value: 0.9999
+
+dataloader:
+  batch_size: 8192
+  num_workers: 4
+  shuffle: false
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2
+
+val_dataloader:
+  batch_size: 8192
+  num_workers: 4
+  shuffle: false
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2
+
+optimizer:
+  _target_: torch.optim.AdamW
+  lr: 1.0e-4
+  betas: [0.95, 0.999]
+  eps: 1.0e-8
+  weight_decay: 1.0e-6
+
+training:
+  device: cuda:0
+  seed: 42
+  debug: False
+  resume: True
+  lr_scheduler: cosine
+  lr_warmup_steps: 500
+  num_epochs: 10000
+  steps_per_epoch: 2000
+  validation_steps: 200
+  gradient_accumulate_every: 1
+  use_ema: True
+  rollout_every: 1000000
+  checkpoint_every: 100000
+  val_every: 1
+  sample_every: 5
+  max_train_steps: null
+  max_val_steps: null
+  tqdm_interval_sec: 1.0
+
+logging:
+  project: sim_hand_diffusion_policy
+  resume: False
+  mode: online
+  name: ${now:%Y.%m.%d-%H.%M.%S}_${exp_name}_${name}_${task_name}
+  tags: ["${name}", "${task_name}", "${exp_name}", "host", "mmap", "obs4", "pred21", "h24"]
+  id: null
+  group: obs4_pred21_h24
+
+checkpoint:
+  save_last_ckpt: True
+  save_last_snapshot: False
+
+hydra:
+  job:
+    override_dirname: ${name}
+  run:
+    dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+  sweep:
+    dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+    subdir: ${hydra.job.num}
