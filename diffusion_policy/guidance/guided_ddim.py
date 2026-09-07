@@ -160,18 +160,21 @@ def guided_ddim_step(
         scheduler.config.num_train_timesteps // scheduler.num_inference_steps
     )
     prev_t = t - step_ratio
-    alpha_t = scheduler.alphas_cumprod[t].to(device=sample.device, dtype=sample.dtype)
+    alpha_t = scheduler.alphas_cumprod[t].to(device=sample.device)
     alpha_prev = (
         scheduler.alphas_cumprod[prev_t]
         if prev_t >= 0
         else scheduler.final_alpha_cumprod
-    ).to(device=sample.device, dtype=sample.dtype)
+    ).to(device=sample.device)
     sqrt_alpha_t = alpha_t.sqrt()
     sqrt_beta_t = (1.0 - alpha_t).sqrt()
-    x0_raw = (sample - sqrt_beta_t * model_output) / sqrt_alpha_t
+    frozen_epsilon = model_output.detach()
+    x0_raw = (sample - sqrt_beta_t * frozen_epsilon) / sqrt_alpha_t
     x0_base = x0_raw.clamp(-1.0, 1.0) if scheduler.config.clip_sample else x0_raw
+    base_epsilon = (sample - sqrt_alpha_t * x0_base) / sqrt_beta_t
     _validate_guidance_reference(x0_raw, reference, guidance_slice)
-    # Scheme B: ε_guided = εθ + b_t * λ * ∇_{x_t} D(x0_hat, y), including ∂x0_hat/∂x_t.
+    # OpenAI-style score conditioning: freeze εθ, clip only the base x0,
+    # re-derive its matching epsilon, then leave the guided x0 unclipped.
     if guidance_scale > 0:
         if not sample.requires_grad:
             raise ValueError(
@@ -181,16 +184,12 @@ def guided_ddim_step(
         gradient = torch.autograd.grad(guidance_loss, sample)[0]
     else:
         gradient = torch.zeros_like(sample)
-    guided_epsilon = model_output + sqrt_beta_t * guidance_scale * gradient
+    guided_epsilon = base_epsilon + sqrt_beta_t * guidance_scale * gradient
     guided_x0_raw = (sample - sqrt_beta_t * guided_epsilon) / sqrt_alpha_t
-    guided_x0 = (
-        guided_x0_raw.clamp(-1.0, 1.0)
-        if scheduler.config.clip_sample
-        else guided_x0_raw
-    )
+    guided_x0 = guided_x0_raw
     direction = (1.0 - alpha_prev).sqrt()
     base_prev_sample = (
-        alpha_prev.sqrt() * x0_base + direction * model_output
+        alpha_prev.sqrt() * x0_base + direction * base_epsilon
     )
     prev_sample = (
         alpha_prev.sqrt() * guided_x0 + direction * guided_epsilon
@@ -239,14 +238,15 @@ def sample_guided_trajectory(
     trajectory = initial_noise
     outputs: list[GuidedDDIMStepOutput] = []
     for timestep in scheduler.timesteps:
+        with torch.no_grad():
+            model_output = model(
+                trajectory,
+                timestep,
+                global_cond=global_cond,
+            )
         if guidance_scale > 0:
             with torch.inference_mode(False), torch.enable_grad():
                 xt = trajectory.detach().clone().requires_grad_(True)
-                model_output = model(
-                    xt,
-                    timestep,
-                    global_cond=global_cond,
-                )
                 output = guided_ddim_step(
                     scheduler=scheduler,
                     model_output=model_output,
@@ -258,22 +258,16 @@ def sample_guided_trajectory(
                     eta=eta,
                 )
         else:
-            with torch.no_grad():
-                model_output = model(
-                    trajectory,
-                    timestep,
-                    global_cond=global_cond,
-                )
-                output = guided_ddim_step(
-                    scheduler=scheduler,
-                    model_output=model_output,
-                    timestep=timestep,
-                    sample=trajectory,
-                    reference=reference,
-                    guidance_scale=guidance_scale,
-                    guidance_slice=guidance_slice,
-                    eta=eta,
-                )
+            output = guided_ddim_step(
+                scheduler=scheduler,
+                model_output=model_output,
+                timestep=timestep,
+                sample=trajectory,
+                reference=reference,
+                guidance_scale=guidance_scale,
+                guidance_slice=guidance_slice,
+                eta=eta,
+            )
         outputs.append(output)
         trajectory = output.prev_sample.detach()
     return GuidedDDIMSampleOutput(trajectory.detach(), tuple(outputs))
@@ -322,6 +316,7 @@ def verify_zero_guidance_equivalence(
                 timestep=timestep,
                 sample=official_sample,
                 eta=0.0,
+                use_clipped_model_output=True,
             )
             custom_out = guided_ddim_step(
                 scheduler=custom,

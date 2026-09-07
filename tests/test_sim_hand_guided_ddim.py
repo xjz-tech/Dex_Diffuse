@@ -164,6 +164,7 @@ def _assert_zero_scale_matches_official(
             timestep=timestep,
             sample=sample,
             eta=0.0,
+            use_clipped_model_output=True,
         )
 
         def _forbid_official_step(*args, **kwargs):
@@ -194,7 +195,7 @@ def _assert_zero_scale_matches_official(
         )
 
 
-def test_zero_scale_custom_step_matches_official_for_each_100_12_timestep() -> None:
+def test_zero_scale_matches_openai_clipped_base_for_each_100_12_timestep() -> None:
     _assert_zero_scale_matches_official(
         num_train_timesteps=100,
         inference_steps=12,
@@ -203,7 +204,7 @@ def test_zero_scale_custom_step_matches_official_for_each_100_12_timestep() -> N
     )
 
 
-def test_zero_scale_custom_step_matches_official_for_each_60_10_timestep() -> None:
+def test_zero_scale_matches_openai_clipped_base_for_each_60_10_timestep() -> None:
     _assert_zero_scale_matches_official(
         num_train_timesteps=60,
         inference_steps=10,
@@ -212,11 +213,57 @@ def test_zero_scale_custom_step_matches_official_for_each_60_10_timestep() -> No
     )
 
 
-def test_x0_vjp_guidance_matches_official_ddim_with_guided_epsilon() -> None:
+def test_zero_scale_fp16_final_step_matches_openai_clipped_base() -> None:
+    training = DDPMScheduler(
+        num_train_timesteps=100,
+        beta_start=0.0001,
+        beta_end=0.02,
+        beta_schedule="linear",
+        variance_type="fixed_small",
+        clip_sample=True,
+        prediction_type="epsilon",
+    )
+    official = create_ddim_scheduler(training)
+    custom = create_ddim_scheduler(training)
+    official.set_timesteps(12)
+    custom.set_timesteps(12)
+    timestep = int(custom.timesteps[-1])
+    assert timestep == 0
+    sample = torch.full((1, 12, 22), 8.0, dtype=torch.float16)
+    model_output = torch.zeros_like(sample)
+
+    expected = official.step(
+        model_output=model_output,
+        timestep=timestep,
+        sample=sample,
+        eta=0.0,
+        use_clipped_model_output=True,
+    )
+    output = guided_ddim_step(
+        scheduler=custom,
+        model_output=model_output,
+        timestep=timestep,
+        sample=sample,
+        reference=torch.zeros((1, 5, 22), dtype=torch.float16),
+        guidance_scale=0.0,
+        guidance_slice=slice(3, 8),
+        eta=0.0,
+    )
+
+    assert torch.isfinite(output.prev_sample).all()
+    assert torch.isfinite(output.pred_original_sample).all()
+    torch.testing.assert_close(output.prev_sample, expected.prev_sample)
+    torch.testing.assert_close(
+        output.pred_original_sample,
+        expected.pred_original_sample,
+    )
+
+
+def test_frozen_epsilon_guidance_matches_openai_clipped_base_score_update() -> None:
     scheduler = _prepared_ddim(100, 12)
-    timestep = int(scheduler.timesteps[3])
+    timestep = int(scheduler.timesteps[0])
     guidance_slice = slice(3, 8)
-    sample = torch.randn(2, 12, 22, requires_grad=True)
+    sample = torch.full((2, 12, 22), 8.0, requires_grad=True)
     model_scale = 0.25
     model_output = model_scale * sample + 0.03
     reference = torch.full((2, 5, 22), 0.2)
@@ -225,22 +272,35 @@ def test_x0_vjp_guidance_matches_official_ddim_with_guided_epsilon() -> None:
     alpha_t = scheduler.alphas_cumprod[timestep]
     sqrt_beta_t = (1.0 - alpha_t).sqrt()
     x0_raw = (sample - sqrt_beta_t * model_output) / alpha_t.sqrt()
+    x0_base = x0_raw.clamp(-1.0, 1.0)
+    base_epsilon = (
+        sample - alpha_t.sqrt() * x0_base
+    ) / sqrt_beta_t
+    # εθ is treated as a constant, so d x0 / d xt = 1 / sqrt(α_t).
+    # The UNet slope model_scale must not appear in the guidance gradient.
     expected_gradient = torch.zeros_like(sample)
     expected_gradient[:, guidance_slice] = (
         2.0
         / (reference.shape[1] * reference.shape[2])
         * (x0_raw[:, guidance_slice] - reference)
-        * (1.0 - sqrt_beta_t * model_scale)
         / alpha_t.sqrt()
     )
     expected_epsilon = (
-        model_output + sqrt_beta_t * guidance_scale * expected_gradient
+        base_epsilon + sqrt_beta_t * guidance_scale * expected_gradient
     )
-    expected = scheduler.step(
-        model_output=expected_epsilon.detach(),
-        timestep=timestep,
-        sample=sample.detach(),
-        eta=0.0,
+    expected_x0 = (
+        sample - sqrt_beta_t * expected_epsilon
+    ) / alpha_t.sqrt()
+    step_ratio = (
+        scheduler.config.num_train_timesteps // scheduler.num_inference_steps
+    )
+    alpha_prev = scheduler.alphas_cumprod[timestep - step_ratio]
+    direction = (1.0 - alpha_prev).sqrt()
+    expected_base_prev = (
+        alpha_prev.sqrt() * x0_base + direction * base_epsilon
+    )
+    expected_prev = (
+        alpha_prev.sqrt() * expected_x0 + direction * expected_epsilon
     )
 
     output = guided_ddim_step(
@@ -254,10 +314,15 @@ def test_x0_vjp_guidance_matches_official_ddim_with_guided_epsilon() -> None:
         eta=0.0,
     )
 
-    torch.testing.assert_close(output.prev_sample, expected.prev_sample)
+    assert bool((expected_x0.abs() > 1.0).any())
+    torch.testing.assert_close(output.base_prev_sample, expected_base_prev)
+    torch.testing.assert_close(output.prev_sample, expected_prev)
+    torch.testing.assert_close(output.pred_original_sample, expected_x0)
+    torch.testing.assert_close(output.raw_pred_original_sample, expected_x0)
     torch.testing.assert_close(
-        output.pred_original_sample,
-        expected.pred_original_sample,
+        sample.detach(),
+        alpha_t.sqrt() * output.pred_original_sample
+        + sqrt_beta_t * expected_epsilon.detach(),
     )
 
 
