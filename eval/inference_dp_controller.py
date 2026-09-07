@@ -2,10 +2,11 @@
 """Run Real-DP proposals through a guided Sim-Hand DDIM controller.
 
 The image Diffusion Policy supplies the task-level 31-D action chunk.  Its
-22-D hand part is used as an energy guide during every reverse DDIM step of the
-simulation-trained hand policy.  The 9-D arm part is kept unchanged.  One DP
-proposal guides multiple controller calls.  After each short execution chunk,
-the controller uses fresh state and the next window of the same DP proposal.
+22-D hand part is used as an OpenAI-style score guide during every reverse
+DDIM step of the simulation-trained hand policy.  The 9-D arm part is kept
+unchanged.  One DP proposal guides multiple controller calls.  After each
+short execution chunk, the controller uses fresh state and the next window of
+the same DP proposal.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from omegaconf import OmegaConf
 
 from checkpoint_loader import build_policy as build_controller_policy
 from checkpoint_loader import load_checkpoint as load_controller_checkpoint
+from diffusion_policy.guidance.guided_ddim import sample_guided_trajectory
 from diffusion_policy.workspace.base_workspace import BaseWorkspace
 from policy_observation import (
     QPOS_OBSERVATION,
@@ -46,7 +48,7 @@ class GuidanceStats:
 
 
 class GuidedDDIMController:
-    """Simulation hand prior with analytic action-reference guidance."""
+    """Simulation hand prior using switch-branch OpenAI-style DDIM guidance."""
 
     def __init__(
         self,
@@ -56,8 +58,7 @@ class GuidedDDIMController:
         inference_steps: int,
         execution_steps: int,
         guidance_scale: float,
-        guidance_clip: float,
-        smoothness_scale: float,
+        eta: float,
         fixed_noise: bool,
         seed: int,
         allow_salvage: bool,
@@ -82,10 +83,8 @@ class GuidedDDIMController:
             )
         if guidance_scale < 0.0:
             raise ValueError("guidance_scale must be non-negative")
-        if guidance_clip <= 0.0:
-            raise ValueError("guidance_clip must be positive")
-        if smoothness_scale < 0.0:
-            raise ValueError("smoothness_scale must be non-negative")
+        if eta != 0.0:
+            raise ValueError("eta must be 0.0")
         if policy.noise_scheduler.config.prediction_type != "epsilon":
             raise ValueError("guided DDIM requires an epsilon-prediction controller")
         if not bool(policy.obs_as_global_cond):
@@ -98,17 +97,17 @@ class GuidedDDIMController:
         self.execution_steps = int(execution_steps)
         self.max_execution_steps = max_execution_steps
         self.guidance_scale = float(guidance_scale)
-        self.guidance_clip = float(guidance_clip)
-        self.smoothness_scale = float(smoothness_scale)
+        self.eta = float(eta)
         self.fixed_noise = bool(fixed_noise)
         self.generator = torch.Generator(device=device)
         self.generator.manual_seed(int(seed))
         self._fixed_noise: torch.Tensor | None = None
+        if bool(getattr(policy.noise_scheduler.config, "thresholding", False)):
+            raise ValueError("Dynamic thresholding is not supported")
         self.scheduler = DDIMScheduler.from_config(
             policy.noise_scheduler.config,
             set_alpha_to_one=True,
             steps_offset=0,
-            timestep_spacing="leading",
         )
 
         self.action_start = self.spec["n_obs_steps"] - 1
@@ -172,75 +171,19 @@ class GuidedDDIMController:
             generator=self.generator,
         )
 
-    def _energy_gradient(
-        self,
-        clean: torch.Tensor,
-        reference: torch.Tensor,
-    ) -> torch.Tensor:
-        """Gradient of action MSE plus DP-relative-motion MSE."""
-        guided = clean[:, self.reference_slice, :]
-        gradient = guided - reference
-        if self.smoothness_scale > 0.0 and self.reference_steps > 1:
-            delta_error = (
-                guided[:, 1:, :]
-                - guided[:, :-1, :]
-                - reference[:, 1:, :]
-                + reference[:, :-1, :]
-            )
-            smooth_gradient = torch.zeros_like(guided)
-            smooth_gradient[:, :-1, :] -= delta_error
-            smooth_gradient[:, 1:, :] += delta_error
-            gradient = gradient + self.smoothness_scale * smooth_gradient
-        result = torch.zeros_like(clean)
-        result[:, self.reference_slice, :] = gradient
-        return result.clamp(-self.guidance_clip, self.guidance_clip)
-
-    def _guided_step(
+    def _predict_epsilon(
         self,
         sample: torch.Tensor,
-        epsilon: torch.Tensor,
-        timestep: torch.Tensor,
-        next_timestep: int,
-        reference: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Apply an x0-energy correction to the deterministic DDIM mean."""
-        base_output = self.scheduler.step(
-            model_output=epsilon,
-            timestep=timestep,
-            sample=sample,
-            eta=0.0,
-        )
-        if next_timestep >= 0:
-            alpha_prev = self.scheduler.alphas_cumprod[next_timestep].to(
-                device=sample.device, dtype=sample.dtype
-            )
-        else:
-            alpha_prev = self.scheduler.final_alpha_cumprod.to(
-                device=sample.device, dtype=sample.dtype
-            )
-        clean = base_output.pred_original_sample
-        clip_range = (
-            float(getattr(self.scheduler.config, "clip_sample_range", 1.0))
-            if bool(self.scheduler.config.clip_sample)
-            else None
+        timestep: int | torch.Tensor,
+        global_cond: torch.Tensor,
+    ) -> torch.Tensor:
+        return self.policy.model(
+            sample,
+            timestep,
+            local_cond=None,
+            global_cond=global_cond,
         )
 
-        before = clean[:, self.reference_slice, :]
-        gradient = self._energy_gradient(clean, reference)
-        guided_clean = clean - self.guidance_scale * gradient
-        if clip_range is not None:
-            guided_clean = guided_clean.clamp(-clip_range, clip_range)
-
-        # Shift only the predicted-clean contribution to the reverse-step mean.
-        # This preserves the checkpoint's official DDIM direction and makes
-        # guidance_scale=0 exactly equivalent to DDIMScheduler.step(..., eta=0).
-        prev_sample = base_output.prev_sample + alpha_prev.sqrt() * (
-            guided_clean - clean
-        )
-        after = guided_clean[:, self.reference_slice, :]
-        return prev_sample, before, after
-
-    @torch.inference_mode()
     def predict(
         self,
         observation_history: np.ndarray,
@@ -289,34 +232,21 @@ class GuidedDDIMController:
             reference[:, : self.reference_steps]
         )
         trajectory = self._noise(history.shape[0], history.dtype)
-        self.scheduler.set_timesteps(self.inference_steps, device=self.device)
+        sample = sample_guided_trajectory(
+            model=self._predict_epsilon,
+            scheduler=self.scheduler,
+            initial_noise=trajectory,
+            global_cond=global_cond,
+            reference=reference,
+            num_inference_steps=self.inference_steps,
+            guidance_scale=self.guidance_scale,
+            guidance_slice=self.reference_slice,
+            eta=self.eta,
+        )
+        if not sample.steps:
+            raise RuntimeError("guided DDIM produced no reverse steps")
 
-        mse_before = torch.tensor(0.0, device=self.device)
-        mse_after = torch.tensor(0.0, device=self.device)
-        timesteps = self.scheduler.timesteps
-        for index, timestep in enumerate(timesteps):
-            epsilon = self.policy.model(
-                trajectory,
-                timestep,
-                local_cond=None,
-                global_cond=global_cond,
-            )
-            next_timestep = (
-                int(timesteps[index + 1].item())
-                if index + 1 < len(timesteps)
-                else -1
-            )
-            trajectory, before, after = self._guided_step(
-                trajectory,
-                epsilon,
-                timestep,
-                next_timestep,
-                reference,
-            )
-            mse_before = (before - reference).square().mean()
-            mse_after = (after - reference).square().mean()
-
-        action_norm = trajectory[
+        action_norm = sample.trajectory[
             :,
             self.action_start : self.action_start + self.execution_steps,
             :,
@@ -324,9 +254,10 @@ class GuidedDDIMController:
         action = self.policy.normalizer["action"].unnormalize(action_norm)
         if not torch.isfinite(action).all():
             raise RuntimeError("guided DDIM controller produced NaN or Inf")
+        last_step = sample.steps[-1]
         stats = GuidanceStats(
-            mse_before=float(mse_before.item()),
-            mse_after=float(mse_after.item()),
+            mse_before=float(last_step.guidance_loss_before.mean().item()),
+            mse_after=float(last_step.guidance_loss_after.mean().item()),
         )
         return action.detach().cpu().numpy(), stats
 
@@ -337,7 +268,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--controller-checkpoint", required=True, type=Path)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--dp-inference-steps", type=int, default=16)
-    parser.add_argument("--ddim-inference-steps", type=int, default=12)
+    parser.add_argument("--ddim-inference-steps", type=int, default=8)
     parser.add_argument(
         "--controller-action-chunk-size", "--execution-steps",
         dest="execution_steps", type=int, default=5,
@@ -347,9 +278,8 @@ def parse_args() -> argparse.Namespace:
         "--controller-calls-per-dp", type=int, default=2,
         help="Controller calls reusing one DP proposal (default: 2)",
     )
-    parser.add_argument("--guidance-scale", type=float, default=0.10)
-    parser.add_argument("--guidance-clip", type=float, default=1.0)
-    parser.add_argument("--smoothness-scale", type=float, default=0.10)
+    parser.add_argument("--guidance-scale", type=float, default=100.0)
+    parser.add_argument("--eta", type=float, default=0.0, help="DDIM eta (must be 0.0)")
     parser.add_argument("--fixed-noise", type=int, choices=(0, 1), default=1)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-salvage", action="store_true")
@@ -407,6 +337,10 @@ def _validate_args(args: argparse.Namespace) -> torch.device:
         setattr(args, name, path)
     if args.dp_inference_steps <= 0 or args.ddim_inference_steps <= 0:
         raise ValueError("inference step counts must be positive")
+    if args.guidance_scale < 0.0:
+        raise ValueError("guidance_scale must be non-negative")
+    if args.eta != 0.0:
+        raise ValueError("eta must be 0.0")
     if args.execution_steps <= 0:
         raise ValueError("controller action chunk size must be positive")
     if args.controller_calls_per_dp <= 0:
@@ -605,8 +539,7 @@ def main() -> int:
         inference_steps=args.ddim_inference_steps,
         execution_steps=args.execution_steps,
         guidance_scale=args.guidance_scale,
-        guidance_clip=args.guidance_clip,
-        smoothness_scale=args.smoothness_scale,
+        eta=args.eta,
         fixed_noise=bool(args.fixed_noise),
         seed=args.seed,
         allow_salvage=not args.no_salvage,
@@ -625,11 +558,11 @@ def main() -> int:
         flush=True,
     )
     print(
-        "[guidance] scale=%.4f clip=%.4f smoothness=%.4f fixed_noise=%s"
+        "[guidance] scale=%.4f eta=%.4f ddim_steps=%d fixed_noise=%s"
         % (
             controller.guidance_scale,
-            controller.guidance_clip,
-            controller.smoothness_scale,
+            controller.eta,
+            controller.inference_steps,
             controller.fixed_noise,
         ),
         flush=True,

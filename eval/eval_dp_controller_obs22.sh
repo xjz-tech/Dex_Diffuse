@@ -39,9 +39,8 @@ CONTROLLER_ACTION_CHUNK_SIZE="${CONTROLLER_ACTION_CHUNK_SIZE:-${EXECUTION_STEPS:
 # a reference window shifted by CONTROLLER_ACTION_CHUNK_SIZE after each call.
 # Full guidance must fit: (calls - 1) * chunk_size + 9 <= DP action chunk size.
 CONTROLLER_CALLS_PER_DP="${CONTROLLER_CALLS_PER_DP:-2}"
-GUIDANCE_SCALE="${GUIDANCE_SCALE:-10}"
-GUIDANCE_CLIP="${GUIDANCE_CLIP:-1.0}"
-SMOOTHNESS_SCALE="${SMOOTHNESS_SCALE:-0.10}"
+GUIDANCE_SCALE="${GUIDANCE_SCALE:-100}"
+ETA="${ETA:-0.0}"
 FIXED_NOISE="${FIXED_NOISE:-1}"
 SEED="${SEED:-42}"
 # This checkpoint has an incomplete ZIP/EMA tail. The loader validates and
@@ -119,8 +118,7 @@ ARGS=(
     --controller-action-chunk-size "${CONTROLLER_ACTION_CHUNK_SIZE}"
     --controller-calls-per-dp "${CONTROLLER_CALLS_PER_DP}"
     --guidance-scale "${GUIDANCE_SCALE}"
-    --guidance-clip "${GUIDANCE_CLIP}"
-    --smoothness-scale "${SMOOTHNESS_SCALE}"
+    --eta "${ETA}"
     --fixed-noise "${FIXED_NOISE}"
     --seed "${SEED}"
     --max-chunks "${MAX_CHUNKS}"
@@ -159,7 +157,7 @@ echo "[pipeline] Real DP -> ${CONTROLLER_CALLS_PER_DP} x (guided Sim-Hand DDIM -
 echo "[dp] ${DP_CKPT_PATH} (steps=${DP_INFERENCE_STEPS})"
 echo "[controller] ${CONTROLLER_CKPT_PATH} (DDIM steps=${DDIM_INFERENCE_STEPS})"
 echo "[controller] observation mode is selected from checkpoint metadata; allow_salvage=${ALLOW_SALVAGE}"
-echo "[guidance] scale=${GUIDANCE_SCALE} clip=${GUIDANCE_CLIP} smoothness=${SMOOTHNESS_SCALE} fixed_noise=${FIXED_NOISE}"
+echo "[guidance] scale=${GUIDANCE_SCALE} eta=${ETA} ddim_steps=${DDIM_INFERENCE_STEPS} fixed_noise=${FIXED_NOISE}"
 
 if [[ "${CHECK_ONLY}" == "0" ]]; then
     [[ -f "${FRANKA_URDF}" ]] || die "Franka URDF not found: ${FRANKA_URDF}"
