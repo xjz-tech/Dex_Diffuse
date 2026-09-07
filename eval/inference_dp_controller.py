@@ -17,6 +17,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Sequence
 
 import dill
 import hydra
@@ -45,6 +46,8 @@ ACTION_DIM = ARM_DIM + HAND_DIM
 class GuidanceStats:
     mse_before: float
     mse_after: float
+    mse_before_batch: np.ndarray
+    mse_after_batch: np.ndarray
 
 
 class GuidedDDIMController:
@@ -171,6 +174,41 @@ class GuidedDDIMController:
             generator=self.generator,
         )
 
+    def reset_fixed_noise(self, seed: int | None = None) -> None:
+        """Regenerate the shared DDIM noise, optionally from a new seed."""
+        if seed is not None:
+            self.generator.manual_seed(int(seed))
+        self._fixed_noise = None
+
+    def set_fixed_noise_from_seeds(self, seeds: Sequence[int]) -> None:
+        """Build one fixed-noise batch so every sample keeps its own seed."""
+        if not seeds:
+            raise ValueError("seeds must be non-empty")
+        noises = []
+        for seed in seeds:
+            self.generator.manual_seed(int(seed))
+            noises.append(
+                torch.randn(
+                    (1, self.spec["horizon"], HAND_DIM),
+                    device=self.device,
+                    dtype=self.policy.dtype,
+                    generator=self.generator,
+                )
+            )
+        self._fixed_noise = torch.cat(noises, dim=0)
+
+    def set_guidance_horizon(self, steps: int) -> None:
+        """Guide a prefix of the diffusion horizon; later steps stay unguided."""
+        steps = int(steps)
+        stop = self.action_start + steps
+        if steps <= 0 or stop > self.spec["horizon"]:
+            raise ValueError(
+                "guidance horizon must be in [1, %d], got %d"
+                % (self.spec["horizon"] - self.action_start, steps)
+            )
+        self.reference_steps = steps
+        self.reference_slice = slice(self.action_start, stop)
+
     def _predict_epsilon(
         self,
         sample: torch.Tensor,
@@ -255,9 +293,17 @@ class GuidedDDIMController:
         if not torch.isfinite(action).all():
             raise RuntimeError("guided DDIM controller produced NaN or Inf")
         last_step = sample.steps[-1]
+        mse_before_batch = (
+            last_step.guidance_loss_before.detach().reshape(-1).cpu().numpy()
+        )
+        mse_after_batch = (
+            last_step.guidance_loss_after.detach().reshape(-1).cpu().numpy()
+        )
         stats = GuidanceStats(
-            mse_before=float(last_step.guidance_loss_before.mean().item()),
-            mse_after=float(last_step.guidance_loss_after.mean().item()),
+            mse_before=float(np.mean(mse_before_batch)),
+            mse_after=float(np.mean(mse_after_batch)),
+            mse_before_batch=np.asarray(mse_before_batch, dtype=np.float64),
+            mse_after_batch=np.asarray(mse_after_batch, dtype=np.float64),
         )
         return action.detach().cpu().numpy(), stats
 

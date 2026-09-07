@@ -103,3 +103,16 @@ def test_controller_predict_uses_segmentwise_sample_guided_trajectory(monkeypatc
     np.testing.assert_allclose(action, fake_trajectory[:, 3:8, :].numpy())
     assert stats.mse_before == pytest.approx(0.50)
     assert stats.mse_after == pytest.approx(0.10)
+    np.testing.assert_allclose(stats.mse_before_batch, [0.50])
+    np.testing.assert_allclose(stats.mse_after_batch, [0.10])
+
+
+def test_set_guidance_horizon_shortens_reference_slice():
+    controller = object.__new__(GuidedDDIMController)
+    controller.spec = {"horizon": 12, "n_obs_steps": 4, "n_pred_action_steps": 9}
+    controller.action_start = 3
+    controller.reference_steps = 9
+    controller.reference_slice = slice(3, 12)
+    controller.set_guidance_horizon(6)
+    assert controller.reference_steps == 6
+    assert controller.reference_slice == slice(3, 9)
