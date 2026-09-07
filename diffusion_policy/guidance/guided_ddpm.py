@@ -116,14 +116,37 @@ def _slice_mse(
     return (pred[:, guidance_slice] - reference).square().mean(dim=(1, 2))
 
 
-def _official_ddpm_mean(
+def _official_pred_x0(
     scheduler: DDPMScheduler,
     model_output: torch.Tensor,
     timestep: int,
     sample: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    # Match diffusers 0.11.1 DDPMScheduler.step mean exactly: previous
-    # alpha is t-1, coefficients use betas[t] and alphas[t].
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    # Match diffusers 0.11.1 DDPMScheduler.step x0 prediction, including clip.
+    t = int(timestep)
+    alpha_prod_t = scheduler.alphas_cumprod[t].to(
+        device=sample.device, dtype=sample.dtype
+    )
+    alpha_prod_t_prev = (
+        scheduler.alphas_cumprod[t - 1] if t > 0 else scheduler.one
+    ).to(device=sample.device, dtype=sample.dtype)
+    beta_prod_t = 1 - alpha_prod_t
+    x0_raw = (sample - beta_prod_t ** (0.5) * model_output) / alpha_prod_t ** (0.5)
+    if getattr(scheduler.config, "thresholding", False):
+        raise ValueError("Dynamic thresholding is not supported")
+    if scheduler.config.clip_sample:
+        x0 = x0_raw.clamp(-1, 1)
+    else:
+        x0 = x0_raw
+    return x0_raw, x0, alpha_prod_t, alpha_prod_t_prev
+
+
+def _posterior_mean_from_x0(
+    scheduler: DDPMScheduler,
+    timestep: int,
+    sample: torch.Tensor,
+    x0: torch.Tensor,
+) -> torch.Tensor:
     t = int(timestep)
     alpha_prod_t = scheduler.alphas_cumprod[t].to(
         device=sample.device, dtype=sample.dtype
@@ -135,19 +158,35 @@ def _official_ddpm_mean(
     beta_prod_t_prev = 1 - alpha_prod_t_prev
     beta_t = scheduler.betas[t].to(device=sample.device, dtype=sample.dtype)
     alpha_t = scheduler.alphas[t].to(device=sample.device, dtype=sample.dtype)
-
-    x0_raw = (sample - beta_prod_t ** (0.5) * model_output) / alpha_prod_t ** (0.5)
-    if getattr(scheduler.config, "thresholding", False):
-        raise ValueError("Dynamic thresholding is not supported")
-    if scheduler.config.clip_sample:
-        x0 = x0_raw.clamp(-1, 1)
-    else:
-        x0 = x0_raw
-
     pred_original_sample_coeff = (alpha_prod_t_prev ** (0.5) * beta_t) / beta_prod_t
     current_sample_coeff = alpha_t ** (0.5) * beta_prod_t_prev / beta_prod_t
-    mu = pred_original_sample_coeff * x0 + current_sample_coeff * sample
-    return x0_raw, x0, mu, alpha_prod_t, alpha_prod_t_prev
+    return pred_original_sample_coeff * x0 + current_sample_coeff * sample
+
+
+def _dexgen_guide_x0(
+    pred_x0: torch.Tensor,
+    reference: torch.Tensor,
+    guidance_scale: float,
+    guidance_slice: slice,
+    variance: torch.Tensor,
+) -> torch.Tensor:
+    mse_guidance_gradient(pred_x0, reference, guidance_slice)
+    if guidance_scale == 0:
+        return pred_x0
+    with torch.inference_mode(False), torch.enable_grad():
+        pred_x0_for_guidance = pred_x0.detach().clone().requires_grad_(True)
+        guidance_loss = _slice_mse(
+            pred_x0_for_guidance,
+            reference,
+            guidance_slice,
+        ).sum()
+        grad_x0 = torch.autograd.grad(guidance_loss, pred_x0_for_guidance)[0]
+    guided = pred_x0.clone()
+    guided[:, guidance_slice] = (
+        pred_x0[:, guidance_slice]
+        - guidance_scale * variance * grad_x0[:, guidance_slice]
+    )
+    return guided
 
 
 def _official_ddpm_noise(
@@ -190,14 +229,17 @@ def guided_ddpm_step(
     _require_matching_sample_and_epsilon(sample, model_output)
 
     t = int(timestep)
-    x0_raw, x0, mu, alpha_t, alpha_prev = _official_ddpm_mean(
+    x0_raw, x0, alpha_t, alpha_prev = _official_pred_x0(
         scheduler, model_output, t, sample
     )
     raw_variance = scheduler._get_variance(t)
     if torch.is_tensor(raw_variance):
         raw_variance = raw_variance.to(device=sample.device, dtype=sample.dtype)
-    gradient = mse_guidance_gradient(mu, reference, guidance_slice)
-    mu_guided = mu - guidance_scale * raw_variance * gradient
+    x0_guided = _dexgen_guide_x0(
+        x0, reference, guidance_scale, guidance_slice, raw_variance
+    )
+    mu = _posterior_mean_from_x0(scheduler, t, sample, x0)
+    mu_guided = _posterior_mean_from_x0(scheduler, t, sample, x0_guided)
     noise_term = _official_ddpm_noise(
         scheduler, t, model_output, raw_variance, generator
     )
@@ -205,15 +247,17 @@ def guided_ddpm_step(
     prev_sample = mu_guided + noise_term
     return GuidedDDPMStepOutput(
         timestep=t,
-        prev_sample=prev_sample,
-        base_prev_sample=base_prev_sample,
-        pred_original_sample=x0,
-        raw_pred_original_sample=x0_raw,
+        prev_sample=prev_sample.detach(),
+        base_prev_sample=base_prev_sample.detach(),
+        pred_original_sample=x0_guided.detach(),
+        raw_pred_original_sample=x0_raw.detach(),
         alpha_bar_t=alpha_t,
         alpha_bar_prev=alpha_prev,
         raw_variance=raw_variance,
-        guidance_loss_before=_slice_mse(mu, reference, guidance_slice),
-        guidance_loss_after=_slice_mse(mu_guided, reference, guidance_slice),
+        guidance_loss_before=_slice_mse(x0, reference, guidance_slice).detach(),
+        guidance_loss_after=_slice_mse(
+            x0_guided, reference, guidance_slice
+        ).detach(),
     )
 
 

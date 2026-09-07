@@ -55,7 +55,7 @@ def test_parse_args_defaults_and_required():
     assert args.execution_mode == "closed-loop-5"
     assert args.execution_steps == 5
     assert args.guidance_scale == 1.0
-    assert args.num_inference_steps == 8
+    assert args.num_inference_steps == 100
     assert args.seed == 0
     assert args.device == "cpu"
     assert not hasattr(args, "eta")

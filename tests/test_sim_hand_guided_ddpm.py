@@ -155,12 +155,41 @@ def _independent_ddpm_mean(
     beta_prod_t_prev = 1 - alpha_prod_t_prev
     x0_raw = (sample - beta_prod_t ** (0.5) * model_output) / alpha_prod_t ** (0.5)
     x0 = x0_raw.clamp(-1, 1) if scheduler.config.clip_sample else x0_raw
-    mu = (
+    mu = _posterior_mean_from_x0(scheduler, timestep, sample, x0)
+    return x0_raw, x0, mu
+
+
+def _posterior_mean_from_x0(
+    scheduler,
+    timestep: int,
+    sample: torch.Tensor,
+    x0: torch.Tensor,
+) -> torch.Tensor:
+    t = int(timestep)
+    alpha_prod_t = scheduler.alphas_cumprod[t]
+    alpha_prod_t_prev = scheduler.alphas_cumprod[t - 1] if t > 0 else scheduler.one
+    beta_prod_t = 1 - alpha_prod_t
+    beta_prod_t_prev = 1 - alpha_prod_t_prev
+    return (
         (alpha_prod_t_prev ** (0.5) * scheduler.betas[t]) / beta_prod_t
     ) * x0 + (
         scheduler.alphas[t] ** (0.5) * beta_prod_t_prev / beta_prod_t
     ) * sample
-    return x0_raw, x0, mu
+
+
+def _dexgen_guided_x0(
+    x0: torch.Tensor,
+    reference: torch.Tensor,
+    guidance_slice: slice,
+    guidance_scale: float,
+    variance: torch.Tensor,
+) -> torch.Tensor:
+    gradient = mse_guidance_gradient(x0, reference, guidance_slice)
+    guided = x0.clone()
+    guided[:, guidance_slice] = (
+        x0[:, guidance_slice] - guidance_scale * variance * gradient[:, guidance_slice]
+    )
+    return guided
 
 
 def _independent_posterior_variance(scheduler, timestep: int) -> torch.Tensor:
@@ -274,7 +303,7 @@ def test_zero_scale_custom_step_matches_official_for_each_60_10_timestep() -> No
     )
 
 
-def test_positive_guidance_shifts_mean_then_adds_official_noise() -> None:
+def test_positive_guidance_shifts_pred_x0_then_recomputes_mean() -> None:
     scheduler = _prepared_ddpm(100, 12)
     timestep = int(scheduler.timesteps[3])
     guidance_slice = slice(3, 8)
@@ -298,7 +327,15 @@ def test_positive_guidance_shifts_mean_then_adds_official_noise() -> None:
         scheduler, timestep, sample, model_output
     )
     variance = _independent_posterior_variance(scheduler, timestep)
-    gradient = mse_guidance_gradient(mu, reference, guidance_slice)
+    x0_guided = _dexgen_guided_x0(
+        x0, reference, guidance_slice, scale, variance
+    )
+    mu_guided = _posterior_mean_from_x0(
+        scheduler, timestep, sample, x0_guided
+    )
+    mu_old_path = mu - scale * variance * mse_guidance_gradient(
+        mu, reference, guidance_slice
+    )
     noise = _official_noise_term(
         scheduler,
         timestep,
@@ -307,14 +344,15 @@ def test_positive_guidance_shifts_mean_then_adds_official_noise() -> None:
         device=sample.device,
         dtype=sample.dtype,
     )
-    expected_guided_prev = mu - scale * variance * gradient + noise
+    expected_guided_prev = mu_guided + noise
     expected_base_prev = mu + noise
 
-    torch.testing.assert_close(guided.pred_original_sample, x0)
+    torch.testing.assert_close(guided.pred_original_sample, x0_guided)
     torch.testing.assert_close(guided.raw_pred_original_sample, x0_raw)
     torch.testing.assert_close(guided.base_prev_sample, expected_base_prev)
     torch.testing.assert_close(guided.prev_sample, expected_guided_prev)
     torch.testing.assert_close(guided.raw_variance, variance)
+    assert not torch.allclose(mu_guided, mu_old_path)
     assert not torch.allclose(
         guided.prev_sample[:, guidance_slice],
         guided.base_prev_sample[:, guidance_slice],
@@ -326,6 +364,14 @@ def test_positive_guidance_shifts_mean_then_adds_official_noise() -> None:
     torch.testing.assert_close(
         guided.prev_sample[:, guidance_slice.stop :],
         guided.base_prev_sample[:, guidance_slice.stop :],
+    )
+    torch.testing.assert_close(
+        guided.pred_original_sample[:, : guidance_slice.start],
+        x0[:, : guidance_slice.start],
+    )
+    torch.testing.assert_close(
+        guided.pred_original_sample[:, guidance_slice.stop :],
+        x0[:, guidance_slice.stop :],
     )
 
 
@@ -354,7 +400,12 @@ def test_last_timestep_has_zero_official_noise_and_uses_clamped_variance() -> No
         scheduler, timestep, sample, model_output
     )
     variance = _independent_posterior_variance(scheduler, timestep)
-    gradient = mse_guidance_gradient(mu, reference, guidance_slice)
+    x0_guided = _dexgen_guided_x0(
+        x0, reference, guidance_slice, scale, variance
+    )
+    mu_guided = _posterior_mean_from_x0(
+        scheduler, timestep, sample, x0_guided
+    )
     noise = _official_noise_term(
         scheduler,
         timestep,
@@ -365,11 +416,10 @@ def test_last_timestep_has_zero_official_noise_and_uses_clamped_variance() -> No
     )
     torch.testing.assert_close(noise, torch.zeros_like(noise), atol=0.0, rtol=0.0)
     assert float(variance) > 0.0
-    expected = mu - scale * variance * gradient + noise
-    torch.testing.assert_close(output.pred_original_sample, x0)
+    torch.testing.assert_close(output.pred_original_sample, x0_guided)
     torch.testing.assert_close(output.raw_pred_original_sample, x0_raw)
     torch.testing.assert_close(output.base_prev_sample, mu)
-    torch.testing.assert_close(output.prev_sample, expected)
+    torch.testing.assert_close(output.prev_sample, mu_guided)
     torch.testing.assert_close(output.raw_variance, variance)
 
 
@@ -380,8 +430,8 @@ def test_matched_reference_has_zero_mean_update() -> None:
     sample, model_output = _clipping_triggering_pair(
         scheduler, timestep, (2, 8, 22), seed=9
     )
-    _, _, mu = _independent_ddpm_mean(scheduler, timestep, sample, model_output)
-    matched_reference = mu[:, guidance_slice].clone()
+    _, x0, mu = _independent_ddpm_mean(scheduler, timestep, sample, model_output)
+    matched_reference = x0[:, guidance_slice].clone()
     official_gen, custom_gen = _seeded_pair(33)
     output = guided_ddpm_step(
         scheduler=scheduler,

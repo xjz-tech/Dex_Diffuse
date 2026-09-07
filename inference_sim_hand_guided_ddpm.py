@@ -79,8 +79,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--num-inference-steps",
         type=int,
-        default=8,
-        help="DDPM inference steps (default: 8)",
+        default=100,
+        help="DDPM inference steps; full reverse chain (default: 100)",
     )
     parser.add_argument(
         "--seed",

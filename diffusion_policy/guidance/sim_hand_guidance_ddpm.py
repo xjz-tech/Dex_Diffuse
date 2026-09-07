@@ -24,7 +24,7 @@ NoiseFactory = Callable[
 class SimHandGuidanceConfig:
     execution_steps: int = 5
     guidance_scale: float = 1.0
-    num_inference_steps: int = 8
+    num_inference_steps: int = 100
 
 
 class SimHandGuidance:
