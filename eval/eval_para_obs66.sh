@@ -4,18 +4,46 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 DEX_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
-CONTROLLER_ROOT="${CONTROLLER_ROOT:-/mnt/work/dexIL/dex-controller}"
-DATA_ROOT="${DATA_ROOT:-${DEX_ROOT}/data}"
-ASSETS_ROOT="${ASSETS_ROOT:-${DEX_ROOT}/maniptrans_envs/assets}"
-SIM_DATASET="${SIM_DATASET:-${DATA_ROOT}/sim_data/bulb2/20260827175545}"
+CONTROLLER_ROOT="${CONTROLLER_ROOT:-/home/carus/Program/dex-controller}"
+DATA_ROOT="${DATA_ROOT:-${CONTROLLER_ROOT}/data}"
+ASSETS_ROOT="${ASSETS_ROOT:-${CONTROLLER_ROOT}/maniptrans_envs/assets}"
+SIM_DATASET="${SIM_DATASET:-/home/carus/Data/exp_data}"
 SIM_CONFIG="${SIM_CONFIG:-${SIM_DATASET}/hydra_config.yaml}"
-CKPT_PATH="${CKPT_PATH:-${DEX_ROOT}/runs/obs_4-66.ckpt}"
+CKPT_PATH="${CKPT_PATH:-/home/carus/data_usb/obs_4-66.ckpt}"
 OBSERVATION_MODE="${OBSERVATION_MODE:-qpos-target-residual}"
 
 # Isaac Gym is CPython 3.8-only here, while the trained DP stack is Python 3.10.
 # The two dedicated processes exchange state/action arrays over ZeroMQ IPC.
-SIM_PYTHON="${SIM_PYTHON:-/home/wty/miniconda3/envs/dec_sapg/bin/python}"
-MODEL_PYTHON="${MODEL_PYTHON:-/home/wty/miniconda3/envs/rdp/bin/python}"
+if [[ -z "${SIM_PYTHON:-}" ]]; then
+    for candidate in \
+        /home/carus/miniforge3/envs/decv2/bin/python \
+        /home/wty/miniconda3/envs/dec_sapg/bin/python; do
+        if [[ -x "${candidate}" ]]; then
+            SIM_PYTHON="${candidate}"
+            break
+        fi
+    done
+fi
+if [[ -z "${MODEL_PYTHON:-}" ]]; then
+    for candidate in \
+        /home/carus/miniforge3/envs/dp/bin/python \
+        /home/wty/miniconda3/envs/rdp/bin/python; do
+        if [[ -x "${candidate}" ]]; then
+            MODEL_PYTHON="${candidate}"
+            break
+        fi
+    done
+fi
+SIM_PYTHON="${SIM_PYTHON:-}"
+MODEL_PYTHON="${MODEL_PYTHON:-}"
+
+if [[ -z "${ISAACGYM_PYTHON:-}" ]]; then
+    if [[ -d "${CONTROLLER_ROOT}/third_party/isaacgym/python" ]]; then
+        ISAACGYM_PYTHON="${CONTROLLER_ROOT}/third_party/isaacgym/python"
+    else
+        ISAACGYM_PYTHON="/home/carus/opt/isaacgym/python"
+    fi
+fi
 
 NOKOV3_DATA_DIR="${NOKOV3_DATA_DIR:-${DATA_ROOT}/NOKOV-v3}"
 NOKOV3_RETARGET_DIR="${NOKOV3_RETARGET_DIR:-${DATA_ROOT}/retargeting/NOKOV-v3}"
@@ -91,6 +119,7 @@ die() {
 
 [[ -x "${SIM_PYTHON}" ]] || die "Isaac Gym Python not executable: ${SIM_PYTHON}"
 [[ -x "${MODEL_PYTHON}" ]] || die "Diffusion Policy Python not executable: ${MODEL_PYTHON}"
+[[ -d "${ISAACGYM_PYTHON}" ]] || die "Isaac Gym python package not found: ${ISAACGYM_PYTHON}"
 "${SIM_PYTHON}" -c 'import zmq' >/dev/null 2>&1 || die "pyzmq is unavailable in ${SIM_PYTHON}"
 "${MODEL_PYTHON}" -c 'import zmq' >/dev/null 2>&1 || die "pyzmq is unavailable in ${MODEL_PYTHON}"
 [[ -d "${CONTROLLER_ROOT}" ]] || die "dex-controller root not found: ${CONTROLLER_ROOT}"
@@ -172,6 +201,7 @@ fi
 echo "[eval-para] starting Diffusion Policy process (${MODEL_PYTHON})"
 env \
     CUDA_VISIBLE_DEVICES="${MODEL_CUDA_VISIBLE_DEVICES}" \
+    PATH="$(dirname "${MODEL_PYTHON}"):${PATH}" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH="${SCRIPT_DIR}:${DEX_ROOT}:${PYTHONPATH:-}" \
@@ -260,9 +290,10 @@ echo "[eval-para] reset failure_obj_pos_m=${FAILURE_OBJ_POS_THRES_M} failure_tip
 SIM_STATUS=0
 if env \
     CUDA_VISIBLE_DEVICES="${SIM_CUDA_VISIBLE_DEVICES}" \
+    PATH="$(dirname "${SIM_PYTHON}"):${PATH}" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH="${CONTROLLER_ROOT}/third_party/isaacgym/python:${CONTROLLER_ROOT}:${SCRIPT_DIR}:${PYTHONPATH:-}" \
+    PYTHONPATH="${ISAACGYM_PYTHON}:${CONTROLLER_ROOT}:${SCRIPT_DIR}:${PYTHONPATH:-}" \
     LD_LIBRARY_PATH="$(dirname "$(dirname "${SIM_PYTHON}")")/lib:${LD_LIBRARY_PATH:-}" \
     "${SIM_PYTHON}" -u "${SIM_ARGS[@]}"; then
     SIM_STATUS=0

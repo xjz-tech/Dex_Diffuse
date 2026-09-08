@@ -4,17 +4,45 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 DEX_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
-CONTROLLER_ROOT="${CONTROLLER_ROOT:-/mnt/work/dexIL/dex-controller}"
-DATA_ROOT="${DATA_ROOT:-${DEX_ROOT}/data}"
-ASSETS_ROOT="${ASSETS_ROOT:-${DEX_ROOT}/maniptrans_envs/assets}"
-SIM_DATASET="${SIM_DATASET:-${DATA_ROOT}/sim_data/bulb2/20260827175545}"
+CONTROLLER_ROOT="${CONTROLLER_ROOT:-/home/carus/Program/dex-controller}"
+DATA_ROOT="${DATA_ROOT:-${CONTROLLER_ROOT}/data}"
+ASSETS_ROOT="${ASSETS_ROOT:-${CONTROLLER_ROOT}/maniptrans_envs/assets}"
+SIM_DATASET="${SIM_DATASET:-/home/carus/Data/exp_data}"
 SIM_CONFIG="${SIM_CONFIG:-${SIM_DATASET}/hydra_config.yaml}"
 CKPT_PATH="${CKPT_PATH:-${DEX_ROOT}/runs/step_01700000.ckpt}"
 
 # Isaac Gym is CPython 3.8-only here, while the trained DP stack is Python 3.10.
 # The two processes communicate through a private UNIX socket.
-SIM_PYTHON="${SIM_PYTHON:-/home/wty/miniconda3/envs/dec_sapg/bin/python}"
-MODEL_PYTHON="${MODEL_PYTHON:-/home/wty/miniconda3/envs/rdp/bin/python}"
+if [[ -z "${SIM_PYTHON:-}" ]]; then
+    for candidate in \
+        /home/carus/miniforge3/envs/decv2/bin/python \
+        /home/wty/miniconda3/envs/dec_sapg/bin/python; do
+        if [[ -x "${candidate}" ]]; then
+            SIM_PYTHON="${candidate}"
+            break
+        fi
+    done
+fi
+if [[ -z "${MODEL_PYTHON:-}" ]]; then
+    for candidate in \
+        /home/carus/miniforge3/envs/dp/bin/python \
+        /home/wty/miniconda3/envs/rdp/bin/python; do
+        if [[ -x "${candidate}" ]]; then
+            MODEL_PYTHON="${candidate}"
+            break
+        fi
+    done
+fi
+SIM_PYTHON="${SIM_PYTHON:-}"
+MODEL_PYTHON="${MODEL_PYTHON:-}"
+
+if [[ -z "${ISAACGYM_PYTHON:-}" ]]; then
+    if [[ -d "${CONTROLLER_ROOT}/third_party/isaacgym/python" ]]; then
+        ISAACGYM_PYTHON="${CONTROLLER_ROOT}/third_party/isaacgym/python"
+    else
+        ISAACGYM_PYTHON="/home/carus/opt/isaacgym/python"
+    fi
+fi
 
 NOKOV3_DATA_DIR="${NOKOV3_DATA_DIR:-${DATA_ROOT}/NOKOV-v3}"
 NOKOV3_RETARGET_DIR="${NOKOV3_RETARGET_DIR:-${DATA_ROOT}/retargeting/NOKOV-v3}"
@@ -65,11 +93,15 @@ SIM_DEVICE="${SIM_DEVICE:-cuda:0}"
 RL_DEVICE="${RL_DEVICE:-cuda:0}"
 GRAPHICS_DEVICE_ID="${GRAPHICS_DEVICE_ID:-0}"
 SEED="${SEED:-42}"
+SAMPLER="${SAMPLER:-ddpm}"
 INFERENCE_STEPS="${INFERENCE_STEPS:-}"
 ALLOW_SALVAGE="${ALLOW_SALVAGE:-1}"
 MODEL_WARMUP="${MODEL_WARMUP:-1}"
 STARTUP_TIMEOUT="${STARTUP_TIMEOUT:-180}"
 REQUEST_TIMEOUT="${REQUEST_TIMEOUT:-600}"
+MAX_FAILURE_EPISODES="${MAX_FAILURE_EPISODES:-0}"
+EPISODE_LOG="${EPISODE_LOG:-}"
+RUN_NAME="${RUN_NAME:-}"
 
 die() {
     echo "eval: $*" >&2
@@ -78,6 +110,7 @@ die() {
 
 [[ -x "${SIM_PYTHON}" ]] || die "Isaac Gym Python not executable: ${SIM_PYTHON}"
 [[ -x "${MODEL_PYTHON}" ]] || die "Diffusion Policy Python not executable: ${MODEL_PYTHON}"
+[[ -d "${ISAACGYM_PYTHON}" ]] || die "Isaac Gym python package not found: ${ISAACGYM_PYTHON}"
 [[ -d "${CONTROLLER_ROOT}" ]] || die "dex-controller root not found: ${CONTROLLER_ROOT}"
 [[ -f "${SIM_CONFIG}" ]] || die "simulation config not found: ${SIM_CONFIG}"
 [[ -f "${CKPT_PATH}" ]] || die "checkpoint not found: ${CKPT_PATH}"
@@ -88,6 +121,8 @@ die() {
 [[ "${FIXED_TOLERANCE_STEPS}" =~ ^[1-9][0-9]*$ ]] || die "FIXED_TOLERANCE_STEPS must be a positive integer"
 [[ "${TRAJ_STEPS_LIMIT}" =~ ^[1-9][0-9]*$ ]] || die "TRAJ_STEPS_LIMIT must be a positive integer"
 [[ "${RESET_ON_REACH_GOAL}" =~ ^[01]$ ]] || die "RESET_ON_REACH_GOAL must be 0 or 1"
+[[ "${MAX_FAILURE_EPISODES}" =~ ^[0-9]+$ ]] || die "MAX_FAILURE_EPISODES must be a non-negative integer"
+[[ "${SAMPLER}" == "ddpm" || "${SAMPLER}" == "ddim" ]] || die "SAMPLER must be ddpm or ddim"
 [[ "${NUM_ENV}" =~ ^[1-9][0-9]*$ ]] || die "NUM_ENV must be a positive integer"
 [[ "${RECORD_ENV}" =~ ^(0|[1-9][0-9]*)$ ]] || die "RECORD_ENV must be a non-negative integer"
 (( RECORD_ENV < NUM_ENV )) || die "RECORD_ENV must be in [0, NUM_ENV), got RECORD_ENV=${RECORD_ENV} NUM_ENV=${NUM_ENV}"
@@ -117,9 +152,14 @@ MODEL_ARGS=(
     --socket "${SOCKET_PATH}"
     --device "${MODEL_DEVICE}"
     --seed "${SEED}"
+    --sampler "${SAMPLER}"
 )
 if [[ -n "${INFERENCE_STEPS}" ]]; then
     MODEL_ARGS+=(--inference-steps "${INFERENCE_STEPS}")
+fi
+if [[ -n "${EXECUTION_STEPS:-}" ]]; then
+    [[ "${EXECUTION_STEPS}" =~ ^[1-9]$ ]] || die "EXECUTION_STEPS must be an integer in 1..9"
+    MODEL_ARGS+=(--n-action-steps "${EXECUTION_STEPS}")
 fi
 if [[ "${ALLOW_SALVAGE}" == "0" ]]; then
     MODEL_ARGS+=(--no-salvage)
@@ -129,9 +169,11 @@ if [[ "${MODEL_WARMUP}" == "0" ]]; then
 fi
 
 echo "[eval] checkpoint: ${CKPT_PATH}"
+echo "[eval] sampler: ${SAMPLER} inference_steps=${INFERENCE_STEPS:-checkpoint} execution_steps=${EXECUTION_STEPS:-checkpoint}"
 echo "[eval] GPU visibility: ${CUDA_VISIBLE_DEVICES}"
 echo "[eval] starting Diffusion Policy process (${MODEL_PYTHON})"
 env \
+    PATH="$(dirname "${MODEL_PYTHON}"):${PATH}" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH="${SCRIPT_DIR}:${DEX_ROOT}:${PYTHONPATH:-}" \
@@ -180,7 +222,17 @@ SIM_ARGS=(
     --fixed-tolerance-steps "${FIXED_TOLERANCE_STEPS}"
     --traj-steps-limit "${TRAJ_STEPS_LIMIT}"
     --reset-on-reach-goal "${RESET_ON_REACH_GOAL}"
+    --max-failure-episodes "${MAX_FAILURE_EPISODES}"
 )
+if [[ -n "${EPISODE_LOG}" ]]; then
+    SIM_ARGS+=(--episode-log "${EPISODE_LOG}")
+fi
+if [[ -n "${RUN_NAME}" ]]; then
+    SIM_ARGS+=(--run-name "${RUN_NAME}")
+fi
+if [[ -n "${CROSS_TRAJECTORY_GOAL_PROB:-}" ]]; then
+    SIM_ARGS+=(--cross-trajectory-goal-prob "${CROSS_TRAJECTORY_GOAL_PROB}")
+fi
 if [[ "${HEADLESS}" != "0" ]]; then
     SIM_ARGS+=(--headless)
 fi
@@ -207,9 +259,10 @@ echo "[eval] trajectories=${DATA_INDICES} num_envs=${NUM_ENV} record_env=${RECOR
 echo "[eval] reset failure_obj_pos_m=${FAILURE_OBJ_POS_THRES_M} failure_tip_pos_m=${FAILURE_TIP_POS_THRES_M} failure_obj_rot_deg=${FAILURE_OBJ_ROT_THRES_DEG} invalid_obj_pos_m=${INVALID_OBJ_POS_THRES_M} tolerance_scale=${FAILURE_TOLERANCE_SCALE} fixed_tolerance_steps=${FIXED_TOLERANCE_STEPS} traj_steps_limit=${TRAJ_STEPS_LIMIT} reset_on_reach_goal=${RESET_ON_REACH_GOAL}"
 SIM_STATUS=0
 if env \
+    PATH="$(dirname "${SIM_PYTHON}"):${PATH}" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH="${CONTROLLER_ROOT}/third_party/isaacgym/python:${CONTROLLER_ROOT}:${SCRIPT_DIR}:${PYTHONPATH:-}" \
+    PYTHONPATH="${ISAACGYM_PYTHON}:${CONTROLLER_ROOT}:${SCRIPT_DIR}:${PYTHONPATH:-}" \
     LD_LIBRARY_PATH="$(dirname "$(dirname "${SIM_PYTHON}")")/lib:${LD_LIBRARY_PATH:-}" \
     "${SIM_PYTHON}" -u "${SIM_ARGS[@]}"; then
     SIM_STATUS=0

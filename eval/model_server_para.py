@@ -172,19 +172,9 @@ def main():
         allow_salvage=not args.no_salvage,
     )
     policy, spec = model_server.build_policy(loaded)
-    if args.sampler == "ddim":
-        from diffusers.schedulers.scheduling_ddim import DDIMScheduler
-
-        policy.noise_scheduler = DDIMScheduler.from_config(
-            policy.noise_scheduler.config,
-            set_alpha_to_one=True,
-            steps_offset=0,
-            timestep_spacing="leading",
-        )
-    if args.inference_steps is not None:
-        if args.inference_steps <= 0:
-            raise ValueError("--inference-steps must be positive")
-        policy.num_inference_steps = int(args.inference_steps)
+    model_server.configure_policy_sampler(
+        policy, args.sampler, args.inference_steps
+    )
     policy = policy.to(device)
     policy.eval()
     summary = model_server._normalizer_summary(policy)

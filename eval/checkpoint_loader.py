@@ -534,3 +534,45 @@ def build_policy(loaded: LoadedCheckpoint):
     if incompatible.missing_keys or incompatible.unexpected_keys:
         raise RuntimeError("strict checkpoint load unexpectedly returned key errors")
     return policy, expected
+
+
+def configure_policy_execution_steps(policy, spec, n_action_steps):
+    """Execute a prefix of the predicted action window, then replan.
+
+    The checkpoint still generates the full horizon. ``n_action_steps`` only
+    changes how many of those predicted steps the closed loop applies.
+    """
+    from policy_observation import expected_policy_spec
+
+    updated = expected_policy_spec(spec["obs_dim"], n_action_steps)
+    layout_keys = ("obs_dim", "action_dim", "n_obs_steps", "n_pred_action_steps", "horizon")
+    for key in layout_keys:
+        if int(spec[key]) != int(updated[key]):
+            raise ValueError(
+                "cannot override n_action_steps: %s=%s, expected %s"
+                % (key, spec[key], updated[key])
+            )
+    policy.n_action_steps = updated["n_action_steps"]
+    spec["n_action_steps"] = updated["n_action_steps"]
+    return spec
+
+
+def configure_policy_sampler(policy, sampler, inference_steps=None):
+    """Switch the loaded policy onto DDPM or DDIM and optionally override steps."""
+    sampler = str(sampler)
+    if sampler == "ddim":
+        from diffusers.schedulers.scheduling_ddim import DDIMScheduler
+
+        policy.noise_scheduler = DDIMScheduler.from_config(
+            policy.noise_scheduler.config,
+            set_alpha_to_one=True,
+            steps_offset=0,
+            timestep_spacing="leading",
+        )
+    elif sampler != "ddpm":
+        raise ValueError("unsupported sampler: %r" % (sampler,))
+    if inference_steps is not None:
+        if int(inference_steps) <= 0:
+            raise ValueError("inference_steps must be positive")
+        policy.num_inference_steps = int(inference_steps)
+    return policy

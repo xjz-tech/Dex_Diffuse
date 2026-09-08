@@ -33,7 +33,13 @@ LOCAL_MANIPTRANS_ROOT = PROJECT_ROOT / "maniptrans_envs"
 if str(EVAL_DIR) not in sys.path:
     sys.path.insert(0, str(EVAL_DIR))
 
+from episode_stats import EpisodeRecorder, summarize_episode_records  # noqa: E402
 from ipc import connect_unix, recv_message, send_message  # noqa: E402
+from policy_observation import (  # noqa: E402
+    compose_policy_observation,
+    observation_mode_from_dim,
+    validate_policy_spec,
+)
 from recording import (  # noqa: E402
     RecordingConfig,
     RecordingConstructionHooks,
@@ -44,7 +50,6 @@ from recording import (  # noqa: E402
 
 HAND_DIM = 22
 OBS_STEPS = 4
-ACTION_STEPS = 5
 SHARPA_URDF_NAME = "v3right_sharpa_wave-forhammer5.urdf"
 
 
@@ -164,6 +169,22 @@ def _parse_args():
     )
     parser.add_argument("--print-every", type=int, default=25)
     parser.add_argument("--request-timeout", type=float, default=600.0)
+    parser.add_argument(
+        "--max-failure-episodes",
+        type=int,
+        default=0,
+        help="Stop after this many terminal failures. 0 means never stop for this.",
+    )
+    parser.add_argument(
+        "--episode-log",
+        default="",
+        help="Optional JSONL path for per-episode env/length/reason records.",
+    )
+    parser.add_argument(
+        "--run-name",
+        default="",
+        help="Label stored in --episode-log records.",
+    )
     parser.add_argument("--recording", action="store_true")
     parser.add_argument("--record-dir", default=str(EVAL_DIR / "record"))
     parser.add_argument("--record-width", type=int, default=1280)
@@ -248,6 +269,8 @@ def _validate_inputs(args, data_indices):
         )
     if args.max_steps < 0:
         raise ValueError("--max-steps cannot be negative")
+    if args.max_failure_episodes < 0:
+        raise ValueError("--max-failure-episodes cannot be negative")
     if args.print_every < 0:
         raise ValueError("--print-every cannot be negative")
     if args.recording:
@@ -419,18 +442,15 @@ class PolicyClient:
 
     def _hello(self):
         response, _ = self._request("hello")
-        expected = {
-            "obs_dim": 22,
-            "action_dim": 22,
-            "n_obs_steps": 4,
-            "n_pred_action_steps": 9,
-            "n_action_steps": 5,
-            "horizon": 12,
-        }
-        if response.get("spec") != expected:
+        try:
+            spec = validate_policy_spec(response.get("spec"))
+        except ValueError as exc:
             raise RuntimeError(
-                "checkpoint temporal spec mismatch: %r" % response.get("spec")
-            )
+                "checkpoint temporal spec mismatch: %s" % exc
+            ) from exc
+        self.obs_dim = spec["obs_dim"]
+        self.n_action_steps = spec["n_action_steps"]
+        self.observation_mode = observation_mode_from_dim(self.obs_dim)
         return response
 
     def predict(self, history):
@@ -438,7 +458,11 @@ class PolicyClient:
             "predict",
             np.asarray(history, dtype=np.float32),
         )
-        if action is None or action.shape != (history.shape[0], ACTION_STEPS, HAND_DIM):
+        if action is None or action.shape != (
+            history.shape[0],
+            self.n_action_steps,
+            HAND_DIM,
+        ):
             raise RuntimeError(
                 "invalid action chunk from inference server: %r"
                 % (None if action is None else action.shape,)
@@ -505,14 +529,27 @@ def _destroy_environment(env):
         env.sim = None
 
 
+def _current_policy_observation(env, mode):
+    qpos = env._q.detach().cpu().numpy().astype(np.float32, copy=True)
+    target_before = (
+        env.curr_targets.detach().cpu().numpy().astype(np.float32, copy=True)
+    )
+    return compose_policy_observation(qpos, target_before, mode)
+
+
 def _print_policy_info(client):
     checkpoint = client.info["checkpoint"]
     print(
-        "[sim] policy connected | weights=%s step=%s epoch=%s"
+        "[sim] policy connected | weights=%s step=%s epoch=%s obs_dim=%d "
+        "mode=%s exec=%d pred=%s"
         % (
             checkpoint["weight_source"],
             checkpoint["global_step"],
             checkpoint["epoch"],
+            client.obs_dim,
+            client.observation_mode,
+            client.n_action_steps,
+            client.info["spec"]["n_pred_action_steps"],
         ),
         flush=True,
     )
@@ -522,6 +559,25 @@ def _print_policy_info(client):
             "recovered base model.",
             flush=True,
         )
+
+
+def _print_hold_summary(recorder):
+    summary = summarize_episode_records(recorder.records)
+    mean_length = summary["mean_failure_length"]
+    median_length = summary["median_failure_length"]
+    print(
+        "[sim] hold summary | episodes=%d failures=%d timeouts=%d successes=%d "
+        "mean_failure_length=%s median_failure_length=%s"
+        % (
+            summary["n_episodes"],
+            summary["n_failure"],
+            summary["n_timeout"],
+            summary["n_success"],
+            "na" if mean_length is None else "%.1f" % mean_length,
+            "na" if median_length is None else "%.1f" % median_length,
+        ),
+        flush=True,
+    )
 
 
 def run(args):
@@ -591,14 +647,25 @@ def run(args):
 
         client = PolicyClient(args.socket_path, args.request_timeout)
         _print_policy_info(client)
+        recorder = EpisodeRecorder(
+            args.episode_log or None,
+            args.max_failure_episodes,
+        )
+        if args.max_failure_episodes:
+            print(
+                "[sim] stopping after %d failure episodes"
+                % args.max_failure_episodes,
+                flush=True,
+            )
 
-        qpos = env._q.detach().cpu().numpy().astype(np.float32, copy=True)
-        history = np.repeat(qpos[:, None, :], OBS_STEPS, axis=1)
+        observation = _current_policy_observation(env, client.observation_mode)
+        action_steps = client.n_action_steps
+        history = np.repeat(observation[:, None, :], OBS_STEPS, axis=1)
         action_plan = np.zeros(
-            (args.num_envs, ACTION_STEPS, HAND_DIM),
+            (args.num_envs, action_steps, HAND_DIM),
             dtype=np.float32,
         )
-        plan_position = np.full(args.num_envs, ACTION_STEPS, dtype=np.int64)
+        plan_position = np.full(args.num_envs, action_steps, dtype=np.int64)
         episode_steps = np.zeros(args.num_envs, dtype=np.int64)
         episode_number = np.zeros(args.num_envs, dtype=np.int64)
         total_inference_time = 0.0
@@ -619,7 +686,7 @@ def run(args):
                     and recording_runtime.poll_viewer_events()
                 ):
                     break
-                needs_plan = np.flatnonzero(plan_position >= ACTION_STEPS)
+                needs_plan = np.flatnonzero(plan_position >= action_steps)
                 if needs_plan.size:
                     predicted, inference_seconds = client.predict(history[needs_plan])
                     action_plan[needs_plan] = predicted
@@ -709,6 +776,16 @@ def run(args):
                             ),
                             flush=True,
                         )
+                        recorder.record(
+                            {
+                                "run": args.run_name,
+                                "env": int(env_id),
+                                "episode": int(episode_number[env_id]),
+                                "length": int(episode_steps[env_id]),
+                                "reason": reason,
+                                "reward": float(rewards[env_id].item()),
+                            }
+                        )
 
                     failed_ids = failures.nonzero(as_tuple=False).flatten()
                     if (
@@ -739,18 +816,27 @@ def run(args):
                         )
                     episode_number[reset_ids_np] += 1
                     episode_steps[reset_ids_np] = 0
-                    plan_position[reset_ids_np] = ACTION_STEPS
+                    plan_position[reset_ids_np] = action_steps
                     if recording_runtime is not None:
                         recording_runtime.update_axes()
+                    if recorder.should_stop():
+                        print(
+                            "[sim] reached max failure episodes: %d"
+                            % recorder.failure_count,
+                            flush=True,
+                        )
+                        break
 
-                qpos = env._q.detach().cpu().numpy().astype(np.float32, copy=True)
+                observation = _current_policy_observation(
+                    env, client.observation_mode
+                )
                 history[:, :-1] = history[:, 1:]
-                history[:, -1] = qpos
+                history[:, -1] = observation
                 if reset_ids_np.size:
                     # This matches the dataset's edge-padding convention at a
-                    # fresh episode: repeat the new random initial qpos 4 times.
+                    # fresh episode: repeat the new random initial observation.
                     history[reset_ids_np] = np.repeat(
-                        qpos[reset_ids_np, None, :],
+                        observation[reset_ids_np, None, :],
                         OBS_STEPS,
                         axis=1,
                     )
@@ -777,6 +863,7 @@ def run(args):
                         "yellow",
                         flush=True,
                     )
+        _print_hold_summary(recorder)
     finally:
         if recording_runtime is not None:
             recording_runtime.close()

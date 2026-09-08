@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Serial hold eval of 4x66: predict 9, execute 5, using eval_para_obs66.sh
+# failure / reset thresholds instead of eval.sh defaults.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+CKPT_PATH="${CKPT_PATH:-/home/carus/data_usb/obs_4-66.ckpt}"
+NUM_ENV="${NUM_ENV:-1024}"
+MAX_FAILURE_EPISODES="${MAX_FAILURE_EPISODES:-3000}"
+# Loose para thresholds can run until trajStepsLimit. Cap wall-clock so a
+# no-failure run still finishes after one full trajectory budget.
+MAX_STEPS="${MAX_STEPS:-12000}"
+DATA_INDICES="${DATA_INDICES:-000-149}"
+HEADLESS="${HEADLESS:-1}"
+RECORDING="${RECORDING:-0}"
+PRINT_EVERY="${PRINT_EVERY:-100}"
+SEED="${SEED:-42}"
+SAMPLER="${SAMPLER:-ddim}"
+INFERENCE_STEPS="${INFERENCE_STEPS:-8}"
+EXECUTION_STEPS="${EXECUTION_STEPS:-5}"
+
+# Copied from eval/eval_para_obs66.sh.
+FAILURE_OBJ_POS_THRES_M="${FAILURE_OBJ_POS_THRES_M:-0.05}"
+FAILURE_TIP_POS_THRES_M="${FAILURE_TIP_POS_THRES_M:-0.1}"
+FAILURE_OBJ_ROT_THRES_DEG="${FAILURE_OBJ_ROT_THRES_DEG:-180.0}"
+INVALID_OBJ_POS_THRES_M="${INVALID_OBJ_POS_THRES_M:-0.15}"
+FAILURE_TOLERANCE_SCALE="${FAILURE_TOLERANCE_SCALE:-10000.0}"
+FIXED_TOLERANCE_STEPS="${FIXED_TOLERANCE_STEPS:-20000}"
+TRAJ_STEPS_LIMIT="${TRAJ_STEPS_LIMIT:-12000}"
+RESET_ON_REACH_GOAL="${RESET_ON_REACH_GOAL:-0}"
+CROSS_TRAJECTORY_GOAL_PROB="${CROSS_TRAJECTORY_GOAL_PROB:-0.3}"
+
+STAMP="$(date +%Y%m%d_%H%M%S)"
+RUN_DIR="${RUN_DIR:-${SCRIPT_DIR}/hold_runs/${STAMP}_obs66_para_pred9_exec${EXECUTION_STEPS}}"
+mkdir -p "${RUN_DIR}"
+RUN_NAME="${RUN_NAME:-obs66_${SAMPLER}${INFERENCE_STEPS}_pred9_exec${EXECUTION_STEPS}_para}"
+EPISODE_LOG="${EPISODE_LOG:-${RUN_DIR}/${RUN_NAME}.jsonl}"
+
+echo "[xjz_test] run_dir=${RUN_DIR}"
+echo "[xjz_test] pred=9 exec=${EXECUTION_STEPS} sampler=${SAMPLER} inference_steps=${INFERENCE_STEPS} ckpt=${CKPT_PATH}"
+echo "[xjz_test] using eval_para_obs66.sh failure criteria"
+
+NUM_ENV="${NUM_ENV}" \
+MAX_FAILURE_EPISODES="${MAX_FAILURE_EPISODES}" \
+MAX_STEPS="${MAX_STEPS}" \
+DATA_INDICES="${DATA_INDICES}" \
+HEADLESS="${HEADLESS}" \
+RECORDING="${RECORDING}" \
+PRINT_EVERY="${PRINT_EVERY}" \
+SEED="${SEED}" \
+SAMPLER="${SAMPLER}" \
+INFERENCE_STEPS="${INFERENCE_STEPS}" \
+EXECUTION_STEPS="${EXECUTION_STEPS}" \
+CKPT_PATH="${CKPT_PATH}" \
+FAILURE_OBJ_POS_THRES_M="${FAILURE_OBJ_POS_THRES_M}" \
+FAILURE_TIP_POS_THRES_M="${FAILURE_TIP_POS_THRES_M}" \
+FAILURE_OBJ_ROT_THRES_DEG="${FAILURE_OBJ_ROT_THRES_DEG}" \
+INVALID_OBJ_POS_THRES_M="${INVALID_OBJ_POS_THRES_M}" \
+FAILURE_TOLERANCE_SCALE="${FAILURE_TOLERANCE_SCALE}" \
+FIXED_TOLERANCE_STEPS="${FIXED_TOLERANCE_STEPS}" \
+TRAJ_STEPS_LIMIT="${TRAJ_STEPS_LIMIT}" \
+RESET_ON_REACH_GOAL="${RESET_ON_REACH_GOAL}" \
+CROSS_TRAJECTORY_GOAL_PROB="${CROSS_TRAJECTORY_GOAL_PROB}" \
+RUN_NAME="${RUN_NAME}" \
+EPISODE_LOG="${EPISODE_LOG}" \
+    bash "${SCRIPT_DIR}/eval.sh"
+
+MODEL_PYTHON="${MODEL_PYTHON:-/home/carus/miniforge3/envs/dp/bin/python}"
+echo "[xjz_test] summary"
+"${MODEL_PYTHON}" "${SCRIPT_DIR}/episode_stats.py" "${EPISODE_LOG}"
+echo "[xjz_test] logs: ${RUN_DIR}"

@@ -22,7 +22,12 @@ if str(EVAL_DIR) not in sys.path:
 if str(DEX_ROOT) not in sys.path:
     sys.path.insert(0, str(DEX_ROOT))
 
-from checkpoint_loader import build_policy, load_checkpoint  # noqa: E402
+from checkpoint_loader import (  # noqa: E402
+    build_policy,
+    configure_policy_execution_steps,
+    configure_policy_sampler,
+    load_checkpoint,
+)
 from ipc import recv_message, send_message  # noqa: E402
 
 
@@ -35,10 +40,21 @@ def _parse_args():
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
+        "--sampler",
+        choices=("ddpm", "ddim"),
+        default="ddpm",
+    )
+    parser.add_argument(
         "--inference-steps",
         type=int,
         default=None,
-        help="Override DDPM inference steps (default: the checkpoint value, 100).",
+        help="Override inference steps (default: the checkpoint value, 100).",
+    )
+    parser.add_argument(
+        "--n-action-steps",
+        type=int,
+        default=None,
+        help="How many predicted actions to execute before replanning (1-9).",
     )
     parser.add_argument(
         "--no-salvage",
@@ -236,21 +252,24 @@ def main():
     print("[model] loading checkpoint: %s" % args.checkpoint, flush=True)
     loaded = load_checkpoint(args.checkpoint, allow_salvage=not args.no_salvage)
     policy, spec = build_policy(loaded)
-    if args.inference_steps is not None:
-        if args.inference_steps <= 0:
-            raise ValueError("--inference-steps must be positive")
-        policy.num_inference_steps = int(args.inference_steps)
+    configure_policy_sampler(policy, args.sampler, args.inference_steps)
+    if args.n_action_steps is not None:
+        spec = configure_policy_execution_steps(policy, spec, args.n_action_steps)
     policy = policy.to(device)
     policy.eval()
     summary = _normalizer_summary(policy)
 
     print(
-        "[model] loaded %s | step=%s epoch=%s | DDPM steps=%d"
+        "[model] loaded %s | step=%s epoch=%s | sampler=%s steps=%d "
+        "exec=%d pred=%s"
         % (
             loaded.weight_source,
             loaded.global_step,
             loaded.epoch,
+            type(policy.noise_scheduler).__name__,
             policy.num_inference_steps,
+            int(policy.n_action_steps),
+            spec["n_pred_action_steps"],
         ),
         flush=True,
     )
