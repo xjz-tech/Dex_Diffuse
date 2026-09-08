@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_xjz_guidance_launcher_runs_paired_scales_with_same_checkpoints(tmp_path):
+def test_xjz_eval_guidance_launcher_runs_paired_scales_with_same_checkpoints(tmp_path):
     weak = tmp_path / "weak.ckpt"
     strong = tmp_path / "strong.ckpt"
     weak.touch()
@@ -35,7 +35,7 @@ def test_xjz_guidance_launcher_runs_paired_scales_with_same_checkpoints(tmp_path
         }
     )
     subprocess.run(
-        ["bash", str(ROOT / "eval" / "xjz_guidance_test.sh")],
+        ["bash", str(ROOT / "eval" / "xjz_eval_guidance.sh")],
         cwd=ROOT,
         env=env,
         check=True,
@@ -43,6 +43,6 @@ def test_xjz_guidance_launcher_runs_paired_scales_with_same_checkpoints(tmp_path
 
     lines = calls.read_text(encoding="utf-8").splitlines()
     assert lines == [
-        f"0|{weak}|{strong}|{ROOT / 'eval' / 'guided_model_server.py'}",
-        f"100|{weak}|{strong}|{ROOT / 'eval' / 'guided_model_server.py'}",
+        f"0|{weak}|{strong}|{ROOT / 'eval' / 'xjz_eval_guidance.py'}",
+        f"100|{weak}|{strong}|{ROOT / 'eval' / 'xjz_eval_guidance.py'}",
     ]

@@ -13,7 +13,7 @@ import torch
 EVAL_DIR = Path(__file__).resolve().parents[1] / "eval"
 sys.path.insert(0, str(EVAL_DIR))
 
-from guided_model_server import (  # noqa: E402
+from xjz_eval_guidance import (  # noqa: E402
     extract_strong_reference,
     validate_compatible_specs,
 )
@@ -77,7 +77,19 @@ def test_validate_compatible_specs_rejects_different_observation_contracts():
         validate_compatible_specs(weak, strong)
 
 
-def test_guided_server_script_imports_from_eval_entrypoint():
+def test_xjz_eval_guidance_script_imports_from_eval_entrypoint():
+    result = subprocess.run(
+        [sys.executable, str(EVAL_DIR / "xjz_eval_guidance.py"), "--help"],
+        cwd=EVAL_DIR,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "--guide-checkpoint" in result.stdout
+
+
+def test_old_guided_server_name_remains_a_working_compatibility_entrypoint():
     result = subprocess.run(
         [sys.executable, str(EVAL_DIR / "guided_model_server.py"), "--help"],
         cwd=EVAL_DIR,
