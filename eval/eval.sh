@@ -10,6 +10,11 @@ ASSETS_ROOT="${ASSETS_ROOT:-${CONTROLLER_ROOT}/maniptrans_envs/assets}"
 SIM_DATASET="${SIM_DATASET:-/home/carus/Data/exp_data}"
 SIM_CONFIG="${SIM_CONFIG:-${SIM_DATASET}/hydra_config.yaml}"
 CKPT_PATH="${CKPT_PATH:-${DEX_ROOT}/runs/step_01700000.ckpt}"
+MODEL_SERVER="${MODEL_SERVER:-${SCRIPT_DIR}/model_server.py}"
+GUIDE_CKPT_PATH="${GUIDE_CKPT_PATH:-}"
+GUIDANCE_SCALE="${GUIDANCE_SCALE:-100}"
+GUIDE_INFERENCE_STEPS="${GUIDE_INFERENCE_STEPS:-8}"
+FIXED_NOISE="${FIXED_NOISE:-1}"
 
 # Isaac Gym is CPython 3.8-only here, while the trained DP stack is Python 3.10.
 # The two processes communicate through a private UNIX socket.
@@ -114,6 +119,11 @@ die() {
 [[ -d "${CONTROLLER_ROOT}" ]] || die "dex-controller root not found: ${CONTROLLER_ROOT}"
 [[ -f "${SIM_CONFIG}" ]] || die "simulation config not found: ${SIM_CONFIG}"
 [[ -f "${CKPT_PATH}" ]] || die "checkpoint not found: ${CKPT_PATH}"
+[[ -f "${MODEL_SERVER}" ]] || die "model server not found: ${MODEL_SERVER}"
+if [[ -n "${GUIDE_CKPT_PATH}" ]]; then
+    [[ -f "${GUIDE_CKPT_PATH}" ]] || die "guide checkpoint not found: ${GUIDE_CKPT_PATH}"
+    [[ "${FIXED_NOISE}" =~ ^[01]$ ]] || die "FIXED_NOISE must be 0 or 1"
+fi
 [[ -d "${NOKOV3_DATA_DIR}/data/bulb2" ]] || die "bulb2 source data not found under ${NOKOV3_DATA_DIR}"
 [[ -d "${NOKOV3_RETARGET_DIR}/mano2sharpa_rh/bulb2" ]] || die "bulb2 retarget data not found under ${NOKOV3_RETARGET_DIR}"
 [[ -f "${SHARPA_ASSET_DIR}/v3right_sharpa_wave-forhammer5.urdf" ]] || die "SharpA URDF not found under ${SHARPA_ASSET_DIR}"
@@ -147,13 +157,21 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 MODEL_ARGS=(
-    "${SCRIPT_DIR}/model_server.py"
+    "${MODEL_SERVER}"
     --checkpoint "${CKPT_PATH}"
     --socket "${SOCKET_PATH}"
     --device "${MODEL_DEVICE}"
     --seed "${SEED}"
     --sampler "${SAMPLER}"
 )
+if [[ -n "${GUIDE_CKPT_PATH}" ]]; then
+    MODEL_ARGS+=(
+        --guide-checkpoint "${GUIDE_CKPT_PATH}"
+        --guidance-scale "${GUIDANCE_SCALE}"
+        --guide-inference-steps "${GUIDE_INFERENCE_STEPS}"
+        --fixed-noise "${FIXED_NOISE}"
+    )
+fi
 if [[ -n "${INFERENCE_STEPS}" ]]; then
     MODEL_ARGS+=(--inference-steps "${INFERENCE_STEPS}")
 fi

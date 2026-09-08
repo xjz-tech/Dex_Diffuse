@@ -67,6 +67,7 @@ class GuidedDDIMController:
         allow_salvage: bool,
     ) -> None:
         loaded = load_controller_checkpoint(checkpoint, allow_salvage=allow_salvage)
+        self.checkpoint_info = loaded
         policy, spec = build_controller_policy(loaded)
         policy = policy.to(device).eval()
         for parameter in policy.parameters():
