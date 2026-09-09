@@ -45,7 +45,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--tensorrt",
         action="store_true",
-        help="Compile the 1D UNet with TensorRT FP16 (batch-1 DDIM). First load is slow.",
+        help=(
+            "Compile the 1D UNet with TensorRT FP16 (batch-1 DDIM). "
+            "First load is slow; changing the checkpoint requires a fresh compile."
+        ),
     )
     parser.add_argument(
         "--observation-mode",
@@ -574,7 +577,11 @@ def load_inference_policy(args: argparse.Namespace, device: torch.device):
     if args.tensorrt:
         from trt_unet import accelerate_policy_unet
 
-        print("[policy] compiling TensorRT FP16 UNet...", flush=True)
+        print(
+            "[policy] compiling TensorRT FP16 UNet "
+            "(weights are baked in; swap checkpoint => recompile)...",
+            flush=True,
+        )
         started = time.perf_counter()
         accelerate_policy_unet(policy, fp16=True)
         print(

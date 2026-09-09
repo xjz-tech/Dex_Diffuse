@@ -189,9 +189,6 @@ fi
 if [[ "${MODEL_WARMUP}" == "0" ]]; then
     MODEL_ARGS+=(--no-warmup)
 fi
-if [[ "${TENSORRT:-0}" == "1" ]]; then
-    MODEL_ARGS+=(--tensorrt)
-fi
 
 echo "[eval] checkpoint: ${CKPT_PATH}"
 echo "[eval] sampler: ${SAMPLER} inference_steps=${INFERENCE_STEPS:-checkpoint} execution_steps=${EXECUTION_STEPS:-checkpoint} guidance_steps=${GUIDANCE_STEPS:-default}"

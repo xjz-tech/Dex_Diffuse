@@ -187,7 +187,7 @@ def compile_unet(
     max_batch = int(max_batch)
     if max_batch < 1:
         raise ValueError("max_batch must be >= 1, got %r" % (max_batch,))
-    # Sim hold eval uses 1024 envs; real inference uses batch 1.
+    # Real inference uses batch 1; keep a larger max for benchmarks.
     inputs = [
         torch_tensorrt.Input(
             min_shape=(1, horizon, action_dim),
