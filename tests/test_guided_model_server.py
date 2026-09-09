@@ -14,6 +14,7 @@ EVAL_DIR = Path(__file__).resolve().parents[1] / "eval"
 sys.path.insert(0, str(EVAL_DIR))
 
 from xjz_eval_guidance import (  # noqa: E402
+    _parse_args,
     extract_strong_reference,
     validate_compatible_specs,
 )
@@ -87,6 +88,28 @@ def test_xjz_eval_guidance_script_imports_from_eval_entrypoint():
 
     assert result.returncode == 0, result.stderr
     assert "--guide-checkpoint" in result.stdout
+    assert "--guidance-steps" in result.stdout
+
+
+def test_guidance_steps_can_be_selected_from_environment(monkeypatch):
+    monkeypatch.setenv("GUIDANCE_STEPS", "2")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "xjz_eval_guidance.py",
+            "--checkpoint",
+            "weak.ckpt",
+            "--guide-checkpoint",
+            "strong.ckpt",
+            "--socket",
+            "policy.sock",
+        ],
+    )
+
+    args = _parse_args()
+
+    assert args.guidance_steps == 2
 
 
 def test_old_guided_server_name_remains_a_working_compatibility_entrypoint():

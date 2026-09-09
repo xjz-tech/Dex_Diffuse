@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import sys
 
@@ -128,6 +129,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--guide-inference-steps", type=int, default=8)
     parser.add_argument("--n-action-steps", type=int, default=5)
     parser.add_argument("--guidance-scale", type=float, default=100.0)
+    parser.add_argument(
+        "--guidance-steps",
+        type=int,
+        default=int(os.environ.get("GUIDANCE_STEPS", "9")),
+        help="Number of leading predicted actions constrained by guidance (default: 9)",
+    )
     parser.add_argument("--fixed-noise", type=int, choices=(0, 1), default=1)
     parser.add_argument("--no-salvage", action="store_true")
     parser.add_argument("--no-warmup", action="store_true")
@@ -151,6 +158,7 @@ def main() -> None:
         seed=args.seed,
         allow_salvage=allow_salvage,
     )
+    controller.set_guidance_horizon(args.guidance_steps)
     print(f"[strong-guide] loading {args.guide_checkpoint}", flush=True)
     strong_loaded = load_checkpoint(
         args.guide_checkpoint.expanduser().resolve(),
@@ -168,13 +176,15 @@ def main() -> None:
     policy = StrongGuidedWeakPolicy(strong_policy, controller, device)
     summary = _normalizer_summary(policy)
     print(
-        "[pipeline] weak=%s strong=%s scale=%g weak_steps=%d strong_steps=%d"
+        "[pipeline] weak=%s strong=%s scale=%g weak_steps=%d strong_steps=%d "
+        "guidance_actions=%d"
         % (
             args.checkpoint,
             args.guide_checkpoint,
             args.guidance_scale,
             args.inference_steps,
             args.guide_inference_steps,
+            args.guidance_steps,
         ),
         flush=True,
     )
