@@ -171,6 +171,10 @@ if [[ -n "${GUIDE_CKPT_PATH}" ]]; then
         --guide-inference-steps "${GUIDE_INFERENCE_STEPS}"
         --fixed-noise "${FIXED_NOISE}"
     )
+    if [[ -n "${GUIDANCE_STEPS:-}" ]]; then
+        [[ "${GUIDANCE_STEPS}" =~ ^[1-9]$ ]] || die "GUIDANCE_STEPS must be an integer in 1..9"
+        MODEL_ARGS+=(--guidance-steps "${GUIDANCE_STEPS}")
+    fi
 fi
 if [[ -n "${INFERENCE_STEPS}" ]]; then
     MODEL_ARGS+=(--inference-steps "${INFERENCE_STEPS}")
@@ -185,9 +189,12 @@ fi
 if [[ "${MODEL_WARMUP}" == "0" ]]; then
     MODEL_ARGS+=(--no-warmup)
 fi
+if [[ "${TENSORRT:-0}" == "1" ]]; then
+    MODEL_ARGS+=(--tensorrt)
+fi
 
 echo "[eval] checkpoint: ${CKPT_PATH}"
-echo "[eval] sampler: ${SAMPLER} inference_steps=${INFERENCE_STEPS:-checkpoint} execution_steps=${EXECUTION_STEPS:-checkpoint}"
+echo "[eval] sampler: ${SAMPLER} inference_steps=${INFERENCE_STEPS:-checkpoint} execution_steps=${EXECUTION_STEPS:-checkpoint} guidance_steps=${GUIDANCE_STEPS:-default}"
 echo "[eval] GPU visibility: ${CUDA_VISIBLE_DEVICES}"
 echo "[eval] starting Diffusion Policy process (${MODEL_PYTHON})"
 env \

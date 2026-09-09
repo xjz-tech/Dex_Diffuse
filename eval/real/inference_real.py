@@ -5,12 +5,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from collections import deque
 from pathlib import Path
 
 import numpy as np
 import torch
+
+EVAL_DIR = Path(__file__).resolve().parent.parent
+if str(EVAL_DIR) not in sys.path:
+    sys.path.insert(0, str(EVAL_DIR))
 
 from hardware import (
     HAND_DIM,
@@ -37,6 +42,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--sampler", choices=("ddpm", "ddim"), default="ddim")
     parser.add_argument("--inference-steps", type=int, default=8)
+    parser.add_argument(
+        "--tensorrt",
+        action="store_true",
+        help="Compile the 1D UNet with TensorRT FP16 (batch-1 DDIM). First load is slow.",
+    )
     parser.add_argument(
         "--observation-mode",
         choices=tuple(OBSERVATION_DIMS),
@@ -561,6 +571,16 @@ def load_inference_policy(args: argparse.Namespace, device: torch.device):
         f"inference_steps={policy.num_inference_steps}",
         flush=True,
     )
+    if args.tensorrt:
+        from trt_unet import accelerate_policy_unet
+
+        print("[policy] compiling TensorRT FP16 UNet...", flush=True)
+        started = time.perf_counter()
+        accelerate_policy_unet(policy, fp16=True)
+        print(
+            f"[policy] TensorRT UNet ready in {time.perf_counter() - started:.1f}s",
+            flush=True,
+        )
     # load_state_dict has copied the selected weights into the policy. Release
     # the checkpoint mapping before the long-running hardware loop.
     del loaded

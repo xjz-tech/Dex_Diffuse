@@ -66,6 +66,11 @@ def _parse_args():
         action="store_true",
         help="Skip one startup inference used to validate and warm the model.",
     )
+    parser.add_argument(
+        "--tensorrt",
+        action="store_true",
+        help="Compile the 1D UNet with TensorRT FP16. Intended for batch-1 inference.",
+    )
     return parser.parse_args()
 
 
@@ -257,6 +262,16 @@ def main():
         spec = configure_policy_execution_steps(policy, spec, args.n_action_steps)
     policy = policy.to(device)
     policy.eval()
+    if args.tensorrt:
+        from trt_unet import accelerate_policy_unet
+
+        print("[model] compiling TensorRT FP16 UNet...", flush=True)
+        started = time.perf_counter()
+        accelerate_policy_unet(policy, fp16=True)
+        print(
+            "[model] TensorRT UNet ready in %.1fs" % (time.perf_counter() - started),
+            flush=True,
+        )
     summary = _normalizer_summary(policy)
 
     print(
