@@ -89,6 +89,97 @@ def test_xjz_eval_guidance_script_imports_from_eval_entrypoint():
     assert result.returncode == 0, result.stderr
     assert "--guide-checkpoint" in result.stdout
     assert "--guidance-steps" in result.stdout
+    assert "--guide-seed" in result.stdout
+
+
+def test_xjz_eval_strong_prior_script_labels_roles_in_help():
+    result = subprocess.run(
+        [sys.executable, str(EVAL_DIR / "xjz_eval_strong_prior.py"), "--help"],
+        cwd=EVAL_DIR,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "strong prior" in result.stdout
+    assert "guide checkpoint" in result.stdout
+    assert "--guide-seed" in result.stdout
+
+
+def test_guide_seed_defaults_to_prior_seed_and_can_be_overridden(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "xjz_eval_guidance.py",
+            "--checkpoint",
+            "weak.ckpt",
+            "--guide-checkpoint",
+            "strong.ckpt",
+            "--socket",
+            "policy.sock",
+            "--seed",
+            "42",
+        ],
+    )
+    assert _parse_args().guide_seed == 42
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "xjz_eval_guidance.py",
+            "--checkpoint",
+            "weak.ckpt",
+            "--guide-checkpoint",
+            "strong.ckpt",
+            "--socket",
+            "policy.sock",
+            "--seed",
+            "42",
+            "--guide-seed",
+            "7",
+        ],
+    )
+    assert _parse_args().guide_seed == 7
+
+
+def test_bind_conditional_sample_seed_keeps_fixed_noise_repeatable_and_seed_dependent():
+    from xjz_eval_guidance import bind_conditional_sample_seed
+
+    class FakePolicy:
+        def conditional_sample(
+            self, condition_data, condition_mask, global_cond, generator=None, **kwargs
+        ):
+            return torch.randn(
+                condition_data.shape,
+                device=condition_data.device,
+                dtype=condition_data.dtype,
+                generator=generator,
+            )
+
+    zeros = torch.zeros(1, 12, 22)
+    mask = torch.zeros_like(zeros, dtype=torch.bool)
+    cond = torch.zeros(1, 4)
+
+    seeded_a = bind_conditional_sample_seed(
+        FakePolicy(), seed=42, device=torch.device("cpu"), fixed_noise=True
+    )
+    seeded_b = bind_conditional_sample_seed(
+        FakePolicy(), seed=42, device=torch.device("cpu"), fixed_noise=True
+    )
+    seeded_c = bind_conditional_sample_seed(
+        FakePolicy(), seed=7, device=torch.device("cpu"), fixed_noise=True
+    )
+
+    first = seeded_a.conditional_sample(zeros, mask, cond)
+    second = seeded_a.conditional_sample(zeros, mask, cond)
+    other_same_seed = seeded_b.conditional_sample(zeros, mask, cond)
+    different_seed = seeded_c.conditional_sample(zeros, mask, cond)
+
+    assert torch.equal(first, second)
+    assert torch.equal(first, other_same_seed)
+    assert not torch.equal(first, different_seed)
 
 
 def test_guidance_steps_can_be_selected_from_environment(monkeypatch):

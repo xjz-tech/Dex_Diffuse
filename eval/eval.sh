@@ -15,6 +15,7 @@ GUIDE_CKPT_PATH="${GUIDE_CKPT_PATH:-}"
 GUIDANCE_SCALE="${GUIDANCE_SCALE:-100}"
 GUIDE_INFERENCE_STEPS="${GUIDE_INFERENCE_STEPS:-8}"
 FIXED_NOISE="${FIXED_NOISE:-1}"
+GUIDE_SEED="${GUIDE_SEED:-}"
 
 # Isaac Gym is CPython 3.8-only here, while the trained DP stack is Python 3.10.
 # The two processes communicate through a private UNIX socket.
@@ -105,6 +106,8 @@ MODEL_WARMUP="${MODEL_WARMUP:-1}"
 STARTUP_TIMEOUT="${STARTUP_TIMEOUT:-180}"
 REQUEST_TIMEOUT="${REQUEST_TIMEOUT:-600}"
 MAX_FAILURE_EPISODES="${MAX_FAILURE_EPISODES:-0}"
+FIRST_EPISODE_ONLY="${FIRST_EPISODE_ONLY:-0}"
+CENSOR_UNFINISHED_AT_CAP="${CENSOR_UNFINISHED_AT_CAP:-0}"
 EPISODE_LOG="${EPISODE_LOG:-}"
 RUN_NAME="${RUN_NAME:-}"
 
@@ -132,6 +135,8 @@ fi
 [[ "${TRAJ_STEPS_LIMIT}" =~ ^[1-9][0-9]*$ ]] || die "TRAJ_STEPS_LIMIT must be a positive integer"
 [[ "${RESET_ON_REACH_GOAL}" =~ ^[01]$ ]] || die "RESET_ON_REACH_GOAL must be 0 or 1"
 [[ "${MAX_FAILURE_EPISODES}" =~ ^[0-9]+$ ]] || die "MAX_FAILURE_EPISODES must be a non-negative integer"
+[[ "${FIRST_EPISODE_ONLY}" =~ ^[01]$ ]] || die "FIRST_EPISODE_ONLY must be 0 or 1"
+[[ "${CENSOR_UNFINISHED_AT_CAP}" =~ ^[01]$ ]] || die "CENSOR_UNFINISHED_AT_CAP must be 0 or 1"
 [[ "${SAMPLER}" == "ddpm" || "${SAMPLER}" == "ddim" ]] || die "SAMPLER must be ddpm or ddim"
 [[ "${NUM_ENV}" =~ ^[1-9][0-9]*$ ]] || die "NUM_ENV must be a positive integer"
 [[ "${RECORD_ENV}" =~ ^(0|[1-9][0-9]*)$ ]] || die "RECORD_ENV must be a non-negative integer"
@@ -171,6 +176,10 @@ if [[ -n "${GUIDE_CKPT_PATH}" ]]; then
         --guide-inference-steps "${GUIDE_INFERENCE_STEPS}"
         --fixed-noise "${FIXED_NOISE}"
     )
+    if [[ -n "${GUIDE_SEED}" ]]; then
+        [[ "${GUIDE_SEED}" =~ ^[0-9]+$ ]] || die "GUIDE_SEED must be an integer"
+        MODEL_ARGS+=(--guide-seed "${GUIDE_SEED}")
+    fi
     if [[ -n "${GUIDANCE_STEPS:-}" ]]; then
         [[ "${GUIDANCE_STEPS}" =~ ^[1-9]$ ]] || die "GUIDANCE_STEPS must be an integer in 1..9"
         MODEL_ARGS+=(--guidance-steps "${GUIDANCE_STEPS}")
@@ -246,6 +255,12 @@ SIM_ARGS=(
     --reset-on-reach-goal "${RESET_ON_REACH_GOAL}"
     --max-failure-episodes "${MAX_FAILURE_EPISODES}"
 )
+if [[ "${FIRST_EPISODE_ONLY}" == "1" ]]; then
+    SIM_ARGS+=(--first-episode-only)
+fi
+if [[ "${CENSOR_UNFINISHED_AT_CAP}" == "1" ]]; then
+    SIM_ARGS+=(--censor-unfinished-at-cap)
+fi
 if [[ -n "${EPISODE_LOG}" ]]; then
     SIM_ARGS+=(--episode-log "${EPISODE_LOG}")
 fi

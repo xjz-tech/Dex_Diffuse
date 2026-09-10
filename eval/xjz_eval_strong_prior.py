@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""XJZ evaluation server: guide a weak prior with a stronger checkpoint."""
+"""XJZ evaluation server: sample a strong prior, guided by a weaker checkpoint."""
 
 from __future__ import annotations
 
@@ -13,20 +13,14 @@ for import_path in (EVAL_DIR, DEX_ROOT):
     if str(import_path) not in sys.path:
         sys.path.insert(0, str(import_path))
 
-from guided_pair_policy import (  # noqa: E402
-    bind_conditional_sample_seed,
-    extract_strong_reference,
-    parse_guided_server_args,
-    run_guided_pair_server,
-    validate_compatible_specs,
-)
+from guided_pair_policy import parse_guided_server_args, run_guided_pair_server  # noqa: E402
 
 
 def _parse_args():
     return parse_guided_server_args(
         __doc__,
-        checkpoint_help="weak prior",
-        guide_help="strong guide checkpoint",
+        checkpoint_help="strong prior",
+        guide_help="weak (or other-seed) guide checkpoint",
     )
 
 
@@ -34,8 +28,8 @@ def main() -> None:
     args = _parse_args()
     run_guided_pair_server(
         args,
-        prior_label="weak-prior",
-        guide_label="strong-guide",
+        prior_label="strong-prior",
+        guide_label="weak-guide",
     )
 
 

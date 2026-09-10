@@ -33,7 +33,12 @@ LOCAL_MANIPTRANS_ROOT = PROJECT_ROOT / "maniptrans_envs"
 if str(EVAL_DIR) not in sys.path:
     sys.path.insert(0, str(EVAL_DIR))
 
-from episode_stats import EpisodeRecorder, summarize_episode_records  # noqa: E402
+from episode_stats import (  # noqa: E402
+    EpisodeRecorder,
+    censored_timeout_records,
+    format_hold_summary,
+    summarize_episode_records,
+)
 from ipc import connect_unix, recv_message, send_message  # noqa: E402
 from policy_observation import (  # noqa: E402
     compose_policy_observation,
@@ -184,6 +189,16 @@ def _parse_args():
         "--run-name",
         default="",
         help="Label stored in --episode-log records.",
+    )
+    parser.add_argument(
+        "--first-episode-only",
+        action="store_true",
+        help="Count only the first episode of each env (ignore post-reset trials).",
+    )
+    parser.add_argument(
+        "--censor-unfinished-at-cap",
+        action="store_true",
+        help="At --max-steps, record still-running first episodes as timeout at the cap.",
     )
     parser.add_argument("--recording", action="store_true")
     parser.add_argument("--record-dir", default=str(EVAL_DIR / "record"))
@@ -562,20 +577,8 @@ def _print_policy_info(client):
 
 
 def _print_hold_summary(recorder):
-    summary = summarize_episode_records(recorder.records)
-    mean_length = summary["mean_failure_length"]
-    median_length = summary["median_failure_length"]
     print(
-        "[sim] hold summary | episodes=%d failures=%d timeouts=%d successes=%d "
-        "mean_failure_length=%s median_failure_length=%s"
-        % (
-            summary["n_episodes"],
-            summary["n_failure"],
-            summary["n_timeout"],
-            summary["n_success"],
-            "na" if mean_length is None else "%.1f" % mean_length,
-            "na" if median_length is None else "%.1f" % median_length,
-        ),
+        format_hold_summary("[sim] hold summary", summarize_episode_records(recorder.records)),
         flush=True,
     )
 
@@ -668,6 +671,17 @@ def run(args):
         plan_position = np.full(args.num_envs, action_steps, dtype=np.int64)
         episode_steps = np.zeros(args.num_envs, dtype=np.int64)
         episode_number = np.zeros(args.num_envs, dtype=np.int64)
+        first_episode_recorded = np.zeros(args.num_envs, dtype=bool)
+        if args.first_episode_only:
+            print("[sim] counting only the first episode of each env", flush=True)
+        if args.censor_unfinished_at_cap:
+            if args.max_steps <= 0:
+                raise ValueError("--censor-unfinished-at-cap requires --max-steps > 0")
+            print(
+                "[sim] unfinished first episodes will be recorded as timeout at %d"
+                % args.max_steps,
+                flush=True,
+            )
         total_inference_time = 0.0
         inference_calls = 0
         object_drop_count = 0
@@ -764,6 +778,8 @@ def run(args):
                             reason = "timeout"
                         else:
                             reason = "done"
+                        if args.first_episode_only and int(episode_number[env_id]) != 0:
+                            continue
                         print(
                             "[sim] episode end | env=%d episode=%d length=%d "
                             "reason=%s reward=%.5f"
@@ -786,6 +802,7 @@ def run(args):
                                 "reward": float(rewards[env_id].item()),
                             }
                         )
+                        first_episode_recorded[env_id] = True
 
                     failed_ids = failures.nonzero(as_tuple=False).flatten()
                     if (
@@ -863,6 +880,25 @@ def run(args):
                         "yellow",
                         flush=True,
                     )
+        if args.censor_unfinished_at_cap:
+            open_envs = np.flatnonzero(~first_episode_recorded).tolist()
+            for record in censored_timeout_records(
+                open_envs,
+                args.max_steps,
+                run_name=args.run_name,
+            ):
+                print(
+                    "[sim] episode end | env=%d episode=%d length=%d "
+                    "reason=timeout reward=0.00000"
+                    % (record["env"], record["episode"], record["length"]),
+                    flush=True,
+                )
+                recorder.record(record)
+            print(
+                "[sim] censored %d unfinished first episodes at cap=%d"
+                % (len(open_envs), args.max_steps),
+                flush=True,
+            )
         _print_hold_summary(recorder)
     finally:
         if recording_runtime is not None:

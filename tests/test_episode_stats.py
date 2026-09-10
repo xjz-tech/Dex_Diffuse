@@ -10,6 +10,8 @@ sys.path.insert(0, str(EVAL_DIR))
 
 from episode_stats import (  # noqa: E402
     EpisodeRecorder,
+    censored_timeout_records,
+    format_hold_summary,
     summarize_episode_records,
 )
 
@@ -58,6 +60,59 @@ def test_summarize_empty_failures_is_none():
     assert summary["n_failure"] == 0
     assert summary["mean_failure_length"] is None
     assert summary["median_failure_length"] is None
+    assert summary["mean_hold_length"] == pytest.approx(10.0)
+    assert summary["median_hold_length"] == pytest.approx(10.0)
+    assert summary["completion_rate"] == pytest.approx(1.0)
+
+
+def test_summarize_hold_includes_cap_timeouts_in_mean_and_median():
+    summary = summarize_episode_records(
+        [
+            _episode(length=100, reason="failure"),
+            _episode(length=200, reason="failure"),
+            _episode(length=12000, reason="timeout"),
+            _episode(length=12000, reason="timeout"),
+        ]
+    )
+
+    assert summary["n_episodes"] == 4
+    assert summary["n_failure"] == 2
+    assert summary["n_timeout"] == 2
+    assert summary["mean_failure_length"] == pytest.approx(150.0)
+    assert summary["mean_hold_length"] == pytest.approx(6075.0)
+    assert summary["median_hold_length"] == pytest.approx(6100.0)
+    assert summary["median_hold_s"] == pytest.approx(6100.0 / 30.0)
+    assert summary["completion_rate"] == pytest.approx(0.5)
+
+
+def test_format_hold_summary_reports_median_seconds_not_mean_hold():
+    summary = summarize_episode_records(
+        [
+            _episode(length=100, reason="failure"),
+            _episode(length=200, reason="failure"),
+            _episode(length=12000, reason="timeout"),
+            _episode(length=12000, reason="timeout"),
+        ]
+    )
+    text = format_hold_summary("hold", summary)
+
+    assert "median_hold=203.3s" in text
+    assert "mean_hold_length" not in text
+    assert "median_hold_length" not in text
+
+
+def test_censored_timeout_records_use_cap_length():
+    records = censored_timeout_records(
+        open_envs=(0, 3, 7),
+        cap=12000,
+        run_name="scale25",
+    )
+    assert [item["env"] for item in records] == [0, 3, 7]
+    assert {item["reason"] for item in records} == {"timeout"}
+    assert {item["length"] for item in records} == {12000}
+    assert format_hold_summary("hold", summarize_episode_records(records)).startswith(
+        "hold |"
+    )
 
 
 def _episode(length, reason):
