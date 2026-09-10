@@ -6,8 +6,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 DEX_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
-WEAK_CKPT_PATH="${WEAK_CKPT_PATH:-${DEX_ROOT}/runs/sim_hand_10k_seed42/checkpoints/latest.ckpt}"
-GUIDE_CKPT_PATH="${GUIDE_CKPT_PATH:-/home/carus/data_usb/obs_4-66.ckpt}"
+PRIOR_CKPT_PATH="${PRIOR_CKPT_PATH:-/home/carus/data_usb/obs_4-66.ckpt}"
+GUIDE_CKPT_PATH="${GUIDE_CKPT_PATH:-${DEX_ROOT}/runs/sim_hand_10k_seed42/checkpoints/latest.ckpt}"
 GUIDANCE_SCALES="${GUIDANCE_SCALES:-50,100,150}"
 SAMPLER="${SAMPLER:-ddim}"
 INFERENCE_STEPS="${INFERENCE_STEPS:-4}"
@@ -15,7 +15,7 @@ GUIDE_INFERENCE_STEPS="${GUIDE_INFERENCE_STEPS:-4}"
 FIXED_NOISE="${FIXED_NOISE:-1}"
 GUIDANCE_STEPS_LIST="${GUIDANCE_STEPS_LIST:-2,4,6,8}"
 EXECUTION_STEPS_LIST="${EXECUTION_STEPS_LIST:-2,4,6,8}"
-MODEL_SERVER="${MODEL_SERVER:-${SCRIPT_DIR}/xjz_eval_guidance.py}"
+MODEL_SERVER="${MODEL_SERVER:-${SCRIPT_DIR}/xjz_eval_strong_prior.py}"
 XJZ_TEST_SCRIPT="${XJZ_TEST_SCRIPT:-${SCRIPT_DIR}/xjz_test.sh}"
 MODEL_PYTHON="${MODEL_PYTHON:-/home/carus/miniforge3/envs/dp/bin/python}"
 
@@ -24,8 +24,8 @@ die() {
     exit 2
 }
 
-[[ -f "${WEAK_CKPT_PATH}" ]] || die "weak checkpoint not found: ${WEAK_CKPT_PATH}"
-[[ -f "${GUIDE_CKPT_PATH}" ]] || die "strong guide checkpoint not found: ${GUIDE_CKPT_PATH}"
+[[ -f "${PRIOR_CKPT_PATH}" ]] || die "strong prior checkpoint not found: ${PRIOR_CKPT_PATH}"
+[[ -f "${GUIDE_CKPT_PATH}" ]] || die "weak guide checkpoint not found: ${GUIDE_CKPT_PATH}"
 [[ -f "${MODEL_SERVER}" ]] || die "guided model server not found: ${MODEL_SERVER}"
 [[ -f "${XJZ_TEST_SCRIPT}" ]] || die "xjz test script not found: ${XJZ_TEST_SCRIPT}"
 
@@ -43,7 +43,7 @@ for scale in "${SCALE_ARR[@]}"; do
 done
 
 STAMP="$(date +%Y%m%d_%H%M%S)"
-RUN_DIR="${RUN_DIR:-${SCRIPT_DIR}/hold_runs/${STAMP}_weak10k_guide_exec_grid}"
+RUN_DIR="${RUN_DIR:-${SCRIPT_DIR}/hold_runs/${STAMP}_strong1b_guide_exec_grid}"
 mkdir -p "${RUN_DIR}"
 
 echo "[xjz-guidance-grid] run_dir=${RUN_DIR}"
@@ -60,7 +60,7 @@ for scale in "${SCALE_ARR[@]}"; do
                 continue
             fi
             echo "[xjz-guidance-grid] start ${name}"
-            CKPT_PATH="${WEAK_CKPT_PATH}" \
+            CKPT_PATH="${PRIOR_CKPT_PATH}" \
             GUIDE_CKPT_PATH="${GUIDE_CKPT_PATH}" \
             MODEL_SERVER="${MODEL_SERVER}" \
             GUIDANCE_SCALE="${scale}" \

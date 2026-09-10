@@ -13,11 +13,12 @@ import torch
 EVAL_DIR = Path(__file__).resolve().parents[1] / "eval"
 sys.path.insert(0, str(EVAL_DIR))
 
-from xjz_eval_guidance import (  # noqa: E402
-    _parse_args,
+from guided_pair_policy import (  # noqa: E402
+    bind_conditional_sample_seed,
     extract_strong_reference,
     validate_compatible_specs,
 )
+from xjz_eval_strong_prior import _parse_args  # noqa: E402
 
 
 class TrackingStrongPolicy:
@@ -78,20 +79,6 @@ def test_validate_compatible_specs_rejects_different_observation_contracts():
         validate_compatible_specs(weak, strong)
 
 
-def test_xjz_eval_guidance_script_imports_from_eval_entrypoint():
-    result = subprocess.run(
-        [sys.executable, str(EVAL_DIR / "xjz_eval_guidance.py"), "--help"],
-        cwd=EVAL_DIR,
-        text=True,
-        capture_output=True,
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert "--guide-checkpoint" in result.stdout
-    assert "--guidance-steps" in result.stdout
-    assert "--guide-seed" in result.stdout
-
-
 def test_xjz_eval_strong_prior_script_labels_roles_in_help():
     result = subprocess.run(
         [sys.executable, str(EVAL_DIR / "xjz_eval_strong_prior.py"), "--help"],
@@ -111,7 +98,7 @@ def test_guide_seed_defaults_to_prior_seed_and_can_be_overridden(monkeypatch):
         sys,
         "argv",
         [
-            "xjz_eval_guidance.py",
+            "xjz_eval_strong_prior.py",
             "--checkpoint",
             "weak.ckpt",
             "--guide-checkpoint",
@@ -128,7 +115,7 @@ def test_guide_seed_defaults_to_prior_seed_and_can_be_overridden(monkeypatch):
         sys,
         "argv",
         [
-            "xjz_eval_guidance.py",
+            "xjz_eval_strong_prior.py",
             "--checkpoint",
             "weak.ckpt",
             "--guide-checkpoint",
@@ -145,7 +132,7 @@ def test_guide_seed_defaults_to_prior_seed_and_can_be_overridden(monkeypatch):
 
 
 def test_bind_conditional_sample_seed_keeps_fixed_noise_repeatable_and_seed_dependent():
-    from xjz_eval_guidance import bind_conditional_sample_seed
+    from guided_pair_policy import bind_conditional_sample_seed
 
     class FakePolicy:
         def conditional_sample(
@@ -188,7 +175,7 @@ def test_guidance_steps_can_be_selected_from_environment(monkeypatch):
         sys,
         "argv",
         [
-            "xjz_eval_guidance.py",
+            "xjz_eval_strong_prior.py",
             "--checkpoint",
             "weak.ckpt",
             "--guide-checkpoint",

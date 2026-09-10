@@ -8,46 +8,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_xjz_eval_guidance_launcher_runs_paired_scales_with_same_checkpoints(tmp_path):
-    weak = tmp_path / "weak.ckpt"
-    strong = tmp_path / "strong.ckpt"
-    weak.touch()
-    strong.touch()
-    calls = tmp_path / "calls.txt"
-    fake_xjz = tmp_path / "fake_xjz.sh"
-    fake_xjz.write_text(
-        "#!/usr/bin/env bash\n"
-        "printf '%s|%s|%s|%s\\n' \"$GUIDANCE_SCALE\" \"$CKPT_PATH\" "
-        "\"$GUIDE_CKPT_PATH\" \"$MODEL_SERVER\" >> \"$CALLS_FILE\"\n",
-        encoding="utf-8",
-    )
-    fake_xjz.chmod(0o755)
-
-    env = os.environ.copy()
-    env.update(
-        {
-            "WEAK_CKPT_PATH": str(weak),
-            "GUIDE_CKPT_PATH": str(strong),
-            "GUIDANCE_SCALES": "0,100",
-            "XJZ_TEST_SCRIPT": str(fake_xjz),
-            "CALLS_FILE": str(calls),
-            "RUN_DIR": str(tmp_path / "runs"),
-        }
-    )
-    subprocess.run(
-        ["bash", str(ROOT / "eval" / "xjz_eval_guidance.sh")],
-        cwd=ROOT,
-        env=env,
-        check=True,
-    )
-
-    lines = calls.read_text(encoding="utf-8").splitlines()
-    assert lines == [
-        f"0|{weak}|{strong}|{ROOT / 'eval' / 'xjz_eval_guidance.py'}",
-        f"100|{weak}|{strong}|{ROOT / 'eval' / 'xjz_eval_guidance.py'}",
-    ]
-
-
 def test_xjz_guidance_test_runs_guide_by_exec_grid_and_skips_exec_beyond_guide(
     tmp_path,
 ):
@@ -70,8 +30,8 @@ def test_xjz_guidance_test_runs_guide_by_exec_grid_and_skips_exec_beyond_guide(
     env = os.environ.copy()
     env.update(
         {
-            "WEAK_CKPT_PATH": str(weak),
-            "GUIDE_CKPT_PATH": str(strong),
+            "PRIOR_CKPT_PATH": str(strong),
+            "GUIDE_CKPT_PATH": str(weak),
             "XJZ_TEST_SCRIPT": str(fake_xjz),
             "CALLS_FILE": str(calls),
             "RUN_DIR": str(tmp_path / "runs"),
