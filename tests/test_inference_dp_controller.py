@@ -29,7 +29,10 @@ def test_guidance_cli_defaults_use_segmentwise_ddim_scale_100(monkeypatch):
     args = parse_args()
 
     assert args.guidance_scale == 100.0
-    assert args.ddim_inference_steps == 8
+    assert args.ddim_inference_steps == 4
+    assert args.execution_steps == 2
+    assert args.guidance_steps == 9
+    assert args.controller_calls_per_dp == 4
     assert args.eta == 0.0
     assert not hasattr(args, "guidance_clip")
     assert not hasattr(args, "smoothness_scale")

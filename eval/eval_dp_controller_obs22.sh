@@ -30,15 +30,16 @@ fi
 
 DEVICE="${DEVICE:-cuda:0}"
 DP_INFERENCE_STEPS="${DP_INFERENCE_STEPS:-16}"
-DDIM_INFERENCE_STEPS="${DDIM_INFERENCE_STEPS:-8}"
+DDIM_INFERENCE_STEPS="${DDIM_INFERENCE_STEPS:-4}"
 # Actions executed per call; the checkpoint determines the output length limit.
 # EXECUTION_STEPS is a
 # legacy fallback; CONTROLLER_ACTION_CHUNK_SIZE takes precedence when set.
-CONTROLLER_ACTION_CHUNK_SIZE="${CONTROLLER_ACTION_CHUNK_SIZE:-${EXECUTION_STEPS:-5}}"
+CONTROLLER_ACTION_CHUNK_SIZE="${CONTROLLER_ACTION_CHUNK_SIZE:-${EXECUTION_STEPS:-2}}"
+GUIDANCE_STEPS="${GUIDANCE_STEPS:-9}"
 # Reuse one DP proposal for this many controller calls, with fresh state and
 # a reference window shifted by CONTROLLER_ACTION_CHUNK_SIZE after each call.
-# Full guidance must fit: (calls - 1) * chunk_size + 9 <= DP action chunk size.
-CONTROLLER_CALLS_PER_DP="${CONTROLLER_CALLS_PER_DP:-2}"
+# Full guidance must fit: (calls - 1) * chunk_size + guide_steps <= DP action chunk size.
+CONTROLLER_CALLS_PER_DP="${CONTROLLER_CALLS_PER_DP:-4}"
 GUIDANCE_SCALE="${GUIDANCE_SCALE:-100}"
 ETA="${ETA:-0.0}"
 FIXED_NOISE="${FIXED_NOISE:-1}"
@@ -85,6 +86,7 @@ ROBOT_INIT_SCRIPT="${ROBOT_INIT_SCRIPT:-${SCRIPT_DIR}/real/robot_init.py}"
 [[ "${SHOW_CAMERA_INPUT}" =~ ^[01]$ ]] || die "SHOW_CAMERA_INPUT must be 0 or 1"
 [[ "${STOP_ON_CLOSE}" =~ ^[01]$ ]] || die "STOP_ON_CLOSE must be 0 or 1"
 [[ "${CONTROLLER_ACTION_CHUNK_SIZE}" =~ ^[1-9][0-9]*$ ]] || die "CONTROLLER_ACTION_CHUNK_SIZE must be a positive integer"
+[[ "${GUIDANCE_STEPS}" =~ ^[1-9][0-9]*$ ]] || die "GUIDANCE_STEPS must be a positive integer"
 [[ "${CONTROLLER_CALLS_PER_DP}" =~ ^[1-9][0-9]*$ ]] || die "CONTROLLER_CALLS_PER_DP must be a positive integer"
 if [[ "${CHECK_ONLY}" == "0" && "${LIVE}" != "1" ]]; then
     die "hardware evaluation requires LIVE=1 (or leave CHECK_ONLY=1 for a safe model check)"
@@ -116,6 +118,7 @@ ARGS=(
     --dp-inference-steps "${DP_INFERENCE_STEPS}"
     --ddim-inference-steps "${DDIM_INFERENCE_STEPS}"
     --controller-action-chunk-size "${CONTROLLER_ACTION_CHUNK_SIZE}"
+    --guidance-steps "${GUIDANCE_STEPS}"
     --controller-calls-per-dp "${CONTROLLER_CALLS_PER_DP}"
     --guidance-scale "${GUIDANCE_SCALE}"
     --eta "${ETA}"
@@ -153,11 +156,11 @@ else
     fi
 fi
 
-echo "[pipeline] Real DP -> ${CONTROLLER_CALLS_PER_DP} x (guided Sim-Hand DDIM -> execute ${CONTROLLER_ACTION_CHUNK_SIZE} -> observe) -> replan DP"
+echo "[pipeline] Real DP -> ${CONTROLLER_CALLS_PER_DP} x (guided Sim-Hand DDIM, ${GUIDANCE_STEPS}-step guide -> execute ${CONTROLLER_ACTION_CHUNK_SIZE} -> observe) -> replan DP"
 echo "[dp] ${DP_CKPT_PATH} (steps=${DP_INFERENCE_STEPS})"
 echo "[controller] ${CONTROLLER_CKPT_PATH} (DDIM steps=${DDIM_INFERENCE_STEPS})"
 echo "[controller] observation mode is selected from checkpoint metadata; allow_salvage=${ALLOW_SALVAGE}"
-echo "[guidance] scale=${GUIDANCE_SCALE} eta=${ETA} ddim_steps=${DDIM_INFERENCE_STEPS} fixed_noise=${FIXED_NOISE}"
+echo "[guidance] scale=${GUIDANCE_SCALE} eta=${ETA} ddim_steps=${DDIM_INFERENCE_STEPS} guide_steps=${GUIDANCE_STEPS} exec=${CONTROLLER_ACTION_CHUNK_SIZE} fixed_noise=${FIXED_NOISE}"
 
 if [[ "${CHECK_ONLY}" == "0" ]]; then
     [[ -f "${FRANKA_URDF}" ]] || die "Franka URDF not found: ${FRANKA_URDF}"

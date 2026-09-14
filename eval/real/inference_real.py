@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--sampler", choices=("ddpm", "ddim"), default="ddim")
-    parser.add_argument("--inference-steps", type=int, default=8)
+    parser.add_argument("--inference-steps", type=int, default=4)
     parser.add_argument(
         "--tensorrt",
         action="store_true",

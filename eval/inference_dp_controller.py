@@ -315,15 +315,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--controller-checkpoint", required=True, type=Path)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--dp-inference-steps", type=int, default=16)
-    parser.add_argument("--ddim-inference-steps", type=int, default=8)
+    parser.add_argument("--ddim-inference-steps", type=int, default=4)
     parser.add_argument(
         "--controller-action-chunk-size", "--execution-steps",
-        dest="execution_steps", type=int, default=5,
-        help="Actions executed per call, up to horizon - n_obs_steps + 1 (default: 5)",
+        dest="execution_steps", type=int, default=2,
+        help="Actions executed per call, up to horizon - n_obs_steps + 1 (default: 2)",
     )
     parser.add_argument(
-        "--controller-calls-per-dp", type=int, default=2,
-        help="Controller calls reusing one DP proposal (default: 2)",
+        "--guidance-steps",
+        type=int,
+        default=9,
+        help="DP hand steps used as DDIM guidance (default: 9)",
+    )
+    parser.add_argument(
+        "--controller-calls-per-dp", type=int, default=4,
+        help="Controller calls reusing one DP proposal (default: 4)",
     )
     parser.add_argument("--guidance-scale", type=float, default=100.0)
     parser.add_argument("--eta", type=float, default=0.0, help="DDIM eta (must be 0.0)")
@@ -390,6 +396,8 @@ def _validate_args(args: argparse.Namespace) -> torch.device:
         raise ValueError("eta must be 0.0")
     if args.execution_steps <= 0:
         raise ValueError("controller action chunk size must be positive")
+    if args.guidance_steps <= 0:
+        raise ValueError("guidance_steps must be positive")
     if args.controller_calls_per_dp <= 0:
         raise ValueError("controller_calls_per_dp must be positive")
     if args.max_chunks < 0:
@@ -591,6 +599,7 @@ def main() -> int:
         seed=args.seed,
         allow_salvage=not args.no_salvage,
     )
+    controller.set_guidance_horizon(args.guidance_steps)
     controller_windows = _controller_windows(
         action_steps, controller.execution_steps,
         args.controller_calls_per_dp, controller.reference_steps,
