@@ -32,9 +32,10 @@ RUN_DIR="${RUN_DIR:-${SCRIPT_DIR}/hold_runs/${STAMP}_strong1b_guided_by_weak10k}
 mkdir -p "${RUN_DIR}"
 
 IFS=',' read -r -a SCALE_VALUES <<< "${GUIDANCE_SCALES}"
+RUN_TAG="${RUN_TAG:-strong1b_weak10k_guide}"
 for scale in "${SCALE_VALUES[@]}"; do
     [[ "${scale}" =~ ^[0-9]+([.][0-9]+)?$ ]] || die "invalid guidance scale: ${scale}"
-    name="strong1b_weak10k_guide_scale${scale}"
+    name="${RUN_TAG}_scale${scale}"
     echo "[xjz-strong-prior] start ${name}"
     CKPT_PATH="${PRIOR_CKPT_PATH}" \
     GUIDE_CKPT_PATH="${GUIDE_CKPT_PATH}" \
