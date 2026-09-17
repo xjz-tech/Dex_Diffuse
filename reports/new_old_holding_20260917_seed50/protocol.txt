@@ -1,0 +1,12 @@
+空手新holding / 旧holding / 不holding 对照实验
+
+旧holding：每个chunk最后一步结束先读qpos；下一轮推理前再读一次qpos，用第二次读数下发hold，并刷新obs历史最后一帧的qpos/error；action仍为上一条策略目标。
+新holding：每步周期末统一采样，chunk结束后先固定obs；直接使用这次采样的qpos下发hold，不额外读取、不刷新历史。收到hold通信确认后推理，仍是同步发送，不是并行版本。
+不holding：周期末采样后直接推理，硬件继续追上一策略目标。
+
+沿用当前单轮对照口径：seed=50，各600动作、300chunk；chunk=2、30Hz；每次ROTATE复位50步/2秒；TensorRT FP32、fused DDIM、DDIM=4步；不插值；软件限幅关闭；退出保持实测位置。
+旧holding来源：reports/hold_comparison_20260917/pair1_seed50_hold1.txt及同名JSONL。
+不holding来源：reports/hold_comparison_20260917/pair1_seed50_hold0.txt及同名JSONL。
+新holding来源：本目录new_holding_seed50.txt及同名JSONL（已完成）。
+每种条件仅1轮；旧数据保留。比较的是不同时间的闭环实验，不保证轨迹一致。
+统一展示指标：max_j|下一chunk首个策略目标−上一chunk最后策略目标|；跳过全部hold指令，与不holding采用同一口径。

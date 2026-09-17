@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import time
 from collections import deque
 from pathlib import Path
@@ -22,6 +23,8 @@ import dill  # noqa: E402
 import hydra  # noqa: E402
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
+sys.path.append(str(Path(__file__).resolve().parent / "eval"))
+from inference_timing import InferenceTimer  # noqa: E402
 from omegaconf import OmegaConf  # noqa: E402
 
 from direct_robot_env import ACTION_DIM, DirectRobotEnv  # noqa: E402
@@ -277,7 +280,7 @@ def main():
                 1, n_obs_steps, ACTION_DIM - EE_DIM, device=device
             ),
         }
-        with torch.inference_mode():
+        with InferenceTimer(device, "dp_check"), torch.inference_mode():
             check_action = policy.predict_action(dummy_obs)["action"]
         expected_shape = (1, inference_action_steps, ACTION_DIM)
         if tuple(check_action.shape) != expected_shape:
@@ -345,7 +348,7 @@ def main():
             policy_obs, base_ee_pose = build_policy_obs(
                 obs_history, device, relative_ee
             )
-            with torch.inference_mode():
+            with InferenceTimer(device, "dp"), torch.inference_mode():
                 prediction = policy.predict_action(policy_obs)
             mixed_actions = prediction["action"][0].detach().cpu().numpy()
             if relative_ee:

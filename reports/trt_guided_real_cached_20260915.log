@@ -1,0 +1,12 @@
+WARNING:torch_tensorrt.dynamo.conversion.aten_ops_converters:Unable to import quantization op. Please install modelopt library (https://github.com/NVIDIA/TensorRT-Model-Optimizer?tab=readme-ov-file#installation) to add support for compiling quantized models
+[guidance] guide=/media/frankagvl/U393/Dex_Diffuse/runs/epoch_0200.ckpt; weights=EMA model; scale=25.0; prior_steps=8; guide_steps=4; guidance_actions=2; fixed_noise=1; seeds=42/42; fused_ddim=False
+eager: mean=76.607 ms median=76.258 ms
+fused: mean=63.010 ms median=62.275 ms
+fused action max_error=0.0001239 rad
+[TensorRT] loaded cached engine: /media/frankagvl/U393/Dex_Diffuse/runs/obs_4-66.unet.fp16.trt.pt
+[TensorRT] loaded cached engine: /media/frankagvl/U393/Dex_Diffuse/runs/epoch_0200.unet.fp16.trt.pt
+TRT prepare (compile/cache): 1.9s
+WARNING: [Torch-TensorRT] - Using default stream in enqueueV3() may lead to performance issues due to additional calls to cudaStreamSynchronize() by TensorRT to ensure correct synchronization. Please use non-default stream instead.
+WARNING: [Torch-TensorRT] - Using default stream in enqueueV3() may lead to performance issues due to additional calls to cudaStreamSynchronize() by TensorRT to ensure correct synchronization. Please use non-default stream instead.
+TRT FP16 + fused: mean=11.768 ms median=12.066 ms
+TRT action mae=0.0018300 max_error=0.0078722 rad

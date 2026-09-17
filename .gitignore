@@ -49,6 +49,10 @@ ENV/
 
 # Logs and temporary files
 *.log
+/eval/real/latest_run.txt
+/eval/real/latest_run.[1-9].txt
+/eval/real/latest_run.jsonl
+/eval/real/latest_run.[1-9].jsonl
 *.tmp
 *.temp
 *.pid

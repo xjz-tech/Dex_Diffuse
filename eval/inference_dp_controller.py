@@ -26,6 +26,7 @@ import torch
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
 from omegaconf import OmegaConf
 
+from inference_timing import InferenceTimer
 from checkpoint_loader import build_policy as build_controller_policy
 from checkpoint_loader import load_checkpoint as load_controller_checkpoint
 from diffusion_policy.guidance.guided_ddim import sample_guided_trajectory
@@ -271,6 +272,9 @@ class GuidedDDIMController:
             reference[:, : self.reference_steps]
         )
         trajectory = self._noise(history.shape[0], history.dtype)
+        extra_kwargs = {}
+        if getattr(self, "weak_guide", None) is not None:
+            extra_kwargs["extra_guidance"] = self.weak_guide(history)
         sample = sample_guided_trajectory(
             model=self._predict_epsilon,
             scheduler=self.scheduler,
@@ -281,6 +285,7 @@ class GuidedDDIMController:
             guidance_scale=self.guidance_scale,
             guidance_slice=self.reference_slice,
             eta=self.eta,
+            **extra_kwargs,
         )
         if not sample.steps:
             raise RuntimeError("guided DDIM produced no reverse steps")
@@ -313,6 +318,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dp-checkpoint", required=True, type=Path)
     parser.add_argument("--controller-checkpoint", required=True, type=Path)
+    parser.add_argument("--weak-guide-checkpoint", type=Path, default=None)
+    parser.add_argument("--weak-guide-scale", type=float, default=25.0)
+    parser.add_argument("--weak-guide-steps", type=int, default=2)
+    parser.add_argument("--weak-guide-inference-steps", type=int, default=4)
+    parser.add_argument("--weak-guide-seed", type=int, default=None)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--dp-inference-steps", type=int, default=16)
     parser.add_argument("--ddim-inference-steps", type=int, default=4)
@@ -388,6 +398,14 @@ def _validate_args(args: argparse.Namespace) -> torch.device:
         if not path.is_file():
             raise FileNotFoundError("%s not found: %s" % (name, path))
         setattr(args, name, path)
+    if args.weak_guide_checkpoint is not None:
+        args.weak_guide_checkpoint = args.weak_guide_checkpoint.expanduser().resolve()
+        if not args.weak_guide_checkpoint.is_file():
+            raise FileNotFoundError(f"weak guide checkpoint not found: {args.weak_guide_checkpoint}")
+        if not np.isfinite(args.weak_guide_scale) or args.weak_guide_scale < 0:
+            raise ValueError("weak guide scale must be finite and non-negative")
+        if not 1 <= args.weak_guide_steps <= 9 or args.weak_guide_inference_steps <= 0:
+            raise ValueError("weak guide steps must be in 1..9 and inference steps positive")
     if args.dp_inference_steps <= 0 or args.ddim_inference_steps <= 0:
         raise ValueError("inference step counts must be positive")
     if args.guidance_scale < 0.0:
@@ -533,10 +551,9 @@ def _run_check(
     device: torch.device,
     controller_windows: tuple[tuple[slice, slice], ...],
 ) -> None:
-    with torch.inference_mode():
-        proposal = real_policy.predict_action(
-            _synthetic_real_observation(n_obs_steps, rgb_shapes, device)
-        )["action"]
+    synthetic_obs = _synthetic_real_observation(n_obs_steps, rgb_shapes, device)
+    with InferenceTimer(device, "dp_check"), torch.inference_mode():
+        proposal = real_policy.predict_action(synthetic_obs)["action"]
     expected = (1, action_steps, ACTION_DIM)
     if tuple(proposal.shape) != expected:
         raise RuntimeError(
@@ -557,7 +574,8 @@ def _run_check(
     # Synthetic shape/inference check only: no robot feedback is available here.
     for controller_idx, (execute_slice, guide_slice) in enumerate(controller_windows):
         hand_guide = hand_reference[guide_slice]
-        guided, stats = controller.predict(history, hand_guide)
+        with InferenceTimer(device, "controller_check"):
+            guided, stats = controller.predict(history, hand_guide)
         if guided.shape != expected_guided:
             raise RuntimeError(
                 "controller returned shape %s, expected %s" % (guided.shape, expected_guided)
@@ -600,6 +618,9 @@ def main() -> int:
         allow_salvage=not args.no_salvage,
     )
     controller.set_guidance_horizon(args.guidance_steps)
+    if args.weak_guide_checkpoint is not None:
+        from dp_weak_guide import WeakTrajectoryGuide
+        controller.weak_guide = WeakTrajectoryGuide(controller, args)
     controller_windows = _controller_windows(
         action_steps, controller.execution_steps,
         args.controller_calls_per_dp, controller.reference_steps,
@@ -695,7 +716,7 @@ def main() -> int:
                 device,
                 relative_ee,
             )
-            with torch.inference_mode():
+            with InferenceTimer(device, "dp"), torch.inference_mode():
                 proposal = real_policy.predict_action(policy_obs)["action"][0]
             mixed_actions = proposal.detach().cpu().numpy()
             absolute_dp_actions = (
@@ -717,12 +738,12 @@ def main() -> int:
                 # Replan from feedback after the previous execution chunk, while
                 # advancing BOTH the arm actions and hand guide in the cached DP.
                 hand_reference = absolute_dp_actions[guide_slice, ARM_DIM:]
-                started = time.perf_counter()
-                guided_hand, stats = controller.predict(
-                    np.stack(controller_history),
-                    hand_reference,
-                )
-                inference_seconds = time.perf_counter() - started
+                with InferenceTimer(device, "controller") as timer:
+                    guided_hand, stats = controller.predict(
+                        np.stack(controller_history),
+                        hand_reference,
+                    )
+                inference_seconds = timer.elapsed
                 guided_actions = absolute_dp_actions[execute_slice].copy()
                 expected_hand = (1, controller.execution_steps, HAND_DIM)
                 if guided_hand.shape != expected_hand:

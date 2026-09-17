@@ -141,6 +141,7 @@ def guided_ddim_step(
     guidance_scale: float,
     guidance_slice: slice,
     eta: float = 0.0,
+    extra_guidance: tuple = (),
 ) -> GuidedDDIMStepOutput:
     if scheduler.num_inference_steps is None:
         raise ValueError(
@@ -181,10 +182,20 @@ def guided_ddim_step(
                 "sample must require gradients when guidance_scale is positive"
             )
         guidance_loss = _slice_mse(x0_raw, reference, guidance_slice).sum()
-        gradient = torch.autograd.grad(guidance_loss, sample)[0]
+        gradient = torch.autograd.grad(guidance_loss, sample, retain_graph=bool(extra_guidance))[0]
     else:
         gradient = torch.zeros_like(sample)
     guided_epsilon = base_epsilon + sqrt_beta_t * guidance_scale * gradient
+    # Each reference uses its own mean loss and weight, even for different windows.
+    for extra_reference, extra_slice, extra_scale in extra_guidance:
+        _require_finite_guidance_scale(extra_scale)
+        if extra_scale < 0:
+            raise ValueError("extra guidance scale must be non-negative")
+        _validate_guidance_reference(x0_raw, extra_reference, extra_slice)
+        if extra_scale > 0:
+            extra_loss = _slice_mse(x0_raw, extra_reference, extra_slice).sum()
+            extra_gradient = torch.autograd.grad(extra_loss, sample, retain_graph=True)[0]
+            guided_epsilon = guided_epsilon + sqrt_beta_t * extra_scale * extra_gradient
     guided_x0_raw = (sample - sqrt_beta_t * guided_epsilon) / sqrt_alpha_t
     guided_x0 = guided_x0_raw
     direction = (1.0 - alpha_prev).sqrt()
@@ -226,6 +237,7 @@ def sample_guided_trajectory(
     guidance_scale: float,
     guidance_slice: slice,
     eta: float = 0.0,
+    extra_guidance: tuple = (),
 ) -> GuidedDDIMSampleOutput:
     if num_inference_steps <= 0:
         raise ValueError(
@@ -244,7 +256,7 @@ def sample_guided_trajectory(
                 timestep,
                 global_cond=global_cond,
             )
-        if guidance_scale > 0:
+        if guidance_scale > 0 or any(scale > 0 for _, _, scale in extra_guidance):
             with torch.inference_mode(False), torch.enable_grad():
                 xt = trajectory.detach().clone().requires_grad_(True)
                 output = guided_ddim_step(
@@ -256,6 +268,7 @@ def sample_guided_trajectory(
                     guidance_scale=guidance_scale,
                     guidance_slice=guidance_slice,
                     eta=eta,
+                    extra_guidance=extra_guidance,
                 )
         else:
             output = guided_ddim_step(
@@ -267,6 +280,7 @@ def sample_guided_trajectory(
                 guidance_scale=guidance_scale,
                 guidance_slice=guidance_slice,
                 eta=eta,
+                extra_guidance=extra_guidance,
             )
         outputs.append(output)
         trajectory = output.prev_sample.detach()

@@ -1,0 +1,163 @@
+截至2026-09-17：所有已归档对照实验统一口径汇总
+共15次有完整JSONL的推理实验，另有1次放灯泡旧holding仅有TXT。归档副本不重复计数；两次初始化失败未开始推理，单独留档、不计入。
+每个角度样本=max_j(abs(差值[j]))，即22关节中最大绝对差；下面均值是对这些最大值沿时间平均，不是22关节的平均误差。
+action→action仅相邻policy目标，跳过holding；新action−qpos使用发送前最近实测值，跨chunk时约已过去一次推理时间。
+周期末误差使用完成该动作周期后的qpos，是评估一个控制周期后是否跟上目标的指标。
+所有指令差排除首个policy动作及退出hold；中断前已下发但未完成周期的末指令计入action差，周期末误差只计完成周期。
+同组按样本汇总；历史seed51/52在此作为已有记录展示，不代表新增运行。不同组时长、种子和接触状态可能不同。
+
+| 条件 | 轮数 | chunk内action差均值 | 跨chunk action差均值 | 跨chunk新action−qpos均值 | 周期末误差均值 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 空手原初始化/不holding | 3 | 5.98° | 6.07° | 9.68° | 4.41° |
+| 空手原初始化/旧holding | 3 | 5.95° | 6.00° | 9.61° | 4.71° |
+| 空手原初始化/新holding | 1 | 6.03° | 6.09° | 9.79° | 4.75° |
+| 放灯泡/早期不holding | 1 | 5.79° | 5.88° | 9.80° | 5.29° |
+| 放灯泡/近期不holding | 2 | 5.79° | 5.93° | 10.32° | 6.49° |
+| 放灯泡/新holding | 2 | 5.72° | 5.86° | 10.85° | 7.00° |
+| 空手数据集初始化1/不holding | 1 | 5.98° | 6.11° | 9.68° | 4.41° |
+| 空手数据集初始化2/不holding | 1 | 5.79° | 5.93° | 9.45° | 4.44° |
+| 空手数据集初始化3/不holding | 1 | 5.98° | 6.09° | 9.72° | 4.45° |
+
+原seed50空手单轮对照：
+空手原初始化/不holding：chunk内action→action均值=6.00°, 跨chunk action→action均值=6.08°, 跨chunk新action−最近qpos均值=9.68°, 动作周期末action−qpos均值=4.40°
+空手原初始化/旧holding：chunk内action→action均值=6.03°, 跨chunk action→action均值=6.09°, 跨chunk新action−最近qpos均值=9.74°, 动作周期末action−qpos均值=4.75°
+空手原初始化/新holding：chunk内action→action均值=6.03°, 跨chunk action→action均值=6.09°, 跨chunk新action−最近qpos均值=9.79°, 动作周期末action−qpos均值=4.75°
+
+放灯泡旧holding（15:22:40，仅TXT，608policy动作）：
+chunk内action差：n304，均值5.78°，最大7.77°。
+上一action→hold(qpos)：n303，均值9.46°，最大39.22°。
+hold(qpos)→下一action：n303，均值12.83°，最大40.78°。
+无法还原跳过hold的跨chunk action差，也无法从此TXT还原全部周期末误差。不能将40.78°当作纯action跨chunk变化。
+来源：reports/hold_comparison_20260917/bulb_holding_original.txt；其副本不重复统计。
+
+逐轮完整指标（均值/中位数/P95/最大值，单位度）：
+
+空手原初始化/不holding seed=50；已下发600、完成600步；跨chunk qpos平均年龄11.281ms。
+reports/hold_comparison_20260917/pair1_seed50_hold0.txt
+reports/hold_comparison_20260917/pair1_seed50_hold0.jsonl
+  chunk内action→action：n=300；6.0017/5.9555/6.9392/8.0880
+  跨chunk action→action：n=299；6.0841/5.9978/7.2630/8.7389
+  跨chunk新action−最近qpos：n=299；9.6797/9.6925/11.7183/13.6781
+  动作周期末action−qpos：n=600；4.3957/4.3440/5.5373/6.3480
+
+空手原初始化/旧holding seed=50；已下发600、完成600步；跨chunk qpos平均年龄11.551ms。
+reports/hold_comparison_20260917/pair1_seed50_hold1.txt
+reports/hold_comparison_20260917/pair1_seed50_hold1.jsonl
+  chunk内action→action：n=300；6.0266/6.0198/6.8099/7.8034
+  跨chunk action→action：n=299；6.0866/6.0300/7.0155/8.0237
+  跨chunk新action−最近qpos：n=299；9.7430/9.8432/11.5405/13.5297
+  动作周期末action−qpos：n=600；4.7528/4.7238/5.9833/7.1280
+
+空手原初始化/不holding seed=51；已下发600、完成600步；跨chunk qpos平均年龄10.937ms。
+reports/hold_comparison_20260917/pair2_seed51_hold0.txt
+reports/hold_comparison_20260917/pair2_seed51_hold0.jsonl
+  chunk内action→action：n=300；5.9615/5.9927/6.8507/7.4129
+  跨chunk action→action：n=299；6.0566/6.0554/7.0240/7.7554
+  跨chunk新action−最近qpos：n=299；9.7006/9.7878/11.6600/14.9906
+  动作周期末action−qpos：n=600；4.4230/4.3878/5.6082/10.2369
+
+空手原初始化/旧holding seed=51；已下发600、完成600步；跨chunk qpos平均年龄11.579ms。
+reports/hold_comparison_20260917/pair2_seed51_hold1.txt
+reports/hold_comparison_20260917/pair2_seed51_hold1.jsonl
+  chunk内action→action：n=300；5.8560/5.9633/6.9134/7.9541
+  跨chunk action→action：n=299；5.9228/5.9320/6.9161/8.9614
+  跨chunk新action−最近qpos：n=299；9.4833/9.6462/11.7411/14.0532
+  动作周期末action−qpos：n=600；4.6758/4.7192/5.9930/6.7019
+
+空手原初始化/不holding seed=52；已下发600、完成600步；跨chunk qpos平均年龄10.985ms。
+reports/hold_comparison_20260917/pair3_seed52_hold0.txt
+reports/hold_comparison_20260917/pair3_seed52_hold0.jsonl
+  chunk内action→action：n=300；5.9904/5.9357/6.8497/7.9587
+  跨chunk action→action：n=299；6.0738/6.0526/6.9830/8.3605
+  跨chunk新action−最近qpos：n=299；9.6619/9.7449/11.4679/13.2279
+  动作周期末action−qpos：n=600；4.4070/4.3277/5.5625/6.3266
+
+空手原初始化/旧holding seed=52；已下发600、完成600步；跨chunk qpos平均年龄11.575ms。
+reports/hold_comparison_20260917/pair3_seed52_hold1.txt
+reports/hold_comparison_20260917/pair3_seed52_hold1.jsonl
+  chunk内action→action：n=300；5.9654/6.0061/6.7537/7.5077
+  跨chunk action→action：n=299；5.9929/5.9889/6.8742/8.4170
+  跨chunk新action−最近qpos：n=299；9.5896/9.6838/11.5642/13.4763
+  动作周期末action−qpos：n=600；4.7109/4.7108/6.0106/6.6724
+
+空手原初始化/新holding seed=50；已下发600、完成600步；跨chunk qpos平均年龄11.337ms。
+reports/new_old_holding_20260917_seed50/new_holding_seed50.txt
+reports/new_old_holding_20260917_seed50/new_holding_seed50.jsonl
+  chunk内action→action：n=300；6.0280/6.0156/6.8175/7.4369
+  跨chunk action→action：n=299；6.0932/6.0419/7.0340/8.7495
+  跨chunk新action−最近qpos：n=299；9.7918/10.0254/11.7380/13.4004
+  动作周期末action−qpos：n=600；4.7464/4.7633/6.0440/6.9096
+
+放灯泡/早期不holding 16:07:15；已下发248、完成247步；跨chunk qpos平均年龄11.103ms。
+reports/bulb_hold_comparison_20260917_160715/bulb_no_hold_160715.txt
+reports/bulb_hold_comparison_20260917_160715/bulb_no_hold_160715.jsonl
+  chunk内action→action：n=124；5.7938/5.9221/6.6221/7.0232
+  跨chunk action→action：n=123；5.8841/5.9889/6.9850/7.6633
+  跨chunk新action−最近qpos：n=123；9.7974/9.8712/11.9257/18.1611
+  动作周期末action−qpos：n=247；5.2859/4.8140/9.0647/14.2260
+
+放灯泡/近期不holding 163706；已下发352、完成351步；跨chunk qpos平均年龄11.289ms。
+reports/bulb_no_hold_20260917_1637/bulb_no_hold_163706.txt
+reports/bulb_no_hold_20260917_1637/bulb_no_hold_163706.jsonl
+  chunk内action→action：n=176；5.7350/5.8440/6.7369/7.5533
+  跨chunk action→action：n=175；5.8290/5.8986/7.0909/8.1801
+  跨chunk新action−最近qpos：n=175；10.1156/9.9252/13.6274/19.5768
+  动作周期末action−qpos：n=351；6.2096/5.2329/13.2255/16.9289
+
+放灯泡/近期不holding 163749；已下发457、完成456步；跨chunk qpos平均年龄10.936ms。
+reports/bulb_no_hold_20260917_1637/bulb_no_hold_163749.txt
+reports/bulb_no_hold_20260917_1637/bulb_no_hold_163749.jsonl
+  chunk内action→action：n=228；5.8279/5.8515/6.8307/7.7688
+  跨chunk action→action：n=228；6.0094/6.0543/7.3053/8.1278
+  跨chunk新action−最近qpos：n=228；10.4805/10.1916/15.2636/23.3622
+  动作周期末action−qpos：n=456；6.6991/5.2564/14.6870/25.4051
+
+放灯泡/新holding 164011；已下发268、完成268步；跨chunk qpos平均年龄11.535ms。
+reports/bulb_new_hold_comparison_20260917_1640/bulb_new_hold_164011.txt
+reports/bulb_new_hold_comparison_20260917_1640/bulb_new_hold_164011.jsonl
+  chunk内action→action：n=134；5.7146/5.8442/6.7729/7.7411
+  跨chunk action→action：n=133；5.8319/5.9089/6.9621/8.0867
+  跨chunk新action−最近qpos：n=133；11.1357/10.2223/20.3524/26.5548
+  动作周期末action−qpos：n=268；7.3040/5.5567/17.0140/25.5563
+
+放灯泡/新holding 164056；已下发307、完成306步；跨chunk qpos平均年龄11.523ms。
+reports/bulb_new_hold_comparison_20260917_1640/bulb_new_hold_164056.txt
+reports/bulb_new_hold_comparison_20260917_1640/bulb_new_hold_164056.jsonl
+  chunk内action→action：n=153；5.7232/5.8032/6.7074/7.0558
+  跨chunk action→action：n=153；5.8895/5.9787/7.0781/8.2024
+  跨chunk新action−最近qpos：n=153；10.5972/10.0874/15.3442/32.2513
+  动作周期末action−qpos：n=306；6.7294/5.2594/15.1598/28.3844
+
+空手数据集初始化1/不holding seed=50；已下发600、完成600步；跨chunk qpos平均年龄11.005ms。
+reports/dataset_initialization_no_hold_20260917/dataset_pose_1_seed50.txt
+reports/dataset_initialization_no_hold_20260917/dataset_pose_1_seed50.jsonl
+  chunk内action→action：n=300；5.9797/5.9387/6.8853/7.8540
+  跨chunk action→action：n=299；6.1084/6.0924/7.0938/8.0028
+  跨chunk新action−最近qpos：n=299；9.6833/9.7935/11.5162/13.5231
+  动作周期末action−qpos：n=600；4.4103/4.3718/5.6179/6.4217
+
+空手数据集初始化2/不holding seed=50；已下发600、完成600步；跨chunk qpos平均年龄11.177ms。
+reports/dataset_initialization_no_hold_20260917/dataset_pose_2_seed50.txt
+reports/dataset_initialization_no_hold_20260917/dataset_pose_2_seed50.jsonl
+  chunk内action→action：n=300；5.7912/5.9049/6.8728/7.4234
+  跨chunk action→action：n=299；5.9288/6.0006/7.1692/8.6033
+  跨chunk新action−最近qpos：n=299；9.4528/9.6378/11.5130/13.5561
+  动作周期末action−qpos：n=600；4.4382/4.4117/5.5830/6.3698
+
+空手数据集初始化3/不holding seed=50；已下发600、完成600步；跨chunk qpos平均年龄10.802ms。
+reports/dataset_initialization_no_hold_20260917/dataset_pose_3_seed50.txt
+reports/dataset_initialization_no_hold_20260917/dataset_pose_3_seed50.jsonl
+  chunk内action→action：n=300；5.9822/5.9869/6.7924/7.9423
+  跨chunk action→action：n=299；6.0868/6.0465/6.9868/8.3575
+  跨chunk新action−最近qpos：n=299；9.7179/9.7639/11.4754/12.8883
+  动作周期末action−qpos：n=600；4.4521/4.4029/5.5509/6.1976
+
+初始化替换实验（每种一轮600步；<=0.09rad=5.15662°）：
+逐关节相邻action差占比：原83.69%；数据集1=83.41%，2=84.65%，3=83.84%；三组汇总83.97%。
+整步22关节都达标：原4.01%；数据集1=4.01%，2=8.68%，3=3.51%；三组合并5.40%。
+这些是action→action分布，不能用于声称换初始化减小了action−qpos误差。详情及向量见reports/dataset_initialization_no_hold_20260917/summary.txt。
+
+解释边界：目前纯action跨chunk变化与chunk内相近；放灯泡时，目标与实际位置的差及尾部偏差更值得关注。
+新action−旧qpos包含新目标本身的变化，不能全部归因于跟踪滞后；周期末误差表明执行完周期仍存在偏差。
+holding使实际指令序列变成上一action→实测qpos→新action，新增切换包含目标与实测位置偏差；这不等于证明模型预测的跨chunk action突变。
+这些独立闭环记录不能单独确定偏差来自接触、关节约束、驱动响应还是时延，不能证明holding是全部误差的原因。

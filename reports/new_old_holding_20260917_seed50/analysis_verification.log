@@ -1,0 +1,41 @@
+空手新holding / 旧holding / 不holding 对照实验
+
+旧holding：每个chunk最后一步结束先读qpos；下一轮推理前再读一次qpos，用第二次读数下发hold，并刷新obs历史最后一帧的qpos/error；action仍为上一条策略目标。
+新holding：每步周期末统一采样，chunk结束后先固定obs；直接使用这次采样的qpos下发hold，不额外读取、不刷新历史。收到hold通信确认后推理，仍是同步发送，不是并行版本。
+不holding：周期末采样后直接推理，硬件继续追上一策略目标。
+
+沿用当前单轮对照口径：seed=50，各600动作、300chunk；chunk=2、30Hz；每次ROTATE复位50步/2秒；TensorRT FP32、fused DDIM、DDIM=4步；不插值；软件限幅关闭；退出保持实测位置。
+旧holding来源：reports/hold_comparison_20260917/pair1_seed50_hold1.txt及同名JSONL。
+不holding来源：reports/hold_comparison_20260917/pair1_seed50_hold0.txt及同名JSONL。
+新holding来源：本目录new_holding_seed50.txt及同名JSONL（已完成）。
+每种条件仅1轮；旧数据保留。比较的是不同时间的闭环实验，不保证轨迹一致。
+统一展示指标：max_j|下一chunk首个策略目标−上一chunk最后策略目标|；跳过全部hold指令，与不holding采用同一口径。
+
+新holding实验已完成：600个动作/300个chunk，正常退出并保持实测位置。三组checkpoint SHA256及初始化目标完全一致。
+空手条件：运行前用户再次确认已取走灯泡。
+统一口径：跳过所有hold指令，计算上一chunk最后策略目标与下一chunk第一个策略目标的差，取22关节最大绝对值；每组299个边界。下表不是实测位移。
+
+| 条件 | 指令切换 | 样本数 | 平均幅度 | 中位数 | P95 | 最大值 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 不holding | 上一chunk最后策略目标→下一chunk第一个策略目标 | 299 | 6.08°（0.1062 rad） | 6.00° | 7.26° | 8.74° |
+| 旧holding | 上一chunk最后策略目标→下一chunk第一个策略目标 | 299 | 6.09°（0.1062 rad） | 6.03° | 7.02° | 8.02° |
+| 新holding | 上一chunk最后策略目标→下一chunk第一个策略目标 | 299 | 6.09°（0.1063 rad） | 6.04° | 7.03° | 8.75° |
+
+新holding相对旧holding：
+  上一chunk最后策略目标→下一chunk第一个策略目标均值：6.0866° → 6.0932°，变化+0.11%。
+
+本次结果：三种模式的两个chunk之间平均目标差均约6.09°，数值接近。单轮差异不能视作统计显著变化。
+
+采样时序验证：
+  不holding：inference阶段状态读取603次，其中边界额外读取0次；平均推理9.382ms。
+  旧holding：inference阶段状态读取903次，其中边界额外读取300次；平均推理9.340ms。
+  新holding：inference阶段状态读取603次，其中边界额外读取0次；平均推理9.198ms。
+新holding逐chunk核对：inference_input先于hold，hold与该输入qpos一致，两者之间没有新状态读取。
+
+每组仅一轮且在不同时间采集，即使seed相同，初始实测误差和闭环轨迹也可能不同，结果仅作本次对照。
+完整向量、hold切换及实测反馈保存在JSONL/results.json中，本表统一只展示两个chunk之间的策略目标差。
+
+实际数据来源：
+  不holding：reports/hold_comparison_20260917/pair1_seed50_hold0.txt；reports/hold_comparison_20260917/pair1_seed50_hold0.jsonl
+  旧holding：reports/hold_comparison_20260917/pair1_seed50_hold1.txt；reports/hold_comparison_20260917/pair1_seed50_hold1.jsonl
+  新holding：reports/new_old_holding_20260917_seed50/new_holding_seed50.txt；reports/new_old_holding_20260917_seed50/new_holding_seed50.jsonl

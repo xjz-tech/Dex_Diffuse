@@ -1,0 +1,8 @@
+# Runtime used with dexIL's torch==2.4.0+cu121 / Python 3.8 on RTX 4090.
+# Pin the CUDA meta-package too: tensorrt==10.1.0 alone leaves it unbounded.
+# Install with NVIDIA_TENSORRT_DISABLE_INTERNAL_PIP=1 to avoid nested pip.
+torch-tensorrt==2.4.0
+tensorrt==10.1.0
+tensorrt-cu12==10.1.0
+tensorrt-cu12-bindings==10.1.0
+tensorrt-cu12-libs==10.1.0

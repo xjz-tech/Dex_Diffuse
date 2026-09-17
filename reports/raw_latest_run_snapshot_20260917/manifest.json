@@ -1,0 +1,71 @@
+{
+  "archived_at": "2026-09-17T09:14:56.071544+00:00",
+  "files": [
+    {
+      "original": "eval/real/latest_run.1.jsonl",
+      "archive": "reports/raw_latest_run_snapshot_20260917/latest_run.1.jsonl",
+      "size_bytes": 8128364,
+      "sha256": "ca1b1f10e13b3a1822fbd63366d7aa7b9b76c1b3bfb50b96798bab1c79e1ac86"
+    },
+    {
+      "original": "eval/real/latest_run.1.txt",
+      "archive": "reports/raw_latest_run_snapshot_20260917/latest_run.1.txt",
+      "size_bytes": 114645,
+      "sha256": "73ca28f1a39d6bbaa043bf143ddece1248a7264bbfd5e35753931ea8cd489808"
+    },
+    {
+      "original": "eval/real/latest_run.2.jsonl",
+      "archive": "reports/raw_latest_run_snapshot_20260917/latest_run.2.jsonl",
+      "size_bytes": 13242411,
+      "sha256": "0f4081c731ca11dbda71abe7b2a1a3ebd9ffda77a2d7a7297c906d2688c972a1"
+    },
+    {
+      "original": "eval/real/latest_run.2.txt",
+      "archive": "reports/raw_latest_run_snapshot_20260917/latest_run.2.txt",
+      "size_bytes": 152551,
+      "sha256": "0ef102c021016b01ec7952bb2c52e0992e0b66e6553fae081244e5c1ff4fcdf1"
+    },
+    {
+      "original": "eval/real/latest_run.3.jsonl",
+      "archive": "reports/raw_latest_run_snapshot_20260917/latest_run.3.jsonl",
+      "size_bytes": 10212893,
+      "sha256": "5d470736dac9e51e95d756d7831a0b19a6dce0c8446d4c0f201250815f599270"
+    },
+    {
+      "original": "eval/real/latest_run.3.txt",
+      "archive": "reports/raw_latest_run_snapshot_20260917/latest_run.3.txt",
+      "size_bytes": 118426,
+      "sha256": "be5ffa990f396461e69ecb8ccd59a07054b1e10c980b66857cf4b850fb7e8473"
+    },
+    {
+      "original": "eval/real/latest_run.4.jsonl",
+      "archive": "reports/raw_latest_run_snapshot_20260917/latest_run.4.jsonl",
+      "size_bytes": 7248049,
+      "sha256": "0085c3afc6b0b9c1dfb8f087e825703c718d297a295cfa2b90fc3b1e238e2f27"
+    },
+    {
+      "original": "eval/real/latest_run.4.txt",
+      "archive": "reports/raw_latest_run_snapshot_20260917/latest_run.4.txt",
+      "size_bytes": 84373,
+      "sha256": "eedd145f605cbe0ff9914b34d30329fb346ee15820da941b0530662acea51704"
+    },
+    {
+      "original": "eval/real/latest_run.5.txt",
+      "archive": "reports/raw_latest_run_snapshot_20260917/latest_run.5.txt",
+      "size_bytes": 253846,
+      "sha256": "a6d71f99eb6fa5e53bf84508d1e6986a47ac2379484883873edf3ba36ca1eb12"
+    },
+    {
+      "original": "eval/real/latest_run.jsonl",
+      "archive": "reports/raw_latest_run_snapshot_20260917/latest_run.jsonl",
+      "size_bytes": 9297307,
+      "sha256": "19c1d0c6b5e507cd44fa13aa7dc0ba34c4b26cc355fb68ba78f69e15f4dc8d7b"
+    },
+    {
+      "original": "eval/real/latest_run.txt",
+      "archive": "reports/raw_latest_run_snapshot_20260917/latest_run.txt",
+      "size_bytes": 130533,
+      "sha256": "bfec9b62a2280cbb78df584554382518fddf9a569cdca0ef0a29a28711fc72d0"
+    }
+  ]
+}

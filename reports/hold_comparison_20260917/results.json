@@ -1,0 +1,318 @@
+{
+  "runs": [
+    {
+      "name": "pair1_seed50_hold0",
+      "pair": 1,
+      "seed": 50,
+      "hold": 0,
+      "log": "/media/frankagvl/U393/Dex_Diffuse/reports/hold_comparison_20260917/pair1_seed50_hold0.txt",
+      "started": 1789631591.0790002,
+      "seconds": 32.974167823791504,
+      "returncode": 0,
+      "description": "空手无灯泡 holding 对照实验; 配对轮次=1/3; HOLD_DURING_INFERENCE=0; SEED=50; 每轮600动作/300chunk; chunk=2; 30Hz; 每轮ROTATE复位; TensorRT FP32; FUSED_DDIM=1; DDIM=4步; 不插值; 沿用软件限幅关闭配置; 完整TXT+JSONL记录; 比较纯策略跨chunk/内部跳变及含hold实际指令跳变; 三轮分别统计后等权平均; 排除初始化/首个策略动作/退出hold",
+      "metrics": {
+        "within": {
+          "n": 300,
+          "mean_rad": 0.10474889879425367,
+          "mean_deg": 6.001669809553733,
+          "median_deg": 5.955547588299476,
+          "p95_deg": 6.939230237281608,
+          "max_deg": 8.088018024542082
+        },
+        "policy_boundary": {
+          "n": 299,
+          "mean_rad": 0.10618712474595145,
+          "mean_deg": 6.084074086572202,
+          "median_deg": 5.997824751714562,
+          "p95_deg": 7.262982740732776,
+          "max_deg": 8.73890260904574
+        },
+        "last_to_hold": null,
+        "first_command": {
+          "n": 299,
+          "mean_rad": 0.10618712474595145,
+          "mean_deg": 6.084074086572202,
+          "median_deg": 5.997824751714562,
+          "p95_deg": 7.262982740732776,
+          "max_deg": 8.73890260904574
+        },
+        "boundary_peak": {
+          "n": 299,
+          "mean_rad": 0.10618712474595145,
+          "mean_deg": 6.084074086572202,
+          "median_deg": 5.997824751714562,
+          "p95_deg": 7.262982740732776,
+          "max_deg": 8.73890260904574
+        }
+      }
+    },
+    {
+      "name": "pair1_seed50_hold1",
+      "pair": 1,
+      "seed": 50,
+      "hold": 1,
+      "log": "/media/frankagvl/U393/Dex_Diffuse/reports/hold_comparison_20260917/pair1_seed50_hold1.txt",
+      "started": 1789631624.053591,
+      "seconds": 33.01920008659363,
+      "returncode": 0,
+      "description": "空手无灯泡 holding 对照实验; 配对轮次=1/3; HOLD_DURING_INFERENCE=1; SEED=50; 每轮600动作/300chunk; chunk=2; 30Hz; 每轮ROTATE复位; TensorRT FP32; FUSED_DDIM=1; DDIM=4步; 不插值; 沿用软件限幅关闭配置; 完整TXT+JSONL记录; 比较纯策略跨chunk/内部跳变及含hold实际指令跳变; 三轮分别统计后等权平均; 排除初始化/首个策略动作/退出hold",
+      "metrics": {
+        "within": {
+          "n": 300,
+          "mean_rad": 0.10518434191743532,
+          "mean_deg": 6.026618862730037,
+          "median_deg": 6.019766734423228,
+          "p95_deg": 6.809930828934494,
+          "max_deg": 7.803368183334507
+        },
+        "policy_boundary": {
+          "n": 299,
+          "mean_rad": 0.10623206819577398,
+          "mean_deg": 6.086649156563791,
+          "median_deg": 6.030046169124097,
+          "p95_deg": 7.015522596536998,
+          "max_deg": 8.023671239258215
+        },
+        "last_to_hold": {
+          "n": 299,
+          "mean_rad": 0.08105200535328093,
+          "mean_deg": 4.643937827814752,
+          "median_deg": 4.589422669385008,
+          "p95_deg": 5.964630715367217,
+          "max_deg": 6.371555627624735
+        },
+        "first_command": {
+          "n": 299,
+          "mean_rad": 0.1700478504041216,
+          "mean_deg": 9.743024143428158,
+          "median_deg": 9.843197348769646,
+          "p95_deg": 11.540537265067709,
+          "max_deg": 13.529709991013988
+        },
+        "boundary_peak": {
+          "n": 299,
+          "mean_rad": 0.1700478504041216,
+          "mean_deg": 9.743024143428158,
+          "median_deg": 9.843197348769646,
+          "p95_deg": 11.540537265067709,
+          "max_deg": 13.529709991013988
+        }
+      }
+    }
+  ],
+  "selection": "one empty-hand trial per condition; pair=1; seed=50",
+  "comparison_context": {
+    "bulb_condition": "放灯泡；用户确认；holding=1",
+    "bulb_source": "bulb_holding_original.txt",
+    "bulb_metrics": {
+      "within": {
+        "n": 304,
+        "mean_rad": 0.10080430921052631,
+        "mean_deg": 5.775661474494889,
+        "median_deg": 5.855084356331639,
+        "p95_deg": 6.8943295290848035,
+        "max_deg": 7.77354758965793
+      },
+      "last_to_hold": {
+        "n": 303,
+        "mean_rad": 0.16505880858085809,
+        "mean_deg": 9.457173103140905,
+        "median_deg": 6.149269536241561,
+        "p95_deg": 22.21745264149505,
+        "max_deg": 39.22440417575859
+      },
+      "first_command": {
+        "n": 303,
+        "mean_rad": 0.22391354455445545,
+        "mean_deg": 12.829301078784814,
+        "median_deg": 10.46289688844299,
+        "p95_deg": 24.843793771549564,
+        "max_deg": 40.77591658919335
+      }
+    },
+    "real_joint_names": [
+      "right_thumb_CMC_FE",
+      "right_thumb_CMC_AA",
+      "right_thumb_MCP_FE",
+      "right_thumb_MCP_AA",
+      "right_thumb_IP",
+      "right_index_MCP_FE",
+      "right_index_MCP_AA",
+      "right_index_PIP",
+      "right_index_DIP",
+      "right_middle_MCP_FE",
+      "right_middle_MCP_AA",
+      "right_middle_PIP",
+      "right_middle_DIP",
+      "right_ring_MCP_FE",
+      "right_ring_MCP_AA",
+      "right_ring_PIP",
+      "right_ring_DIP",
+      "right_pinky_CMC",
+      "right_pinky_MCP_FE",
+      "right_pinky_MCP_AA",
+      "right_pinky_PIP",
+      "right_pinky_DIP"
+    ],
+    "policy_joint_names": [
+      "right_index_MCP_FE",
+      "right_index_MCP_AA",
+      "right_index_PIP",
+      "right_index_DIP",
+      "right_middle_MCP_FE",
+      "right_middle_MCP_AA",
+      "right_middle_PIP",
+      "right_middle_DIP",
+      "right_pinky_CMC",
+      "right_pinky_MCP_FE",
+      "right_pinky_MCP_AA",
+      "right_pinky_PIP",
+      "right_pinky_DIP",
+      "right_ring_MCP_FE",
+      "right_ring_MCP_AA",
+      "right_ring_PIP",
+      "right_ring_DIP",
+      "right_thumb_CMC_FE",
+      "right_thumb_CMC_AA",
+      "right_thumb_MCP_FE",
+      "right_thumb_MCP_AA",
+      "right_thumb_IP"
+    ],
+    "current_rotate_target_real_rad": [
+      1.0299993753433228,
+      -0.09824000298976898,
+      0.36130866408348083,
+      -0.31451189517974854,
+      0.00842583179473877,
+      0.4360506236553192,
+      -0.055504534393548965,
+      0.837260901927948,
+      0.049354296177625656,
+      0.44111931324005127,
+      -0.06442071497440338,
+      0.6768842935562134,
+      0.10856100916862488,
+      0.33449938893318176,
+      0.09123406559228897,
+      0.9635206460952759,
+      0.3528777062892914,
+      0.015249253250658512,
+      0.7816686630249023,
+      -0.01308457925915718,
+      0.8393265604972839,
+      0.019550960510969162
+    ],
+    "initialization": {
+      "init_pose": "ROTATE",
+      "hand_steps": 50,
+      "hand_seconds": 2.0,
+      "hand_tolerance_rad": 0.1,
+      "hand_timeout_seconds": 3.0,
+      "poll_seconds": 0.1,
+      "skip_franka": true
+    },
+    "target_provenance": "当前robot_init.py的有效HAND_ROTATE_JOINTS；已与两份空手JSONL最后初始化指令精确核对。放灯泡旧TXT记录ROTATE但没有完整目标快照，不能独立核实当时目标逐项相同。",
+    "conditions": {
+      "empty_no_hold": {
+        "source": "pair1_seed50_hold0.txt",
+        "initial_qpos_policy_rad": [
+          0.434286,
+          -0.060801,
+          0.833696,
+          0.050477,
+          0.439063,
+          -0.059179,
+          0.672915,
+          0.109973,
+          0.015722,
+          0.786949,
+          -0.014051,
+          0.835146,
+          0.020973,
+          0.339993,
+          0.089561,
+          0.960196,
+          0.354256,
+          1.043171,
+          -0.098383,
+          0.36115,
+          -0.308833,
+          0.010883
+        ]
+      },
+      "empty_hold": {
+        "source": "pair1_seed50_hold1.txt",
+        "initial_qpos_policy_rad": [
+          0.439504,
+          -0.055573,
+          0.833685,
+          0.050434,
+          0.435501,
+          -0.066191,
+          0.672932,
+          0.110012,
+          0.030606,
+          0.786924,
+          -0.014071,
+          0.835152,
+          0.020962,
+          0.325987,
+          0.09293,
+          0.960214,
+          0.354236,
+          1.037955,
+          -0.098316,
+          0.366771,
+          -0.311722,
+          0.010851
+        ]
+      },
+      "bulb_hold": {
+        "source": "bulb_holding_original.txt",
+        "initial_qpos_policy_rad": [
+          0.439528,
+          -0.055571,
+          0.833576,
+          0.049913,
+          0.440794,
+          -0.060945,
+          0.672866,
+          0.110054,
+          0.022878,
+          0.779987,
+          -0.007044,
+          0.838875,
+          0.020487,
+          0.331274,
+          0.098293,
+          0.960157,
+          0.35423,
+          1.028703,
+          -0.10761,
+          0.365369,
+          -0.313036,
+          0.003168
+        ]
+      }
+    },
+    "initialization_selection_note": "初始化姿态的选取方式（根据实验者说明）：我们随机找了一个看起来比较合理、能够抓住灯泡的动作姿态，作为真机推理的初始姿态。",
+    "txt_data_sources": [
+      {
+        "condition": "空手，不holding",
+        "path": "reports/hold_comparison_20260917/pair1_seed50_hold0.txt",
+        "use": "seed=50第1轮；600动作/300chunk；TXT核对指令差值并提取实际初始关节角，完整向量统计来自同名JSONL。"
+      },
+      {
+        "condition": "空手，holding",
+        "path": "reports/hold_comparison_20260917/pair1_seed50_hold1.txt",
+        "use": "seed=50第1轮；600动作/300chunk；TXT核对指令差值并提取实际初始关节角，完整向量统计来自同名JSONL。"
+      },
+      {
+        "condition": "放灯泡，holding",
+        "path": "reports/hold_comparison_20260917/bulb_holding_original.txt",
+        "use": "原eval/real/latest_run.txt的归档副本，运行开始时间2026-09-17T15:22:40+08:00；608动作/304chunk；三行统计和实际初始关节角均来自此TXT。"
+      }
+    ],
+    "sampled_backup_verification_note": "另行核查：robot_init.py注释中以1.297977开头的采样候选只经过数值筛选，未验证已抓住灯泡或灯泡朝下；其来源H5没有图像及物体位姿。这组候选不同于本报告实验实际启用的ROTATE目标。详见reports/initial_pose_visual_check_20260917/README.md。"
+  }
+}

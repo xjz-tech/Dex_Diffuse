@@ -1,0 +1,146 @@
+{
+  "checkpoint": "/media/frankagvl/U393/Dex_Diffuse/runs/obs_4-66.ckpt",
+  "spec": {
+    "obs_dim": 66,
+    "action_dim": 22,
+    "n_obs_steps": 4,
+    "n_pred_action_steps": 9,
+    "n_action_steps": 5,
+    "horizon": 12
+  },
+  "cases": 64,
+  "repeats": 100,
+  "warmup": 12,
+  "inputs": "zero + synthetic joint histories near training mean; no hardware",
+  "gpu": "NVIDIA GeForce RTX 4090",
+  "torch": "2.4.0+cu121",
+  "default_tf32": [
+    false,
+    true
+  ],
+  "results": {
+    "eager": {
+      "mean_ms": 23.604785343632102,
+      "median_ms": 22.605757461860776,
+      "p95_ms": 30.806267517618835,
+      "vs_eager": {
+        "mae_rad": 0.0,
+        "max_rad": 0.0,
+        "exec2_mae_rad": 0.0,
+        "exec2_max_rad": 0.0
+      }
+    },
+    "fused": {
+      "mean_ms": 19.919276065193117,
+      "median_ms": 19.868252566084266,
+      "p95_ms": 20.515731652267277,
+      "vs_eager": {
+        "mae_rad": 3.684081821120344e-05,
+        "max_rad": 0.0002894103527069092,
+        "exec2_mae_rad": 3.129555989289656e-05,
+        "exec2_max_rad": 0.0002860426902770996
+      }
+    },
+    "fp16_at_start": {
+      "mean_ms": 2.860700460150838,
+      "median_ms": 2.8190419543534517,
+      "p95_ms": 3.662386815994978,
+      "vs_eager": {
+        "mae_rad": 0.0006841739523224533,
+        "max_rad": 0.008122555911540985,
+        "exec2_mae_rad": 0.0005051654297858477,
+        "exec2_max_rad": 0.006157569587230682
+      }
+    },
+    "eager_strict_fp32": {
+      "mean_ms": 34.31206036824733,
+      "median_ms": 34.140863455832005,
+      "p95_ms": 36.269186018034816,
+      "vs_eager": {
+        "mae_rad": 5.732701174565591e-05,
+        "max_rad": 0.0006773471832275391,
+        "exec2_mae_rad": 4.0903887565946206e-05,
+        "exec2_max_rad": 0.0002644956111907959
+      },
+      "vs_eager_strict_fp32": {
+        "mae_rad": 0.0,
+        "max_rad": 0.0,
+        "exec2_mae_rad": 0.0,
+        "exec2_max_rad": 0.0
+      }
+    },
+    "corrected_fp16": {
+      "mean_ms": 2.82241796143353,
+      "median_ms": 2.79791047796607,
+      "p95_ms": 3.6057966528460383,
+      "vs_eager": {
+        "mae_rad": 0.0006841739523224533,
+        "max_rad": 0.008122555911540985,
+        "exec2_mae_rad": 0.0005051654297858477,
+        "exec2_max_rad": 0.006157569587230682
+      },
+      "vs_eager_strict_fp32": {
+        "mae_rad": 0.0006806139717809856,
+        "max_rad": 0.008162200450897217,
+        "exec2_mae_rad": 0.0005040605901740491,
+        "exec2_max_rad": 0.006158821284770966
+      }
+    },
+    "corrected_fp32": {
+      "mean_ms": 10.968932299874723,
+      "median_ms": 11.120802257210016,
+      "p95_ms": 12.035935861058533,
+      "vs_eager": {
+        "mae_rad": 5.733355646952987e-05,
+        "max_rad": 0.0006772279739379883,
+        "exec2_mae_rad": 4.091049049748108e-05,
+        "exec2_max_rad": 0.0002647489309310913
+      },
+      "vs_eager_strict_fp32": {
+        "mae_rad": 1.3562133460709447e-07,
+        "max_rad": 1.8477439880371094e-06,
+        "exec2_mae_rad": 1.026717129093413e-07,
+        "exec2_max_rad": 6.780028343200684e-07
+      }
+    },
+    "eager_repeat": {
+      "mean_ms": 22.405476537533104,
+      "median_ms": 22.303128615021706,
+      "p95_ms": 23.710192157886922,
+      "vs_eager": {
+        "mae_rad": 0.0,
+        "max_rad": 0.0,
+        "exec2_mae_rad": 0.0,
+        "exec2_max_rad": 0.0
+      },
+      "vs_eager_strict_fp32": {
+        "mae_rad": 5.732701174565591e-05,
+        "max_rad": 0.0006773471832275391,
+        "exec2_mae_rad": 4.0903887565946206e-05,
+        "exec2_max_rad": 0.0002644956111907959
+      }
+    }
+  },
+  "interleaved_latency": {
+    "eager": {
+      "mean_ms": 24.013508763164282,
+      "median_ms": 23.86603900231421,
+      "p95_ms": 26.118719298392534
+    },
+    "fused": {
+      "mean_ms": 20.96419684123248,
+      "median_ms": 20.87852149270475,
+      "p95_ms": 22.02771727461368
+    },
+    "corrected_fp16": {
+      "mean_ms": 2.868695971556008,
+      "median_ms": 2.822365378960967,
+      "p95_ms": 3.6174019100144506
+    },
+    "corrected_fp32": {
+      "mean_ms": 9.82113094534725,
+      "median_ms": 9.756461484357715,
+      "p95_ms": 11.178368073888123
+    }
+  }
+}

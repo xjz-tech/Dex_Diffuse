@@ -1,0 +1,1100 @@
+[real] log: /media/frankagvl/U393/Dex_Diffuse/eval/real/latest_run.txt (keeping all runs; no retention limit)
+[real] structured debug: /media/frankagvl/U393/Dex_Diffuse/eval/real/latest_run.jsonl
+[real] started: 2026-09-17T16:37:06+08:00
+WARNING:torch_tensorrt.dynamo.conversion.aten_ops_converters:Unable to import quantization op. Please install modelopt library (https://github.com/NVIDIA/TensorRT-Model-Optimizer?tab=readme-ov-file#installation) to add support for compiling quantized models
+[real] python: /home/frankagvl/anaconda3/envs/dexIL/bin/python
+[real] checkpoint: /media/frankagvl/U393/Dex_Diffuse/runs/obs_4-66.ckpt
+[real] policy: obs=66 action=22 sampler=ddim inference_steps=4 chunk=2
+[real] acceleration: tensorrt=1 precision=fp32 fused_ddim=1
+[real] startup: robot_init.py (SharpA only) -> wait for Enter (if enabled) -> load model -> infer
+[init] SharpA init_pose=ROTATE
+[debug] structured record: /media/frankagvl/U393/Dex_Diffuse/eval/real/latest_run.jsonl
+[hand] connecting to tcp://localhost:5570
+[preflight] SharpA state OK: [1.0987000465393066, -0.15880000591278076, 0.6067000031471252, -0.31439998745918274, 0.560699999332428, 0.7717999815940857, -0.08070000261068344, 0.2565999925136566, 0.9470000267028809, 0.21729999780654907, 0.062300000339746475, 0.34279999136924744, 1.1165000200271606, 0.08829999715089798, 0.13770000636577606, 0.833299994468689, 1.2538000345230103, 0.23330000042915344, 1.0710999965667725, 0.21629999577999115, 0.13019999861717224, 0.6987000107765198]
+[init] moving SharpA to HAND_READY_JOINTS: 50 steps / 2s
+
+[init] SharpA max error=0.0146 rad
+[init] SharpA HAND_READY_JOINTS reached
+[init] requested robot initialization completed
+[real] LIVE: wait_for_enter=1; Ctrl-C holds measured hand qpos
+[real] schedule: infer -> execute 2 targets at 30 Hz -> infer
+[real] hold during inference: 0 (live only)
+WARNING:torch_tensorrt.dynamo.conversion.aten_ops_converters:Unable to import quantization op. Please install modelopt library (https://github.com/NVIDIA/TensorRT-Model-Optimizer?tab=readme-ov-file#installation) to add support for compiling quantized models
+[debug] structured record: /media/frankagvl/U393/Dex_Diffuse/eval/real/latest_run.jsonl
+[hand] connecting to tcp://localhost:5570
+[hand] SharpA server ready
+[initial-pose] motion disabled; using measured qpos
+[ready] SharpA is at the initial pose. Press Enter to start policy execution...[ready] Enter received; starting policy inference and action execution
+[policy] loading /media/frankagvl/U393/Dex_Diffuse/runs/obs_4-66.ckpt
+[policy] loaded EMA model; step=54316 epoch=74; spec={'obs_dim': 66, 'action_dim': 22, 'n_obs_steps': 4, 'n_pred_action_steps': 9, 'n_action_steps': 5, 'horizon': 12}; sampler=ddim inference_steps=4
+[policy] preparing TensorRT FP32 UNet (load validated cache or compile)...
+[TensorRT] loaded cached engine: /media/frankagvl/U393/Dex_Diffuse/runs/obs_4-66.unet.fp32.trt.pt
+[policy] TensorRT UNet ready in 1.0s
+WARNING: [Torch-TensorRT] - Using default stream in enqueueV3() may lead to performance issues due to additional calls to cudaStreamSynchronize() by TensorRT to ensure correct synchronization. Please use non-default stream instead.
+[latency] hand_policy inference_ms=47.430
+[policy] synthetic inference passed in 0.047s
+[initial-state] measured policy-order qpos(rad)=[ 0.439494, -0.055603,  0.833509,  0.049557,  0.437148, -0.064471,  0.672005,  0.109946,  0.022686,  0.783498, -0.010494,  0.845487,  0.020886,  0.327627,  0.087978,  0.959808,  0.352884,  1.040624, -0.101   ,  0.368226, -0.315923,  0.010864]
+[mode] LIVE; 66-D obs -> 22-D absolute SharpA targets; serial 2-step chunks at 30 Hz
+[limits] joint_limits=False step_clamp=False max_tracking_error=0
+[schedule] freeze obs from shared qpos sample -> infer -> execute chunk with per-step state reads -> repeat
+[latency] hand_policy inference_ms=8.866
+[chunk 0000] inference=0.009s predicted=(2, 22)
+[cmd 000001 kind=policy chunk=0000 chunk_step=0] delta_max_rad=nan delta_max_deg=nan reference=unknown
+[action 000001 chunk_step=0] raw=[-0.3391,1.0569] sent=[-0.3391,1.0569] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000002 kind=policy chunk=0000 chunk_step=1] delta_max_rad=0.083293 delta_max_deg=4.7724 joint=right_pinky_DIP joint_index=12 from_rad=0.063987 to_rad=0.147281
+[action 000002 chunk_step=1] raw=[-0.3403,1.0685] sent=[-0.3403,1.0685] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.594
+[chunk 0001] inference=0.009s predicted=(2, 22)
+[cmd 000003 kind=policy chunk=0001 chunk_step=0] delta_max_rad=0.073407 delta_max_deg=4.2059 joint=right_middle_DIP joint_index=7 from_rad=0.218248 to_rad=0.291656
+[action 000003 chunk_step=0] raw=[-0.3406,1.0783] sent=[-0.3406,1.0783] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000004 kind=policy chunk=0001 chunk_step=1] delta_max_rad=0.110390 delta_max_deg=6.3249 joint=right_middle_DIP joint_index=7 from_rad=0.291656 to_rad=0.402046
+[action 000004 chunk_step=1] raw=[-0.3435,1.1012] sent=[-0.3435,1.1012] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.543
+[chunk 0002] inference=0.010s predicted=(2, 22)
+[cmd 000005 kind=policy chunk=0002 chunk_step=0] delta_max_rad=0.075908 delta_max_deg=4.3492 joint=right_middle_PIP joint_index=6 from_rad=0.739664 to_rad=0.663756
+[action 000005 chunk_step=0] raw=[-0.3491,1.1155] sent=[-0.3491,1.1155] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000006 kind=policy chunk=0002 chunk_step=1] delta_max_rad=0.115388 delta_max_deg=6.6112 joint=right_index_DIP joint_index=3 from_rad=0.274618 to_rad=0.390006
+[action 000006 chunk_step=1] raw=[-0.3487,1.1195] sent=[-0.3487,1.1195] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.175
+[chunk 0003] inference=0.009s predicted=(2, 22)
+[cmd 000007 kind=policy chunk=0003 chunk_step=0] delta_max_rad=0.085137 delta_max_deg=4.8780 joint=right_index_DIP joint_index=3 from_rad=0.390006 to_rad=0.475143
+[action 000007 chunk_step=0] raw=[-0.3491,1.1150] sent=[-0.3491,1.1150] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000008 kind=policy chunk=0003 chunk_step=1] delta_max_rad=0.091592 delta_max_deg=5.2479 joint=right_index_DIP joint_index=3 from_rad=0.475143 to_rad=0.566735
+[action 000008 chunk_step=1] raw=[-0.3482,1.1196] sent=[-0.3482,1.1196] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.997
+[chunk 0004] inference=0.009s predicted=(2, 22)
+[cmd 000009 kind=policy chunk=0004 chunk_step=0] delta_max_rad=0.089717 delta_max_deg=5.1404 joint=right_pinky_DIP joint_index=12 from_rad=0.592236 to_rad=0.681953
+[action 000009 chunk_step=0] raw=[-0.3491,1.1126] sent=[-0.3491,1.1126] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000010 kind=policy chunk=0004 chunk_step=1] delta_max_rad=0.090667 delta_max_deg=5.1949 joint=right_thumb_MCP_FE joint_index=19 from_rad=0.585137 to_rad=0.675804
+[action 000010 chunk_step=1] raw=[-0.3471,1.2023] sent=[-0.3471,1.2023] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=10.035
+[chunk 0005] inference=0.010s predicted=(2, 22)
+[cmd 000011 kind=policy chunk=0005 chunk_step=0] delta_max_rad=0.100032 delta_max_deg=5.7314 joint=right_index_PIP joint_index=2 from_rad=0.628120 to_rad=0.528087
+[action 000011 chunk_step=0] raw=[-0.3491,1.2854] sent=[-0.3491,1.2854] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000012 kind=policy chunk=0005 chunk_step=1] delta_max_rad=0.099352 delta_max_deg=5.6924 joint=right_index_PIP joint_index=2 from_rad=0.528087 to_rad=0.428736
+[action 000012 chunk_step=1] raw=[-0.3491,1.2841] sent=[-0.3491,1.2841] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.144
+[chunk 0006] inference=0.009s predicted=(2, 22)
+[cmd 000013 kind=policy chunk=0006 chunk_step=0] delta_max_rad=0.096304 delta_max_deg=5.5178 joint=right_middle_DIP joint_index=7 from_rad=0.891182 to_rad=0.987487
+[action 000013 chunk_step=0] raw=[-0.3491,1.2706] sent=[-0.3491,1.2706] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000014 kind=policy chunk=0006 chunk_step=1] delta_max_rad=0.093653 delta_max_deg=5.3659 joint=right_pinky_MCP_FE joint_index=9 from_rad=0.983133 to_rad=1.076786
+[action 000014 chunk_step=1] raw=[-0.3468,1.2881] sent=[-0.3468,1.2881] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.027
+[chunk 0007] inference=0.009s predicted=(2, 22)
+[cmd 000015 kind=policy chunk=0007 chunk_step=0] delta_max_rad=0.101632 delta_max_deg=5.8231 joint=right_pinky_PIP joint_index=11 from_rad=0.330128 to_rad=0.228496
+[action 000015 chunk_step=0] raw=[-0.3491,1.3289] sent=[-0.3491,1.3289] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000016 kind=policy chunk=0007 chunk_step=1] delta_max_rad=0.097581 delta_max_deg=5.5910 joint=right_middle_PIP joint_index=6 from_rad=0.493708 to_rad=0.396126
+[action 000016 chunk_step=1] raw=[-0.3488,1.3260] sent=[-0.3488,1.3260] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.463
+[chunk 0008] inference=0.009s predicted=(2, 22)
+[cmd 000017 kind=policy chunk=0008 chunk_step=0] delta_max_rad=0.096886 delta_max_deg=5.5511 joint=right_middle_PIP joint_index=6 from_rad=0.396126 to_rad=0.299241
+[action 000017 chunk_step=0] raw=[-0.3488,1.3128] sent=[-0.3488,1.3128] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000018 kind=policy chunk=0008 chunk_step=1] delta_max_rad=0.098405 delta_max_deg=5.6382 joint=right_pinky_PIP joint_index=11 from_rad=0.145570 to_rad=0.243975
+[action 000018 chunk_step=1] raw=[-0.3477,1.3753] sent=[-0.3477,1.3753] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.609
+[chunk 0009] inference=0.010s predicted=(2, 22)
+[cmd 000019 kind=policy chunk=0009 chunk_step=0] delta_max_rad=0.091359 delta_max_deg=5.2345 joint=right_pinky_PIP joint_index=11 from_rad=0.243975 to_rad=0.335334
+[action 000019 chunk_step=0] raw=[-0.3491,1.3961] sent=[-0.3491,1.3961] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000020 kind=policy chunk=0009 chunk_step=1] delta_max_rad=0.092959 delta_max_deg=5.3261 joint=right_ring_MCP_FE joint_index=13 from_rad=0.288405 to_rad=0.381364
+[action 000020 chunk_step=1] raw=[-0.3491,1.3963] sent=[-0.3491,1.3963] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.547
+[chunk 0010] inference=0.009s predicted=(2, 22)
+[cmd 000021 kind=policy chunk=0010 chunk_step=0] delta_max_rad=0.109247 delta_max_deg=6.2594 joint=right_middle_DIP joint_index=7 from_rad=0.983479 to_rad=0.874232
+[action 000021 chunk_step=0] raw=[-0.3472,1.3963] sent=[-0.3472,1.3963] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000022 kind=policy chunk=0010 chunk_step=1] delta_max_rad=0.110489 delta_max_deg=6.3305 joint=right_pinky_PIP joint_index=11 from_rad=0.315138 to_rad=0.204650
+[action 000022 chunk_step=1] raw=[-0.3487,1.3788] sent=[-0.3487,1.3788] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.297
+[chunk 0011] inference=0.009s predicted=(2, 22)
+[cmd 000023 kind=policy chunk=0011 chunk_step=0] delta_max_rad=0.102788 delta_max_deg=5.8893 joint=right_pinky_PIP joint_index=11 from_rad=0.204650 to_rad=0.101862
+[action 000023 chunk_step=0] raw=[-0.3479,1.3713] sent=[-0.3479,1.3713] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000024 kind=policy chunk=0011 chunk_step=1] delta_max_rad=0.093123 delta_max_deg=5.3355 joint=right_thumb_MCP_FE joint_index=19 from_rad=0.663109 to_rad=0.756231
+[action 000024 chunk_step=1] raw=[-0.3491,1.3565] sent=[-0.3491,1.3565] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.825
+[chunk 0012] inference=0.010s predicted=(2, 22)
+[cmd 000025 kind=policy chunk=0012 chunk_step=0] delta_max_rad=0.103992 delta_max_deg=5.9583 joint=right_ring_DIP joint_index=16 from_rad=0.417852 to_rad=0.521843
+[action 000025 chunk_step=0] raw=[-0.3491,1.2864] sent=[-0.3491,1.2864] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000026 kind=policy chunk=0012 chunk_step=1] delta_max_rad=0.096559 delta_max_deg=5.5324 joint=right_ring_DIP joint_index=16 from_rad=0.521843 to_rad=0.618402
+[action 000026 chunk_step=1] raw=[-0.3482,1.2169] sent=[-0.3482,1.2169] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.507
+[chunk 0013] inference=0.009s predicted=(2, 22)
+[cmd 000027 kind=policy chunk=0013 chunk_step=0] delta_max_rad=0.099179 delta_max_deg=5.6825 joint=right_index_DIP joint_index=3 from_rad=1.111837 to_rad=1.211016
+[action 000027 chunk_step=0] raw=[-0.3454,1.2110] sent=[-0.3454,1.2110] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000028 kind=policy chunk=0013 chunk_step=1] delta_max_rad=0.088807 delta_max_deg=5.0882 joint=right_index_DIP joint_index=3 from_rad=1.211016 to_rad=1.299822
+[action 000028 chunk_step=1] raw=[-0.3471,1.2998] sent=[-0.3471,1.2998] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.407
+[chunk 0014] inference=0.009s predicted=(2, 22)
+[cmd 000029 kind=policy chunk=0014 chunk_step=0] delta_max_rad=0.087966 delta_max_deg=5.0401 joint=right_middle_DIP joint_index=7 from_rad=0.763287 to_rad=0.675321
+[action 000029 chunk_step=0] raw=[-0.3484,1.3290] sent=[-0.3484,1.3290] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000030 kind=policy chunk=0014 chunk_step=1] delta_max_rad=0.092638 delta_max_deg=5.3078 joint=right_middle_DIP joint_index=7 from_rad=0.675321 to_rad=0.582683
+[action 000030 chunk_step=1] raw=[-0.3489,1.3169] sent=[-0.3489,1.3169] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.495
+[chunk 0015] inference=0.009s predicted=(2, 22)
+[cmd 000031 kind=policy chunk=0015 chunk_step=0] delta_max_rad=0.091434 delta_max_deg=5.2388 joint=right_middle_DIP joint_index=7 from_rad=0.582683 to_rad=0.491250
+[action 000031 chunk_step=0] raw=[-0.3478,1.2922] sent=[-0.3478,1.2922] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000032 kind=policy chunk=0015 chunk_step=1] delta_max_rad=0.076660 delta_max_deg=4.3923 joint=right_middle_DIP joint_index=7 from_rad=0.491250 to_rad=0.414590
+[action 000032 chunk_step=1] raw=[-0.3491,1.2582] sent=[-0.3491,1.2582] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.767
+[chunk 0016] inference=0.009s predicted=(2, 22)
+[cmd 000033 kind=policy chunk=0016 chunk_step=0] delta_max_rad=0.065463 delta_max_deg=3.7507 joint=right_middle_DIP joint_index=7 from_rad=0.414590 to_rad=0.349127
+[action 000033 chunk_step=0] raw=[-0.3478,1.2236] sent=[-0.3478,1.2236] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000034 kind=policy chunk=0016 chunk_step=1] delta_max_rad=0.048402 delta_max_deg=2.7732 joint=right_middle_DIP joint_index=7 from_rad=0.349127 to_rad=0.300725
+[action 000034 chunk_step=1] raw=[-0.3491,1.1966] sent=[-0.3491,1.1966] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.064
+[chunk 0017] inference=0.009s predicted=(2, 22)
+[cmd 000035 kind=policy chunk=0017 chunk_step=0] delta_max_rad=0.047201 delta_max_deg=2.7044 joint=right_middle_DIP joint_index=7 from_rad=0.300725 to_rad=0.253524
+[action 000035 chunk_step=0] raw=[-0.3491,1.1649] sent=[-0.3491,1.1649] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000036 kind=policy chunk=0017 chunk_step=1] delta_max_rad=0.033681 delta_max_deg=1.9298 joint=right_middle_DIP joint_index=7 from_rad=0.253524 to_rad=0.219843
+[action 000036 chunk_step=1] raw=[-0.3487,1.1440] sent=[-0.3487,1.1440] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.923
+[chunk 0018] inference=0.010s predicted=(2, 22)
+[cmd 000037 kind=policy chunk=0018 chunk_step=0] delta_max_rad=0.028291 delta_max_deg=1.6209 joint=right_middle_DIP joint_index=7 from_rad=0.219843 to_rad=0.191552
+[action 000037 chunk_step=0] raw=[-0.3490,1.1248] sent=[-0.3490,1.1248] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000038 kind=policy chunk=0018 chunk_step=1] delta_max_rad=0.029652 delta_max_deg=1.6989 joint=right_middle_DIP joint_index=7 from_rad=0.191552 to_rad=0.161901
+[action 000038 chunk_step=1] raw=[-0.3490,1.1093] sent=[-0.3490,1.1093] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.713
+[chunk 0019] inference=0.009s predicted=(2, 22)
+[cmd 000039 kind=policy chunk=0019 chunk_step=0] delta_max_rad=0.041806 delta_max_deg=2.3953 joint=right_middle_DIP joint_index=7 from_rad=0.161901 to_rad=0.120094
+[action 000039 chunk_step=0] raw=[-0.3491,1.0915] sent=[-0.3491,1.0915] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000040 kind=policy chunk=0019 chunk_step=1] delta_max_rad=0.023111 delta_max_deg=1.3242 joint=right_middle_DIP joint_index=7 from_rad=0.120094 to_rad=0.096983
+[action 000040 chunk_step=1] raw=[-0.3489,1.0826] sent=[-0.3489,1.0826] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.010
+[chunk 0020] inference=0.009s predicted=(2, 22)
+[cmd 000041 kind=policy chunk=0020 chunk_step=0] delta_max_rad=0.042038 delta_max_deg=2.4086 joint=right_middle_DIP joint_index=7 from_rad=0.096983 to_rad=0.054945
+[action 000041 chunk_step=0] raw=[-0.3491,1.0880] sent=[-0.3491,1.0880] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000042 kind=policy chunk=0020 chunk_step=1] delta_max_rad=0.101700 delta_max_deg=5.8270 joint=right_thumb_MCP_FE joint_index=19 from_rad=1.087983 to_rad=1.189683
+[action 000042 chunk_step=1] raw=[-0.3477,1.1897] sent=[-0.3477,1.1897] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=10.020
+[chunk 0021] inference=0.010s predicted=(2, 22)
+[cmd 000043 kind=policy chunk=0021 chunk_step=0] delta_max_rad=0.101694 delta_max_deg=5.8266 joint=right_middle_DIP joint_index=7 from_rad=0.125065 to_rad=0.226759
+[action 000043 chunk_step=0] raw=[-0.3491,1.1881] sent=[-0.3491,1.1881] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000044 kind=policy chunk=0021 chunk_step=1] delta_max_rad=0.106186 delta_max_deg=6.0840 joint=right_middle_DIP joint_index=7 from_rad=0.226759 to_rad=0.332945
+[action 000044 chunk_step=1] raw=[-0.3491,1.2626] sent=[-0.3491,1.2626] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.326
+[chunk 0022] inference=0.009s predicted=(2, 22)
+[cmd 000045 kind=policy chunk=0022 chunk_step=0] delta_max_rad=0.111089 delta_max_deg=6.3649 joint=right_index_MCP_FE joint_index=0 from_rad=0.473006 to_rad=0.584095
+[action 000045 chunk_step=0] raw=[-0.2913,1.3428] sent=[-0.2913,1.3428] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000046 kind=policy chunk=0022 chunk_step=1] delta_max_rad=0.104117 delta_max_deg=5.9655 joint=right_middle_DIP joint_index=7 from_rad=0.424315 to_rad=0.528432
+[action 000046 chunk_step=1] raw=[-0.2526,1.3897] sent=[-0.2526,1.3897] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.064
+[chunk 0023] inference=0.009s predicted=(2, 22)
+[cmd 000047 kind=policy chunk=0023 chunk_step=0] delta_max_rad=0.090103 delta_max_deg=5.1625 joint=right_middle_DIP joint_index=7 from_rad=0.528432 to_rad=0.618535
+[action 000047 chunk_step=0] raw=[-0.1890,1.3963] sent=[-0.1890,1.3963] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000048 kind=policy chunk=0023 chunk_step=1] delta_max_rad=0.091327 delta_max_deg=5.2327 joint=right_middle_DIP joint_index=7 from_rad=0.618535 to_rad=0.709862
+[action 000048 chunk_step=1] raw=[-0.2343,1.3963] sent=[-0.2343,1.3963] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.029
+[chunk 0024] inference=0.009s predicted=(2, 22)
+[cmd 000049 kind=policy chunk=0024 chunk_step=0] delta_max_rad=0.109728 delta_max_deg=6.2869 joint=right_thumb_IP joint_index=21 from_rad=0.160562 to_rad=0.050835
+[action 000049 chunk_step=0] raw=[-0.3285,1.3950] sent=[-0.3285,1.3950] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000050 kind=policy chunk=0024 chunk_step=1] delta_max_rad=0.092956 delta_max_deg=5.3260 joint=right_ring_DIP joint_index=16 from_rad=1.134675 to_rad=1.041719
+[action 000050 chunk_step=1] raw=[-0.3490,1.3931] sent=[-0.3490,1.3931] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.718
+[chunk 0025] inference=0.010s predicted=(2, 22)
+[cmd 000051 kind=policy chunk=0025 chunk_step=0] delta_max_rad=0.108453 delta_max_deg=6.2139 joint=right_index_PIP joint_index=2 from_rad=0.313496 to_rad=0.421949
+[action 000051 chunk_step=0] raw=[-0.3484,1.3963] sent=[-0.3484,1.3963] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000052 kind=policy chunk=0025 chunk_step=1] delta_max_rad=0.094108 delta_max_deg=5.3920 joint=right_ring_DIP joint_index=16 from_rad=0.947163 to_rad=0.853055
+[action 000052 chunk_step=1] raw=[-0.3464,1.3950] sent=[-0.3464,1.3950] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.750
+[chunk 0026] inference=0.009s predicted=(2, 22)
+[cmd 000053 kind=policy chunk=0026 chunk_step=0] delta_max_rad=0.086533 delta_max_deg=4.9580 joint=right_ring_MCP_FE joint_index=13 from_rad=0.568175 to_rad=0.654709
+[action 000053 chunk_step=0] raw=[-0.3453,1.3922] sent=[-0.3453,1.3922] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000054 kind=policy chunk=0026 chunk_step=1] delta_max_rad=0.074453 delta_max_deg=4.2659 joint=right_ring_PIP joint_index=15 from_rad=0.495189 to_rad=0.569642
+[action 000054 chunk_step=1] raw=[-0.3438,1.3759] sent=[-0.3438,1.3759] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.126
+[chunk 0027] inference=0.009s predicted=(2, 22)
+[cmd 000055 kind=policy chunk=0027 chunk_step=0] delta_max_rad=0.102950 delta_max_deg=5.8986 joint=right_pinky_DIP joint_index=12 from_rad=1.354881 to_rad=1.251931
+[action 000055 chunk_step=0] raw=[-0.3491,1.2807] sent=[-0.3491,1.2807] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000056 kind=policy chunk=0027 chunk_step=1] delta_max_rad=0.111089 delta_max_deg=6.3650 joint=right_ring_MCP_FE joint_index=13 from_rad=0.642981 to_rad=0.531892
+[action 000056 chunk_step=1] raw=[-0.3491,1.2948] sent=[-0.3491,1.2948] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.992
+[chunk 0028] inference=0.010s predicted=(2, 22)
+[cmd 000057 kind=policy chunk=0028 chunk_step=0] delta_max_rad=0.104317 delta_max_deg=5.9769 joint=right_thumb_MCP_FE joint_index=19 from_rad=0.707618 to_rad=0.811934
+[action 000057 chunk_step=0] raw=[-0.3486,1.2927] sent=[-0.3486,1.2927] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000058 kind=policy chunk=0028 chunk_step=1] delta_max_rad=0.098815 delta_max_deg=5.6617 joint=right_index_DIP joint_index=3 from_rad=1.114045 to_rad=1.015230
+[action 000058 chunk_step=1] raw=[-0.3472,1.2789] sent=[-0.3472,1.2789] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.317
+[chunk 0029] inference=0.009s predicted=(2, 22)
+[cmd 000059 kind=policy chunk=0029 chunk_step=0] delta_max_rad=0.097923 delta_max_deg=5.6106 joint=right_ring_MCP_FE joint_index=13 from_rad=0.345810 to_rad=0.247887
+[action 000059 chunk_step=0] raw=[-0.3406,1.2331] sent=[-0.3406,1.2331] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000060 kind=policy chunk=0029 chunk_step=1] delta_max_rad=0.106421 delta_max_deg=6.0975 joint=right_thumb_IP joint_index=21 from_rad=0.397864 to_rad=0.504286
+[action 000060 chunk_step=1] raw=[-0.2878,1.2935] sent=[-0.2878,1.2935] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.241
+[chunk 0030] inference=0.009s predicted=(2, 22)
+[cmd 000061 kind=policy chunk=0030 chunk_step=0] delta_max_rad=0.125889 delta_max_deg=7.2129 joint=right_thumb_IP joint_index=21 from_rad=0.504286 to_rad=0.630175
+[action 000061 chunk_step=0] raw=[-0.2443,1.3534] sent=[-0.2443,1.3534] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000062 kind=policy chunk=0030 chunk_step=1] delta_max_rad=0.103779 delta_max_deg=5.9461 joint=right_pinky_DIP joint_index=12 from_rad=0.769269 to_rad=0.665489
+[action 000062 chunk_step=1] raw=[-0.2339,1.3846] sent=[-0.2339,1.3846] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=10.089
+[chunk 0031] inference=0.010s predicted=(2, 22)
+[cmd 000063 kind=policy chunk=0031 chunk_step=0] delta_max_rad=0.093713 delta_max_deg=5.3694 joint=right_thumb_MCP_FE joint_index=19 from_rad=1.019677 to_rad=0.925964
+[action 000063 chunk_step=0] raw=[-0.2819,1.2934] sent=[-0.2819,1.2934] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000064 kind=policy chunk=0031 chunk_step=1] delta_max_rad=0.111474 delta_max_deg=6.3870 joint=right_pinky_PIP joint_index=11 from_rad=0.096772 to_rad=0.208246
+[action 000064 chunk_step=1] raw=[-0.3401,1.1992] sent=[-0.3401,1.1992] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.774
+[chunk 0032] inference=0.010s predicted=(2, 22)
+[cmd 000065 kind=policy chunk=0032 chunk_step=0] delta_max_rad=0.109382 delta_max_deg=6.2671 joint=right_pinky_PIP joint_index=11 from_rad=0.208246 to_rad=0.317628
+[action 000065 chunk_step=0] raw=[-0.3481,1.1300] sent=[-0.3481,1.1300] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000066 kind=policy chunk=0032 chunk_step=1] delta_max_rad=0.101055 delta_max_deg=5.7900 joint=right_pinky_PIP joint_index=11 from_rad=0.317628 to_rad=0.418683
+[action 000066 chunk_step=1] raw=[-0.3491,1.2282] sent=[-0.3491,1.2282] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.777
+[chunk 0033] inference=0.009s predicted=(2, 22)
+[cmd 000067 kind=policy chunk=0033 chunk_step=0] delta_max_rad=0.100420 delta_max_deg=5.7536 joint=right_index_PIP joint_index=2 from_rad=0.367260 to_rad=0.467680
+[action 000067 chunk_step=0] raw=[-0.3491,1.3108] sent=[-0.3491,1.3108] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000068 kind=policy chunk=0033 chunk_step=1] delta_max_rad=0.103664 delta_max_deg=5.9395 joint=right_middle_MCP_FE joint_index=4 from_rad=0.254740 to_rad=0.358404
+[action 000068 chunk_step=1] raw=[-0.3486,1.3843] sent=[-0.3486,1.3843] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.014
+[chunk 0034] inference=0.009s predicted=(2, 22)
+[cmd 000069 kind=policy chunk=0034 chunk_step=0] delta_max_rad=0.114015 delta_max_deg=6.5326 joint=right_thumb_IP joint_index=21 from_rad=0.291551 to_rad=0.177536
+[action 000069 chunk_step=0] raw=[-0.3491,1.3938] sent=[-0.3491,1.3938] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000070 kind=policy chunk=0034 chunk_step=1] delta_max_rad=0.110913 delta_max_deg=6.3548 joint=right_pinky_PIP joint_index=11 from_rad=0.713695 to_rad=0.824608
+[action 000070 chunk_step=1] raw=[-0.3491,1.3919] sent=[-0.3491,1.3919] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=10.147
+[chunk 0035] inference=0.010s predicted=(2, 22)
+[cmd 000071 kind=policy chunk=0035 chunk_step=0] delta_max_rad=0.104362 delta_max_deg=5.9795 joint=right_pinky_PIP joint_index=11 from_rad=0.824608 to_rad=0.928970
+[action 000071 chunk_step=0] raw=[-0.3445,1.3952] sent=[-0.3445,1.3952] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000072 kind=policy chunk=0035 chunk_step=1] delta_max_rad=0.104327 delta_max_deg=5.9775 joint=right_ring_PIP joint_index=15 from_rad=0.513232 to_rad=0.617559
+[action 000072 chunk_step=1] raw=[-0.3491,1.3245] sent=[-0.3491,1.3245] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.210
+[chunk 0036] inference=0.009s predicted=(2, 22)
+[cmd 000073 kind=policy chunk=0036 chunk_step=0] delta_max_rad=0.116361 delta_max_deg=6.6670 joint=right_index_PIP joint_index=2 from_rad=0.731985 to_rad=0.615625
+[action 000073 chunk_step=0] raw=[-0.3487,1.2282] sent=[-0.3487,1.2282] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000074 kind=policy chunk=0036 chunk_step=1] delta_max_rad=0.106404 delta_max_deg=6.0965 joint=right_ring_MCP_FE joint_index=13 from_rad=0.631824 to_rad=0.525420
+[action 000074 chunk_step=1] raw=[-0.3481,1.1845] sent=[-0.3481,1.1845] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.959
+[chunk 0037] inference=0.009s predicted=(2, 22)
+[cmd 000075 kind=policy chunk=0037 chunk_step=0] delta_max_rad=0.105178 delta_max_deg=6.0262 joint=right_ring_MCP_FE joint_index=13 from_rad=0.525420 to_rad=0.420243
+[action 000075 chunk_step=0] raw=[-0.3491,1.1503] sent=[-0.3491,1.1503] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000076 kind=policy chunk=0037 chunk_step=1] delta_max_rad=0.109785 delta_max_deg=6.2902 joint=right_index_PIP joint_index=2 from_rad=0.439012 to_rad=0.329227
+[action 000076 chunk_step=1] raw=[-0.3480,1.1435] sent=[-0.3480,1.1435] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.020
+[chunk 0038] inference=0.009s predicted=(2, 22)
+[cmd 000077 kind=policy chunk=0038 chunk_step=0] delta_max_rad=0.109391 delta_max_deg=6.2676 joint=right_pinky_PIP joint_index=11 from_rad=0.479754 to_rad=0.370363
+[action 000077 chunk_step=0] raw=[-0.3491,1.1496] sent=[-0.3491,1.1496] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000078 kind=policy chunk=0038 chunk_step=1] delta_max_rad=0.104200 delta_max_deg=5.9702 joint=right_pinky_PIP joint_index=11 from_rad=0.370363 to_rad=0.266163
+[action 000078 chunk_step=1] raw=[-0.3382,1.2163] sent=[-0.3382,1.2163] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.781
+[chunk 0039] inference=0.010s predicted=(2, 22)
+[cmd 000079 kind=policy chunk=0039 chunk_step=0] delta_max_rad=0.101966 delta_max_deg=5.8422 joint=right_ring_MCP_FE joint_index=13 from_rad=0.147422 to_rad=0.045456
+[action 000079 chunk_step=0] raw=[-0.3096,1.3018] sent=[-0.3096,1.3018] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000080 kind=policy chunk=0039 chunk_step=1] delta_max_rad=0.105025 delta_max_deg=6.0175 joint=right_index_DIP joint_index=3 from_rad=0.849034 to_rad=0.954059
+[action 000080 chunk_step=1] raw=[-0.2937,1.3083] sent=[-0.2937,1.3083] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.769
+[chunk 0040] inference=0.009s predicted=(2, 22)
+[cmd 000081 kind=policy chunk=0040 chunk_step=0] delta_max_rad=0.097067 delta_max_deg=5.5616 joint=right_ring_DIP joint_index=16 from_rad=1.248271 to_rad=1.151203
+[action 000081 chunk_step=0] raw=[-0.3415,1.2218] sent=[-0.3415,1.2218] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000082 kind=policy chunk=0040 chunk_step=1] delta_max_rad=0.096965 delta_max_deg=5.5557 joint=right_thumb_MCP_FE joint_index=19 from_rad=0.739119 to_rad=0.642154
+[action 000082 chunk_step=1] raw=[-0.3479,1.1857] sent=[-0.3479,1.1857] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.011
+[chunk 0041] inference=0.009s predicted=(2, 22)
+[cmd 000083 kind=policy chunk=0041 chunk_step=0] delta_max_rad=0.103558 delta_max_deg=5.9334 joint=right_index_PIP joint_index=2 from_rad=0.278079 to_rad=0.381637
+[action 000083 chunk_step=0] raw=[-0.3491,1.2834] sent=[-0.3491,1.2834] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000084 kind=policy chunk=0041 chunk_step=1] delta_max_rad=0.099315 delta_max_deg=5.6903 joint=right_index_PIP joint_index=2 from_rad=0.381637 to_rad=0.480951
+[action 000084 chunk_step=1] raw=[-0.3491,1.3563] sent=[-0.3491,1.3563] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=10.230
+[chunk 0042] inference=0.010s predicted=(2, 22)
+[cmd 000085 kind=policy chunk=0042 chunk_step=0] delta_max_rad=0.111928 delta_max_deg=6.4130 joint=right_index_PIP joint_index=2 from_rad=0.480951 to_rad=0.592879
+[action 000085 chunk_step=0] raw=[-0.3477,1.3817] sent=[-0.3477,1.3817] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000086 kind=policy chunk=0042 chunk_step=1] delta_max_rad=0.114941 delta_max_deg=6.5857 joint=right_ring_MCP_FE joint_index=13 from_rad=0.433815 to_rad=0.548757
+[action 000086 chunk_step=1] raw=[-0.3478,1.3963] sent=[-0.3478,1.3963] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.131
+[chunk 0043] inference=0.009s predicted=(2, 22)
+[cmd 000087 kind=policy chunk=0043 chunk_step=0] delta_max_rad=0.116715 delta_max_deg=6.6873 joint=right_ring_MCP_FE joint_index=13 from_rad=0.548757 to_rad=0.665471
+[action 000087 chunk_step=0] raw=[-0.3484,1.3798] sent=[-0.3484,1.3798] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000088 kind=policy chunk=0043 chunk_step=1] delta_max_rad=0.109481 delta_max_deg=6.2728 joint=right_index_PIP joint_index=2 from_rad=0.677535 to_rad=0.568053
+[action 000088 chunk_step=1] raw=[-0.3491,1.3183] sent=[-0.3491,1.3183] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.087
+[chunk 0044] inference=0.009s predicted=(2, 22)
+[cmd 000089 kind=policy chunk=0044 chunk_step=0] delta_max_rad=0.102095 delta_max_deg=5.8496 joint=right_pinky_PIP joint_index=11 from_rad=0.600978 to_rad=0.498883
+[action 000089 chunk_step=0] raw=[-0.3485,1.2576] sent=[-0.3485,1.2576] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000090 kind=policy chunk=0044 chunk_step=1] delta_max_rad=0.099502 delta_max_deg=5.7010 joint=right_pinky_PIP joint_index=11 from_rad=0.498883 to_rad=0.399381
+[action 000090 chunk_step=1] raw=[-0.3464,1.2320] sent=[-0.3464,1.2320] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.228
+[chunk 0045] inference=0.009s predicted=(2, 22)
+[cmd 000091 kind=policy chunk=0045 chunk_step=0] delta_max_rad=0.108168 delta_max_deg=6.1976 joint=right_pinky_PIP joint_index=11 from_rad=0.399381 to_rad=0.291213
+[action 000091 chunk_step=0] raw=[-0.3491,1.2313] sent=[-0.3491,1.2313] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000092 kind=policy chunk=0045 chunk_step=1] delta_max_rad=0.121652 delta_max_deg=6.9701 joint=right_pinky_PIP joint_index=11 from_rad=0.291213 to_rad=0.169561
+[action 000092 chunk_step=1] raw=[-0.3345,1.2728] sent=[-0.3345,1.2728] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=10.002
+[chunk 0046] inference=0.010s predicted=(2, 22)
+[cmd 000093 kind=policy chunk=0046 chunk_step=0] delta_max_rad=0.098413 delta_max_deg=5.6386 joint=right_thumb_IP joint_index=21 from_rad=0.402183 to_rad=0.500596
+[action 000093 chunk_step=0] raw=[-0.2928,1.3500] sent=[-0.2928,1.3500] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000094 kind=policy chunk=0046 chunk_step=1] delta_max_rad=0.103423 delta_max_deg=5.9257 joint=right_ring_MCP_FE joint_index=13 from_rad=0.200557 to_rad=0.097134
+[action 000094 chunk_step=1] raw=[-0.2093,1.3825] sent=[-0.2093,1.3825] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.362
+[chunk 0047] inference=0.009s predicted=(2, 22)
+[cmd 000095 kind=policy chunk=0047 chunk_step=0] delta_max_rad=0.130493 delta_max_deg=7.4767 joint=right_thumb_IP joint_index=21 from_rad=0.601700 to_rad=0.732193
+[action 000095 chunk_step=0] raw=[-0.1983,1.3887] sent=[-0.1983,1.3887] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000096 kind=policy chunk=0047 chunk_step=1] delta_max_rad=0.098226 delta_max_deg=5.6280 joint=right_thumb_MCP_AA joint_index=20 from_rad=-0.086261 to_rad=0.011965
+[action 000096 chunk_step=1] raw=[-0.1894,1.3766] sent=[-0.1894,1.3766] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.254
+[chunk 0048] inference=0.009s predicted=(2, 22)
+[cmd 000097 kind=policy chunk=0048 chunk_step=0] delta_max_rad=0.095595 delta_max_deg=5.4772 joint=right_middle_DIP joint_index=7 from_rad=1.376641 to_rad=1.281046
+[action 000097 chunk_step=0] raw=[-0.2561,1.2810] sent=[-0.2561,1.2810] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000098 kind=policy chunk=0048 chunk_step=1] delta_max_rad=0.101002 delta_max_deg=5.7870 joint=right_index_DIP joint_index=3 from_rad=0.895419 to_rad=0.996421
+[action 000098 chunk_step=1] raw=[-0.3291,1.1920] sent=[-0.3291,1.1920] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.019
+[chunk 0049] inference=0.009s predicted=(2, 22)
+[cmd 000099 kind=policy chunk=0049 chunk_step=0] delta_max_rad=0.114018 delta_max_deg=6.5327 joint=right_middle_PIP joint_index=6 from_rad=0.545414 to_rad=0.431396
+[action 000099 chunk_step=0] raw=[-0.3491,1.1001] sent=[-0.3491,1.1001] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000100 kind=policy chunk=0049 chunk_step=1] delta_max_rad=0.101991 delta_max_deg=5.8436 joint=right_index_DIP joint_index=3 from_rad=1.100091 to_rad=1.202081
+[action 000100 chunk_step=1] raw=[-0.3491,1.2021] sent=[-0.3491,1.2021] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.992
+[chunk 0050] inference=0.010s predicted=(2, 22)
+[cmd 000101 kind=policy chunk=0050 chunk_step=0] delta_max_rad=0.111043 delta_max_deg=6.3623 joint=right_index_PIP joint_index=2 from_rad=0.369977 to_rad=0.481020
+[action 000101 chunk_step=0] raw=[-0.3491,1.2897] sent=[-0.3491,1.2897] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000102 kind=policy chunk=0050 chunk_step=1] delta_max_rad=0.102016 delta_max_deg=5.8451 joint=right_middle_MCP_FE joint_index=4 from_rad=0.338257 to_rad=0.440273
+[action 000102 chunk_step=1] raw=[-0.3490,1.3742] sent=[-0.3490,1.3742] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.736
+[chunk 0051] inference=0.009s predicted=(2, 22)
+[cmd 000103 kind=policy chunk=0051 chunk_step=0] delta_max_rad=0.109180 delta_max_deg=6.2555 joint=right_thumb_IP joint_index=21 from_rad=0.264236 to_rad=0.155056
+[action 000103 chunk_step=0] raw=[-0.3459,1.3921] sent=[-0.3459,1.3921] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000104 kind=policy chunk=0051 chunk_step=1] delta_max_rad=0.113473 delta_max_deg=6.5015 joint=right_ring_MCP_FE joint_index=13 from_rad=0.404189 to_rad=0.517662
+[action 000104 chunk_step=1] raw=[-0.3491,1.3911] sent=[-0.3491,1.3911] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.057
+[chunk 0052] inference=0.009s predicted=(2, 22)
+[cmd 000105 kind=policy chunk=0052 chunk_step=0] delta_max_rad=0.107388 delta_max_deg=6.1529 joint=right_ring_MCP_FE joint_index=13 from_rad=0.517662 to_rad=0.625050
+[action 000105 chunk_step=0] raw=[-0.3491,1.3769] sent=[-0.3491,1.3769] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000106 kind=policy chunk=0052 chunk_step=1] delta_max_rad=0.103465 delta_max_deg=5.9281 joint=right_pinky_PIP joint_index=11 from_rad=0.790079 to_rad=0.686614
+[action 000106 chunk_step=1] raw=[-0.3491,1.2994] sent=[-0.3491,1.2994] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.937
+[chunk 0053] inference=0.010s predicted=(2, 22)
+[cmd 000107 kind=policy chunk=0053 chunk_step=0] delta_max_rad=0.101665 delta_max_deg=5.8250 joint=right_index_DIP joint_index=3 from_rad=1.299351 to_rad=1.197686
+[action 000107 chunk_step=0] raw=[-0.3482,1.2265] sent=[-0.3482,1.2265] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000108 kind=policy chunk=0053 chunk_step=1] delta_max_rad=0.096387 delta_max_deg=5.5226 joint=right_thumb_MCP_FE joint_index=19 from_rad=0.498384 to_rad=0.594771
+[action 000108 chunk_step=1] raw=[-0.3490,1.1716] sent=[-0.3490,1.1716] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.150
+[chunk 0054] inference=0.009s predicted=(2, 22)
+[cmd 000109 kind=policy chunk=0054 chunk_step=0] delta_max_rad=0.102927 delta_max_deg=5.8973 joint=right_pinky_PIP joint_index=11 from_rad=0.504420 to_rad=0.401493
+[action 000109 chunk_step=0] raw=[-0.3491,1.1822] sent=[-0.3491,1.1822] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000110 kind=policy chunk=0054 chunk_step=1] delta_max_rad=0.104275 delta_max_deg=5.9745 joint=right_index_PIP joint_index=2 from_rad=0.418866 to_rad=0.314591
+[action 000110 chunk_step=1] raw=[-0.3485,1.2316] sent=[-0.3485,1.2316] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.817
+[chunk 0055] inference=0.009s predicted=(2, 22)
+[cmd 000111 kind=policy chunk=0055 chunk_step=0] delta_max_rad=0.111761 delta_max_deg=6.4034 joint=right_pinky_PIP joint_index=11 from_rad=0.297273 to_rad=0.185512
+[action 000111 chunk_step=0] raw=[-0.3480,1.2816] sent=[-0.3480,1.2816] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000112 kind=policy chunk=0055 chunk_step=1] delta_max_rad=0.091388 delta_max_deg=5.2361 joint=right_pinky_PIP joint_index=11 from_rad=0.185512 to_rad=0.094124
+[action 000112 chunk_step=1] raw=[-0.3469,1.3233] sent=[-0.3469,1.3233] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.124
+[chunk 0056] inference=0.009s predicted=(2, 22)
+[cmd 000113 kind=policy chunk=0056 chunk_step=0] delta_max_rad=0.091384 delta_max_deg=5.2359 joint=right_ring_DIP joint_index=16 from_rad=1.175651 to_rad=1.267035
+[action 000113 chunk_step=0] raw=[-0.3491,1.3764] sent=[-0.3491,1.3764] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000114 kind=policy chunk=0056 chunk_step=1] delta_max_rad=0.118178 delta_max_deg=6.7711 joint=right_pinky_MCP_AA joint_index=10 from_rad=0.249089 to_rad=0.130911
+[action 000114 chunk_step=1] raw=[-0.3448,1.3515] sent=[-0.3448,1.3515] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.919
+[chunk 0057] inference=0.010s predicted=(2, 22)
+[cmd 000115 kind=policy chunk=0057 chunk_step=0] delta_max_rad=0.106903 delta_max_deg=6.1251 joint=right_pinky_DIP joint_index=12 from_rad=1.004475 to_rad=1.111379
+[action 000115 chunk_step=0] raw=[-0.3483,1.2492] sent=[-0.3483,1.2492] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000116 kind=policy chunk=0057 chunk_step=1] delta_max_rad=0.099794 delta_max_deg=5.7178 joint=right_ring_MCP_FE joint_index=13 from_rad=0.255911 to_rad=0.355705
+[action 000116 chunk_step=1] raw=[-0.3474,1.1948] sent=[-0.3474,1.1948] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.505
+[chunk 0058] inference=0.010s predicted=(2, 22)
+[cmd 000117 kind=policy chunk=0058 chunk_step=0] delta_max_rad=0.103538 delta_max_deg=5.9323 joint=right_ring_PIP joint_index=15 from_rad=0.844992 to_rad=0.741455
+[action 000117 chunk_step=0] raw=[-0.3467,1.2743] sent=[-0.3467,1.2743] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000118 kind=policy chunk=0058 chunk_step=1] delta_max_rad=0.085174 delta_max_deg=4.8801 joint=right_index_DIP joint_index=3 from_rad=1.174806 to_rad=1.259980
+[action 000118 chunk_step=1] raw=[-0.3491,1.3089] sent=[-0.3491,1.3089] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.025
+[chunk 0059] inference=0.009s predicted=(2, 22)
+[cmd 000119 kind=policy chunk=0059 chunk_step=0] delta_max_rad=0.082731 delta_max_deg=4.7401 joint=right_index_PIP joint_index=2 from_rad=0.174308 to_rad=0.091577
+[action 000119 chunk_step=0] raw=[-0.3463,1.2660] sent=[-0.3463,1.2660] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000120 kind=policy chunk=0059 chunk_step=1] delta_max_rad=0.096564 delta_max_deg=5.5327 joint=right_index_DIP joint_index=3 from_rad=1.188717 to_rad=1.092153
+[action 000120 chunk_step=1] raw=[-0.3488,1.2396] sent=[-0.3488,1.2396] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.979
+[chunk 0060] inference=0.009s predicted=(2, 22)
+[cmd 000121 kind=policy chunk=0060 chunk_step=0] delta_max_rad=0.087952 delta_max_deg=5.0393 joint=right_ring_DIP joint_index=16 from_rad=0.860232 to_rad=0.948184
+[action 000121 chunk_step=0] raw=[-0.3491,1.2438] sent=[-0.3491,1.2438] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000122 kind=policy chunk=0060 chunk_step=1] delta_max_rad=0.088609 delta_max_deg=5.0769 joint=right_ring_DIP joint_index=16 from_rad=0.948184 to_rad=1.036794
+[action 000122 chunk_step=1] raw=[-0.3491,1.2812] sent=[-0.3491,1.2812] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.959
+[chunk 0061] inference=0.010s predicted=(2, 22)
+[cmd 000123 kind=policy chunk=0061 chunk_step=0] delta_max_rad=0.083344 delta_max_deg=4.7753 joint=right_ring_DIP joint_index=16 from_rad=1.036794 to_rad=1.120138
+[action 000123 chunk_step=0] raw=[-0.3475,1.3472] sent=[-0.3475,1.3472] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000124 kind=policy chunk=0061 chunk_step=1] delta_max_rad=0.092938 delta_max_deg=5.3250 joint=right_pinky_CMC joint_index=8 from_rad=0.109698 to_rad=0.202637
+[action 000124 chunk_step=1] raw=[-0.3490,1.3700] sent=[-0.3490,1.3700] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.195
+[chunk 0062] inference=0.009s predicted=(2, 22)
+[cmd 000125 kind=policy chunk=0062 chunk_step=0] delta_max_rad=0.100205 delta_max_deg=5.7413 joint=right_index_PIP joint_index=2 from_rad=0.142539 to_rad=0.242744
+[action 000125 chunk_step=0] raw=[-0.3474,1.3414] sent=[-0.3474,1.3414] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000126 kind=policy chunk=0062 chunk_step=1] delta_max_rad=0.093647 delta_max_deg=5.3656 joint=right_index_DIP joint_index=3 from_rad=1.104992 to_rad=1.198639
+[action 000126 chunk_step=1] raw=[-0.3475,1.2967] sent=[-0.3475,1.2967] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.741
+[chunk 0063] inference=0.009s predicted=(2, 22)
+[cmd 000127 kind=policy chunk=0063 chunk_step=0] delta_max_rad=0.081973 delta_max_deg=4.6967 joint=right_index_DIP joint_index=3 from_rad=1.198639 to_rad=1.280613
+[action 000127 chunk_step=0] raw=[-0.3471,1.2806] sent=[-0.3471,1.2806] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000128 kind=policy chunk=0063 chunk_step=1] delta_max_rad=0.089750 delta_max_deg=5.1423 joint=right_thumb_MCP_FE joint_index=19 from_rad=0.862466 to_rad=0.952216
+[action 000128 chunk_step=1] raw=[-0.3479,1.3084] sent=[-0.3479,1.3084] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.245
+[chunk 0064] inference=0.009s predicted=(2, 22)
+[cmd 000129 kind=policy chunk=0064 chunk_step=0] delta_max_rad=0.095248 delta_max_deg=5.4573 joint=right_middle_DIP joint_index=7 from_rad=1.193516 to_rad=1.288764
+[action 000129 chunk_step=0] raw=[-0.3487,1.3104] sent=[-0.3487,1.3104] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000130 kind=policy chunk=0064 chunk_step=1] delta_max_rad=0.102637 delta_max_deg=5.8806 joint=right_ring_DIP joint_index=16 from_rad=0.996141 to_rad=1.098778
+[action 000130 chunk_step=1] raw=[-0.3491,1.3765] sent=[-0.3491,1.3765] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.972
+[chunk 0065] inference=0.010s predicted=(2, 22)
+[cmd 000131 kind=policy chunk=0065 chunk_step=0] delta_max_rad=0.105453 delta_max_deg=6.0420 joint=right_index_MCP_FE joint_index=0 from_rad=0.410170 to_rad=0.515623
+[action 000131 chunk_step=0] raw=[-0.3451,1.3963] sent=[-0.3451,1.3963] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000132 kind=policy chunk=0065 chunk_step=1] delta_max_rad=0.112010 delta_max_deg=6.4177 joint=right_middle_PIP joint_index=6 from_rad=0.695222 to_rad=0.583212
+[action 000132 chunk_step=1] raw=[-0.3410,1.3963] sent=[-0.3410,1.3963] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.771
+[chunk 0066] inference=0.009s predicted=(2, 22)
+[cmd 000133 kind=policy chunk=0066 chunk_step=0] delta_max_rad=0.090151 delta_max_deg=5.1653 joint=right_ring_MCP_AA joint_index=14 from_rad=0.153469 to_rad=0.063318
+[action 000133 chunk_step=0] raw=[-0.3490,1.3940] sent=[-0.3490,1.3940] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000134 kind=policy chunk=0066 chunk_step=1] delta_max_rad=0.104812 delta_max_deg=6.0053 joint=right_index_PIP joint_index=2 from_rad=0.200085 to_rad=0.304897
+[action 000134 chunk_step=1] raw=[-0.3490,1.3963] sent=[-0.3490,1.3963] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.390
+[chunk 0067] inference=0.009s predicted=(2, 22)
+[cmd 000135 kind=policy chunk=0067 chunk_step=0] delta_max_rad=0.094582 delta_max_deg=5.4191 joint=right_pinky_MCP_AA joint_index=10 from_rad=0.088305 to_rad=0.182887
+[action 000135 chunk_step=0] raw=[-0.3483,1.3927] sent=[-0.3483,1.3927] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000136 kind=policy chunk=0067 chunk_step=1] delta_max_rad=0.101590 delta_max_deg=5.8207 joint=right_index_DIP joint_index=3 from_rad=1.233007 to_rad=1.334597
+[action 000136 chunk_step=1] raw=[-0.3469,1.3941] sent=[-0.3469,1.3941] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=10.069
+[chunk 0068] inference=0.010s predicted=(2, 22)
+[cmd 000137 kind=policy chunk=0068 chunk_step=0] delta_max_rad=0.095737 delta_max_deg=5.4854 joint=right_middle_DIP joint_index=7 from_rad=1.188674 to_rad=1.092936
+[action 000137 chunk_step=0] raw=[-0.3478,1.3893] sent=[-0.3478,1.3893] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000138 kind=policy chunk=0068 chunk_step=1] delta_max_rad=0.099829 delta_max_deg=5.7198 joint=right_middle_DIP joint_index=7 from_rad=1.092936 to_rad=0.993107
+[action 000138 chunk_step=1] raw=[-0.3480,1.3934] sent=[-0.3480,1.3934] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.331
+[chunk 0069] inference=0.009s predicted=(2, 22)
+[cmd 000139 kind=policy chunk=0069 chunk_step=0] delta_max_rad=0.101757 delta_max_deg=5.8303 joint=right_middle_DIP joint_index=7 from_rad=0.993107 to_rad=0.891350
+[action 000139 chunk_step=0] raw=[-0.3491,1.3835] sent=[-0.3491,1.3835] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000140 kind=policy chunk=0069 chunk_step=1] delta_max_rad=0.099351 delta_max_deg=5.6924 joint=right_index_PIP joint_index=2 from_rad=0.294172 to_rad=0.194821
+[action 000140 chunk_step=1] raw=[-0.3485,1.3668] sent=[-0.3485,1.3668] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.193
+[chunk 0070] inference=0.009s predicted=(2, 22)
+[cmd 000141 kind=policy chunk=0070 chunk_step=0] delta_max_rad=0.086246 delta_max_deg=4.9415 joint=right_ring_DIP joint_index=16 from_rad=0.581316 to_rad=0.667562
+[action 000141 chunk_step=0] raw=[-0.3477,1.3261] sent=[-0.3477,1.3261] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000142 kind=policy chunk=0070 chunk_step=1] delta_max_rad=0.100949 delta_max_deg=5.7840 joint=right_ring_DIP joint_index=16 from_rad=0.667562 to_rad=0.768512
+[action 000142 chunk_step=1] raw=[-0.3491,1.2569] sent=[-0.3491,1.2569] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=10.402
+[chunk 0071] inference=0.010s predicted=(2, 22)
+[cmd 000143 kind=policy chunk=0071 chunk_step=0] delta_max_rad=0.094634 delta_max_deg=5.4221 joint=right_ring_DIP joint_index=16 from_rad=0.768512 to_rad=0.863145
+[action 000143 chunk_step=0] raw=[-0.3456,1.1871] sent=[-0.3456,1.1871] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000144 kind=policy chunk=0071 chunk_step=1] delta_max_rad=0.089142 delta_max_deg=5.1075 joint=right_ring_DIP joint_index=16 from_rad=0.863145 to_rad=0.952287
+[action 000144 chunk_step=1] raw=[-0.3457,1.1622] sent=[-0.3457,1.1622] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.364
+[chunk 0072] inference=0.009s predicted=(2, 22)
+[cmd 000145 kind=policy chunk=0072 chunk_step=0] delta_max_rad=0.077935 delta_max_deg=4.4654 joint=right_ring_DIP joint_index=16 from_rad=0.952287 to_rad=1.030222
+[action 000145 chunk_step=0] raw=[-0.3472,1.1452] sent=[-0.3472,1.1452] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000146 kind=policy chunk=0072 chunk_step=1] delta_max_rad=0.059618 delta_max_deg=3.4159 joint=right_ring_DIP joint_index=16 from_rad=1.030222 to_rad=1.089840
+[action 000146 chunk_step=1] raw=[-0.3480,1.1397] sent=[-0.3480,1.1397] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.262
+[chunk 0073] inference=0.009s predicted=(2, 22)
+[cmd 000147 kind=policy chunk=0073 chunk_step=0] delta_max_rad=0.039854 delta_max_deg=2.2834 joint=right_ring_DIP joint_index=16 from_rad=1.089840 to_rad=1.129694
+[action 000147 chunk_step=0] raw=[-0.3482,1.1499] sent=[-0.3482,1.1499] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000148 kind=policy chunk=0073 chunk_step=1] delta_max_rad=0.033121 delta_max_deg=1.8977 joint=right_middle_DIP joint_index=7 from_rad=0.909004 to_rad=0.875883
+[action 000148 chunk_step=1] raw=[-0.3487,1.1682] sent=[-0.3487,1.1682] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.667
+[chunk 0074] inference=0.010s predicted=(2, 22)
+[cmd 000149 kind=policy chunk=0074 chunk_step=0] delta_max_rad=0.040968 delta_max_deg=2.3473 joint=right_middle_DIP joint_index=7 from_rad=0.875883 to_rad=0.834915
+[action 000149 chunk_step=0] raw=[-0.3487,1.1842] sent=[-0.3487,1.1842] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000150 kind=policy chunk=0074 chunk_step=1] delta_max_rad=0.059841 delta_max_deg=3.4286 joint=right_middle_DIP joint_index=7 from_rad=0.834915 to_rad=0.775075
+[action 000150 chunk_step=1] raw=[-0.3481,1.1865] sent=[-0.3481,1.1865] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.259
+[chunk 0075] inference=0.009s predicted=(2, 22)
+[cmd 000151 kind=policy chunk=0075 chunk_step=0] delta_max_rad=0.059498 delta_max_deg=3.4090 joint=right_thumb_CMC_FE joint_index=17 from_rad=0.736534 to_rad=0.796031
+[action 000151 chunk_step=0] raw=[-0.3491,1.2340] sent=[-0.3491,1.2340] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000152 kind=policy chunk=0075 chunk_step=1] delta_max_rad=0.090319 delta_max_deg=5.1749 joint=right_ring_DIP joint_index=16 from_rad=1.180266 to_rad=1.270585
+[action 000152 chunk_step=1] raw=[-0.3482,1.2706] sent=[-0.3482,1.2706] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.206
+[chunk 0076] inference=0.009s predicted=(2, 22)
+[cmd 000153 kind=policy chunk=0076 chunk_step=0] delta_max_rad=0.099866 delta_max_deg=5.7219 joint=right_ring_PIP joint_index=15 from_rad=0.642990 to_rad=0.742857
+[action 000153 chunk_step=0] raw=[-0.3491,1.3408] sent=[-0.3491,1.3408] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000154 kind=policy chunk=0076 chunk_step=1] delta_max_rad=0.095857 delta_max_deg=5.4922 joint=right_thumb_MCP_FE joint_index=19 from_rad=1.169037 to_rad=1.073180
+[action 000154 chunk_step=1] raw=[-0.3491,1.3897] sent=[-0.3491,1.3897] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.102
+[chunk 0077] inference=0.009s predicted=(2, 22)
+[cmd 000155 kind=policy chunk=0077 chunk_step=0] delta_max_rad=0.093143 delta_max_deg=5.3367 joint=right_ring_MCP_FE joint_index=13 from_rad=0.300719 to_rad=0.207576
+[action 000155 chunk_step=0] raw=[-0.3491,1.3963] sent=[-0.3491,1.3963] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000156 kind=policy chunk=0077 chunk_step=1] delta_max_rad=0.093524 delta_max_deg=5.3586 joint=right_pinky_CMC joint_index=8 from_rad=0.006242 to_rad=0.099766
+[action 000156 chunk_step=1] raw=[-0.3481,1.3863] sent=[-0.3481,1.3863] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.465
+[chunk 0078] inference=0.009s predicted=(2, 22)
+[cmd 000157 kind=policy chunk=0078 chunk_step=0] delta_max_rad=0.090072 delta_max_deg=5.1608 joint=right_pinky_CMC joint_index=8 from_rad=0.099766 to_rad=0.189839
+[action 000157 chunk_step=0] raw=[-0.3491,1.3899] sent=[-0.3491,1.3899] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000158 kind=policy chunk=0078 chunk_step=1] delta_max_rad=0.098597 delta_max_deg=5.6492 joint=right_thumb_MCP_FE joint_index=19 from_rad=0.873581 to_rad=0.774984
+[action 000158 chunk_step=1] raw=[-0.3491,1.3075] sent=[-0.3491,1.3075] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.326
+[chunk 0079] inference=0.009s predicted=(2, 22)
+[cmd 000159 kind=policy chunk=0079 chunk_step=0] delta_max_rad=0.096036 delta_max_deg=5.5024 joint=right_pinky_PIP joint_index=11 from_rad=0.000000 to_rad=0.096036
+[action 000159 chunk_step=0] raw=[-0.3491,1.3618] sent=[-0.3491,1.3618] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000160 kind=policy chunk=0079 chunk_step=1] delta_max_rad=0.100910 delta_max_deg=5.7817 joint=right_ring_DIP joint_index=16 from_rad=1.218849 to_rad=1.117939
+[action 000160 chunk_step=1] raw=[-0.3487,1.3963] sent=[-0.3487,1.3963] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.115
+[chunk 0080] inference=0.009s predicted=(2, 22)
+[cmd 000161 kind=policy chunk=0080 chunk_step=0] delta_max_rad=0.096555 delta_max_deg=5.5322 joint=right_ring_DIP joint_index=16 from_rad=1.117939 to_rad=1.021384
+[action 000161 chunk_step=0] raw=[-0.3491,1.3963] sent=[-0.3491,1.3963] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000162 kind=policy chunk=0080 chunk_step=1] delta_max_rad=0.099714 delta_max_deg=5.7132 joint=right_pinky_PIP joint_index=11 from_rad=0.273269 to_rad=0.372983
+[action 000162 chunk_step=1] raw=[-0.3485,1.3950] sent=[-0.3485,1.3950] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.821
+[chunk 0081] inference=0.010s predicted=(2, 22)
+[cmd 000163 kind=policy chunk=0081 chunk_step=0] delta_max_rad=0.092091 delta_max_deg=5.2764 joint=right_pinky_PIP joint_index=11 from_rad=0.372983 to_rad=0.465074
+[action 000163 chunk_step=0] raw=[-0.3491,1.3963] sent=[-0.3491,1.3963] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000164 kind=policy chunk=0081 chunk_step=1] delta_max_rad=0.101500 delta_max_deg=5.8155 joint=right_index_DIP joint_index=3 from_rad=1.395217 to_rad=1.293717
+[action 000164 chunk_step=1] raw=[-0.3475,1.3815] sent=[-0.3475,1.3815] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.837
+[chunk 0082] inference=0.009s predicted=(2, 22)
+[cmd 000165 kind=policy chunk=0082 chunk_step=0] delta_max_rad=0.103285 delta_max_deg=5.9178 joint=right_ring_MCP_FE joint_index=13 from_rad=0.604373 to_rad=0.501088
+[action 000165 chunk_step=0] raw=[-0.3475,1.3573] sent=[-0.3475,1.3573] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000166 kind=policy chunk=0082 chunk_step=1] delta_max_rad=0.102002 delta_max_deg=5.8443 joint=right_ring_MCP_FE joint_index=13 from_rad=0.501088 to_rad=0.399087
+[action 000166 chunk_step=1] raw=[-0.3491,1.3392] sent=[-0.3491,1.3392] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.489
+[chunk 0083] inference=0.009s predicted=(2, 22)
+[cmd 000167 kind=policy chunk=0083 chunk_step=0] delta_max_rad=0.091209 delta_max_deg=5.2259 joint=right_index_DIP joint_index=3 from_rad=1.110276 to_rad=1.019067
+[action 000167 chunk_step=0] raw=[-0.3491,1.3097] sent=[-0.3491,1.3097] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000168 kind=policy chunk=0083 chunk_step=1] delta_max_rad=0.100668 delta_max_deg=5.7679 joint=right_index_PIP joint_index=2 from_rad=0.203877 to_rad=0.103209
+[action 000168 chunk_step=1] raw=[-0.3451,1.3085] sent=[-0.3451,1.3085] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.705
+[chunk 0084] inference=0.010s predicted=(2, 22)
+[cmd 000169 kind=policy chunk=0084 chunk_step=0] delta_max_rad=0.095441 delta_max_deg=5.4683 joint=right_index_DIP joint_index=3 from_rad=0.919665 to_rad=0.824224
+[action 000169 chunk_step=0] raw=[-0.2953,1.3859] sent=[-0.2953,1.3859] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000170 kind=policy chunk=0084 chunk_step=1] delta_max_rad=0.108441 delta_max_deg=6.2132 joint=right_ring_MCP_FE joint_index=13 from_rad=0.139903 to_rad=0.031462
+[action 000170 chunk_step=1] raw=[-0.2086,1.3963] sent=[-0.2086,1.3963] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.640
+[chunk 0085] inference=0.010s predicted=(2, 22)
+[cmd 000171 kind=policy chunk=0085 chunk_step=0] delta_max_rad=0.111147 delta_max_deg=6.3682 joint=right_thumb_MCP_AA joint_index=20 from_rad=-0.208598 to_rad=-0.097451
+[action 000171 chunk_step=0] raw=[-0.1770,1.3960] sent=[-0.1770,1.3960] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000172 kind=policy chunk=0085 chunk_step=1] delta_max_rad=0.114542 delta_max_deg=6.5628 joint=right_ring_PIP joint_index=15 from_rad=1.062438 to_rad=0.947895
+[action 000172 chunk_step=1] raw=[-0.2638,1.3069] sent=[-0.2638,1.3069] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.050
+[chunk 0086] inference=0.009s predicted=(2, 22)
+[cmd 000173 kind=policy chunk=0086 chunk_step=0] delta_max_rad=0.095219 delta_max_deg=5.4557 joint=right_ring_DIP joint_index=16 from_rad=1.273149 to_rad=1.177930
+[action 000173 chunk_step=0] raw=[-0.3444,1.2312] sent=[-0.3444,1.2312] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000174 kind=policy chunk=0086 chunk_step=1] delta_max_rad=0.098201 delta_max_deg=5.6265 joint=right_index_PIP joint_index=2 from_rad=0.247784 to_rad=0.345985
+[action 000174 chunk_step=1] raw=[-0.3491,1.2700] sent=[-0.3491,1.2700] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.196
+[chunk 0087] inference=0.009s predicted=(2, 22)
+[cmd 000175 kind=policy chunk=0087 chunk_step=0] delta_max_rad=0.103731 delta_max_deg=5.9433 joint=right_pinky_PIP joint_index=11 from_rad=0.308865 to_rad=0.412595
+[action 000175 chunk_step=0] raw=[-0.3469,1.3391] sent=[-0.3469,1.3391] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000176 kind=policy chunk=0087 chunk_step=1] delta_max_rad=0.105363 delta_max_deg=6.0368 joint=right_ring_MCP_FE joint_index=13 from_rad=0.230223 to_rad=0.335586
+[action 000176 chunk_step=1] raw=[-0.3491,1.3591] sent=[-0.3491,1.3591] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=10.008
+[chunk 0088] inference=0.010s predicted=(2, 22)
+[cmd 000177 kind=policy chunk=0088 chunk_step=0] delta_max_rad=0.118558 delta_max_deg=6.7929 joint=right_ring_MCP_FE joint_index=13 from_rad=0.335586 to_rad=0.454144
+[action 000177 chunk_step=0] raw=[-0.3426,1.3841] sent=[-0.3426,1.3841] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000178 kind=policy chunk=0088 chunk_step=1] delta_max_rad=0.110615 delta_max_deg=6.3378 joint=right_ring_MCP_FE joint_index=13 from_rad=0.454144 to_rad=0.564759
+[action 000178 chunk_step=1] raw=[-0.3464,1.3882] sent=[-0.3464,1.3882] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.217
+[chunk 0089] inference=0.009s predicted=(2, 22)
+[cmd 000179 kind=policy chunk=0089 chunk_step=0] delta_max_rad=0.095231 delta_max_deg=5.4563 joint=right_ring_DIP joint_index=16 from_rad=0.746085 to_rad=0.841316
+[action 000179 chunk_step=0] raw=[-0.3483,1.3090] sent=[-0.3483,1.3090] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000180 kind=policy chunk=0089 chunk_step=1] delta_max_rad=0.104661 delta_max_deg=5.9966 joint=right_pinky_PIP joint_index=11 from_rad=0.583444 to_rad=0.478783
+[action 000180 chunk_step=1] raw=[-0.3486,1.2745] sent=[-0.3486,1.2745] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.813
+[chunk 0090] inference=0.009s predicted=(2, 22)
+[cmd 000181 kind=policy chunk=0090 chunk_step=0] delta_max_rad=0.110056 delta_max_deg=6.3057 joint=right_pinky_DIP joint_index=12 from_rad=1.195685 to_rad=1.085629
+[action 000181 chunk_step=0] raw=[-0.3458,1.2445] sent=[-0.3458,1.2445] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000182 kind=policy chunk=0090 chunk_step=1] delta_max_rad=0.106651 delta_max_deg=6.1107 joint=right_pinky_DIP joint_index=12 from_rad=1.085629 to_rad=0.978978
+[action 000182 chunk_step=1] raw=[-0.3471,1.2143] sent=[-0.3471,1.2143] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.423
+[chunk 0091] inference=0.009s predicted=(2, 22)
+[cmd 000183 kind=policy chunk=0091 chunk_step=0] delta_max_rad=0.113393 delta_max_deg=6.4969 joint=right_pinky_PIP joint_index=11 from_rad=0.306627 to_rad=0.193234
+[action 000183 chunk_step=0] raw=[-0.3491,1.2994] sent=[-0.3491,1.2994] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000184 kind=policy chunk=0091 chunk_step=1] delta_max_rad=0.107812 delta_max_deg=6.1772 joint=right_pinky_PIP joint_index=11 from_rad=0.193234 to_rad=0.085422
+[action 000184 chunk_step=1] raw=[-0.3465,1.3755] sent=[-0.3465,1.3755] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=10.551
+[chunk 0092] inference=0.011s predicted=(2, 22)
+[cmd 000185 kind=policy chunk=0092 chunk_step=0] delta_max_rad=0.108980 delta_max_deg=6.2441 joint=right_thumb_IP joint_index=21 from_rad=0.455561 to_rad=0.564541
+[action 000185 chunk_step=0] raw=[-0.3491,1.3875] sent=[-0.3491,1.3875] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000186 kind=policy chunk=0092 chunk_step=1] delta_max_rad=0.108496 delta_max_deg=6.2163 joint=right_thumb_IP joint_index=21 from_rad=0.564541 to_rad=0.673037
+[action 000186 chunk_step=1] raw=[-0.3486,1.3958] sent=[-0.3486,1.3958] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.546
+[chunk 0093] inference=0.010s predicted=(2, 22)
+[cmd 000187 kind=policy chunk=0093 chunk_step=0] delta_max_rad=0.100319 delta_max_deg=5.7479 joint=right_index_DIP joint_index=3 from_rad=0.869302 to_rad=0.969621
+[action 000187 chunk_step=0] raw=[-0.3473,1.3588] sent=[-0.3473,1.3588] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000188 kind=policy chunk=0093 chunk_step=1] delta_max_rad=0.113957 delta_max_deg=6.5293 joint=right_ring_PIP joint_index=15 from_rad=0.985941 to_rad=0.871984
+[action 000188 chunk_step=1] raw=[-0.3491,1.2811] sent=[-0.3491,1.2811] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.314
+[chunk 0094] inference=0.009s predicted=(2, 22)
+[cmd 000189 kind=policy chunk=0094 chunk_step=0] delta_max_rad=0.100218 delta_max_deg=5.7421 joint=right_ring_PIP joint_index=15 from_rad=0.871984 to_rad=0.771765
+[action 000189 chunk_step=0] raw=[-0.3491,1.1859] sent=[-0.3491,1.1859] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000190 kind=policy chunk=0094 chunk_step=1] delta_max_rad=0.101840 delta_max_deg=5.8350 joint=right_index_DIP joint_index=3 from_rad=1.162334 to_rad=1.264174
+[action 000190 chunk_step=1] raw=[-0.3491,1.2642] sent=[-0.3491,1.2642] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.746
+[chunk 0095] inference=0.010s predicted=(2, 22)
+[cmd 000191 kind=policy chunk=0095 chunk_step=0] delta_max_rad=0.102874 delta_max_deg=5.8942 joint=right_index_PIP joint_index=2 from_rad=0.437971 to_rad=0.540844
+[action 000191 chunk_step=0] raw=[-0.3489,1.3628] sent=[-0.3489,1.3628] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000192 kind=policy chunk=0095 chunk_step=1] delta_max_rad=0.102057 delta_max_deg=5.8474 joint=right_index_PIP joint_index=2 from_rad=0.540844 to_rad=0.642901
+[action 000192 chunk_step=1] raw=[-0.3478,1.3917] sent=[-0.3478,1.3917] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=10.089
+[chunk 0096] inference=0.010s predicted=(2, 22)
+[cmd 000193 kind=policy chunk=0096 chunk_step=0] delta_max_rad=0.112132 delta_max_deg=6.4247 joint=right_pinky_DIP joint_index=12 from_rad=0.985880 to_rad=1.098012
+[action 000193 chunk_step=0] raw=[-0.3465,1.3885] sent=[-0.3465,1.3885] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000194 kind=policy chunk=0096 chunk_step=1] delta_max_rad=0.104283 delta_max_deg=5.9750 joint=right_ring_MCP_FE joint_index=13 from_rad=0.436953 to_rad=0.541236
+[action 000194 chunk_step=1] raw=[-0.3483,1.3269] sent=[-0.3483,1.3269] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.351
+[chunk 0097] inference=0.009s predicted=(2, 22)
+[cmd 000195 kind=policy chunk=0097 chunk_step=0] delta_max_rad=0.106753 delta_max_deg=6.1165 joint=right_middle_PIP joint_index=6 from_rad=0.450536 to_rad=0.557290
+[action 000195 chunk_step=0] raw=[-0.3479,1.3146] sent=[-0.3479,1.3146] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000196 kind=policy chunk=0097 chunk_step=1] delta_max_rad=0.118295 delta_max_deg=6.7778 joint=right_pinky_PIP joint_index=11 from_rad=0.593469 to_rad=0.475173
+[action 000196 chunk_step=1] raw=[-0.3485,1.3202] sent=[-0.3485,1.3202] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.467
+[chunk 0098] inference=0.009s predicted=(2, 22)
+[cmd 000197 kind=policy chunk=0098 chunk_step=0] delta_max_rad=0.089483 delta_max_deg=5.1270 joint=right_index_DIP joint_index=3 from_rad=1.137229 to_rad=1.047747
+[action 000197 chunk_step=0] raw=[-0.3491,1.3142] sent=[-0.3491,1.3142] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000198 kind=policy chunk=0098 chunk_step=1] delta_max_rad=0.107168 delta_max_deg=6.1403 joint=right_pinky_PIP joint_index=11 from_rad=0.386288 to_rad=0.279120
+[action 000198 chunk_step=1] raw=[-0.3469,1.3009] sent=[-0.3469,1.3009] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.096
+[chunk 0099] inference=0.009s predicted=(2, 22)
+[cmd 000199 kind=policy chunk=0099 chunk_step=0] delta_max_rad=0.101328 delta_max_deg=5.8057 joint=right_pinky_DIP joint_index=12 from_rad=1.050203 to_rad=0.948874
+[action 000199 chunk_step=0] raw=[-0.3338,1.3702] sent=[-0.3338,1.3702] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000200 kind=policy chunk=0099 chunk_step=1] delta_max_rad=0.102234 delta_max_deg=5.8576 joint=right_pinky_DIP joint_index=12 from_rad=0.948874 to_rad=0.846640
+[action 000200 chunk_step=1] raw=[-0.3187,1.3928] sent=[-0.3187,1.3928] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.195
+[chunk 0100] inference=0.009s predicted=(2, 22)
+[cmd 000201 kind=policy chunk=0100 chunk_step=0] delta_max_rad=0.123407 delta_max_deg=7.0707 joint=right_pinky_DIP joint_index=12 from_rad=0.846640 to_rad=0.723234
+[action 000201 chunk_step=0] raw=[-0.3310,1.3724] sent=[-0.3310,1.3724] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000202 kind=policy chunk=0100 chunk_step=1] delta_max_rad=0.112231 delta_max_deg=6.4304 joint=right_middle_PIP joint_index=6 from_rad=0.520680 to_rad=0.408450
+[action 000202 chunk_step=1] raw=[-0.3420,1.3410] sent=[-0.3420,1.3410] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=10.150
+[chunk 0101] inference=0.010s predicted=(2, 22)
+[cmd 000203 kind=policy chunk=0101 chunk_step=0] delta_max_rad=0.107172 delta_max_deg=6.1405 joint=right_index_DIP joint_index=3 from_rad=0.985477 to_rad=1.092649
+[action 000203 chunk_step=0] raw=[-0.3488,1.2489] sent=[-0.3488,1.2489] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000204 kind=policy chunk=0101 chunk_step=1] delta_max_rad=0.119167 delta_max_deg=6.8278 joint=right_pinky_PIP joint_index=11 from_rad=0.164482 to_rad=0.283649
+[action 000204 chunk_step=1] raw=[-0.3474,1.1787] sent=[-0.3474,1.1787] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.129
+[chunk 0102] inference=0.009s predicted=(2, 22)
+[cmd 000205 kind=policy chunk=0102 chunk_step=0] delta_max_rad=0.115712 delta_max_deg=6.6298 joint=right_thumb_IP joint_index=21 from_rad=0.505069 to_rad=0.389356
+[action 000205 chunk_step=0] raw=[-0.3471,1.2802] sent=[-0.3471,1.2802] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000206 kind=policy chunk=0102 chunk_step=1] delta_max_rad=0.105071 delta_max_deg=6.0201 joint=right_thumb_IP joint_index=21 from_rad=0.389356 to_rad=0.284286
+[action 000206 chunk_step=1] raw=[-0.3491,1.3617] sent=[-0.3491,1.3617] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.154
+[chunk 0103] inference=0.009s predicted=(2, 22)
+[cmd 000207 kind=policy chunk=0103 chunk_step=0] delta_max_rad=0.112627 delta_max_deg=6.4530 joint=right_pinky_DIP joint_index=12 from_rad=1.023080 to_rad=1.135707
+[action 000207 chunk_step=0] raw=[-0.3485,1.3915] sent=[-0.3485,1.3915] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000208 kind=policy chunk=0103 chunk_step=1] delta_max_rad=0.116997 delta_max_deg=6.7034 joint=right_ring_MCP_FE joint_index=13 from_rad=0.491802 to_rad=0.608799
+[action 000208 chunk_step=1] raw=[-0.3475,1.3905] sent=[-0.3475,1.3905] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=10.134
+[chunk 0104] inference=0.010s predicted=(2, 22)
+[cmd 000209 kind=policy chunk=0104 chunk_step=0] delta_max_rad=0.109681 delta_max_deg=6.2843 joint=right_middle_PIP joint_index=6 from_rad=0.302262 to_rad=0.411943
+[action 000209 chunk_step=0] raw=[-0.3477,1.3173] sent=[-0.3477,1.3173] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000210 kind=policy chunk=0104 chunk_step=1] delta_max_rad=0.104844 delta_max_deg=6.0071 joint=right_index_DIP joint_index=3 from_rad=1.317277 to_rad=1.212433
+[action 000210 chunk_step=1] raw=[-0.3462,1.2580] sent=[-0.3462,1.2580] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.112
+[chunk 0105] inference=0.009s predicted=(2, 22)
+[cmd 000211 kind=policy chunk=0105 chunk_step=0] delta_max_rad=0.094220 delta_max_deg=5.3984 joint=right_index_PIP joint_index=2 from_rad=0.628017 to_rad=0.533798
+[action 000211 chunk_step=0] raw=[-0.3475,1.2234] sent=[-0.3475,1.2234] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000212 kind=policy chunk=0105 chunk_step=1] delta_max_rad=0.099638 delta_max_deg=5.7088 joint=right_middle_DIP joint_index=7 from_rad=1.179942 to_rad=1.279580
+[action 000212 chunk_step=1] raw=[-0.3479,1.2796] sent=[-0.3479,1.2796] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.797
+[chunk 0106] inference=0.009s predicted=(2, 22)
+[cmd 000213 kind=policy chunk=0106 chunk_step=0] delta_max_rad=0.110205 delta_max_deg=6.3143 joint=right_index_PIP joint_index=2 from_rad=0.440709 to_rad=0.330504
+[action 000213 chunk_step=0] raw=[-0.3468,1.3558] sent=[-0.3468,1.3558] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000214 kind=policy chunk=0106 chunk_step=1] delta_max_rad=0.113839 delta_max_deg=6.5225 joint=right_index_PIP joint_index=2 from_rad=0.330504 to_rad=0.216665
+[action 000214 chunk_step=1] raw=[-0.3448,1.3810] sent=[-0.3448,1.3810] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.993
+[chunk 0107] inference=0.009s predicted=(2, 22)
+[cmd 000215 kind=policy chunk=0107 chunk_step=0] delta_max_rad=0.104273 delta_max_deg=5.9744 joint=right_thumb_IP joint_index=21 from_rad=0.575121 to_rad=0.679394
+[action 000215 chunk_step=0] raw=[-0.3490,1.3753] sent=[-0.3490,1.3753] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000216 kind=policy chunk=0107 chunk_step=1] delta_max_rad=0.091103 delta_max_deg=5.2198 joint=right_middle_PIP joint_index=6 from_rad=0.460083 to_rad=0.368980
+[action 000216 chunk_step=1] raw=[-0.3459,1.3905] sent=[-0.3459,1.3905] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.983
+[chunk 0108] inference=0.010s predicted=(2, 22)
+[cmd 000217 kind=policy chunk=0108 chunk_step=0] delta_max_rad=0.095462 delta_max_deg=5.4696 joint=right_index_DIP joint_index=3 from_rad=1.000185 to_rad=1.095647
+[action 000217 chunk_step=0] raw=[-0.3475,1.3141] sent=[-0.3475,1.3141] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000218 kind=policy chunk=0108 chunk_step=1] delta_max_rad=0.105627 delta_max_deg=6.0520 joint=right_ring_PIP joint_index=15 from_rad=0.708850 to_rad=0.603223
+[action 000218 chunk_step=1] raw=[-0.3490,1.2344] sent=[-0.3490,1.2344] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.300
+[chunk 0109] inference=0.009s predicted=(2, 22)
+[cmd 000219 kind=policy chunk=0109 chunk_step=0] delta_max_rad=0.101263 delta_max_deg=5.8019 joint=right_thumb_IP joint_index=21 from_rad=0.627294 to_rad=0.526031
+[action 000219 chunk_step=0] raw=[-0.3490,1.2775] sent=[-0.3490,1.2775] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000220 kind=policy chunk=0109 chunk_step=1] delta_max_rad=0.098651 delta_max_deg=5.6523 joint=right_index_DIP joint_index=3 from_rad=1.277527 to_rad=1.376178
+[action 000220 chunk_step=1] raw=[-0.3475,1.3762] sent=[-0.3475,1.3762] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.280
+[chunk 0110] inference=0.009s predicted=(2, 22)
+[cmd 000221 kind=policy chunk=0110 chunk_step=0] delta_max_rad=0.127041 delta_max_deg=7.2789 joint=right_index_PIP joint_index=2 from_rad=0.546226 to_rad=0.673267
+[action 000221 chunk_step=0] raw=[-0.3465,1.3963] sent=[-0.3465,1.3963] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000222 kind=policy chunk=0110 chunk_step=1] delta_max_rad=0.106323 delta_max_deg=6.0919 joint=right_ring_MCP_FE joint_index=13 from_rad=0.471953 to_rad=0.578276
+[action 000222 chunk_step=1] raw=[-0.3485,1.3900] sent=[-0.3485,1.3900] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.241
+[chunk 0111] inference=0.009s predicted=(2, 22)
+[cmd 000223 kind=policy chunk=0111 chunk_step=0] delta_max_rad=0.115412 delta_max_deg=6.6126 joint=right_ring_MCP_FE joint_index=13 from_rad=0.578276 to_rad=0.693689
+[action 000223 chunk_step=0] raw=[-0.3474,1.3816] sent=[-0.3474,1.3816] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000224 kind=policy chunk=0111 chunk_step=1] delta_max_rad=0.109398 delta_max_deg=6.2681 joint=right_index_PIP joint_index=2 from_rad=0.763595 to_rad=0.654197
+[action 000224 chunk_step=1] raw=[-0.3464,1.3382] sent=[-0.3464,1.3382] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=10.614
+[chunk 0112] inference=0.011s predicted=(2, 22)
+[cmd 000225 kind=policy chunk=0112 chunk_step=0] delta_max_rad=0.110603 delta_max_deg=6.3371 joint=right_pinky_PIP joint_index=11 from_rad=0.487455 to_rad=0.376852
+[action 000225 chunk_step=0] raw=[-0.3450,1.3187] sent=[-0.3450,1.3187] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000226 kind=policy chunk=0112 chunk_step=1] delta_max_rad=0.100991 delta_max_deg=5.7864 joint=right_pinky_MCP_FE joint_index=9 from_rad=1.074141 to_rad=1.175132
+[action 000226 chunk_step=1] raw=[-0.3460,1.2969] sent=[-0.3460,1.2969] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.633
+[chunk 0113] inference=0.010s predicted=(2, 22)
+[cmd 000227 kind=policy chunk=0113 chunk_step=0] delta_max_rad=0.099013 delta_max_deg=5.6730 joint=right_index_PIP joint_index=2 from_rad=0.461335 to_rad=0.362322
+[action 000227 chunk_step=0] raw=[-0.3465,1.2659] sent=[-0.3465,1.2659] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000228 kind=policy chunk=0113 chunk_step=1] delta_max_rad=0.102217 delta_max_deg=5.8566 joint=right_thumb_IP joint_index=21 from_rad=0.503780 to_rad=0.605997
+[action 000228 chunk_step=1] raw=[-0.3276,1.2483] sent=[-0.3276,1.2483] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.208
+[chunk 0114] inference=0.009s predicted=(2, 22)
+[cmd 000229 kind=policy chunk=0114 chunk_step=0] delta_max_rad=0.122536 delta_max_deg=7.0208 joint=right_thumb_IP joint_index=21 from_rad=0.605997 to_rad=0.728533
+[action 000229 chunk_step=0] raw=[-0.2915,1.3271] sent=[-0.2915,1.3271] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000230 kind=policy chunk=0114 chunk_step=1] delta_max_rad=0.111088 delta_max_deg=6.3649 joint=right_ring_MCP_FE joint_index=13 from_rad=0.293334 to_rad=0.182245
+[action 000230 chunk_step=1] raw=[-0.2394,1.3833] sent=[-0.2394,1.3833] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.865
+[chunk 0115] inference=0.009s predicted=(2, 22)
+[cmd 000231 kind=policy chunk=0115 chunk_step=0] delta_max_rad=0.107155 delta_max_deg=6.1395 joint=right_thumb_IP joint_index=21 from_rad=0.821990 to_rad=0.929145
+[action 000231 chunk_step=0] raw=[-0.1740,1.3749] sent=[-0.1740,1.3749] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000232 kind=policy chunk=0115 chunk_step=1] delta_max_rad=0.100156 delta_max_deg=5.7385 joint=right_middle_PIP joint_index=6 from_rad=0.350680 to_rad=0.250524
+[action 000232 chunk_step=1] raw=[-0.1878,1.3260] sent=[-0.1878,1.3260] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.770
+[chunk 0116] inference=0.010s predicted=(2, 22)
+[cmd 000233 kind=policy chunk=0116 chunk_step=0] delta_max_rad=0.106734 delta_max_deg=6.1154 joint=right_ring_PIP joint_index=15 from_rad=0.837458 to_rad=0.730724
+[action 000233 chunk_step=0] raw=[-0.2621,1.2323] sent=[-0.2621,1.2323] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000234 kind=policy chunk=0116 chunk_step=1] delta_max_rad=0.112729 delta_max_deg=6.4589 joint=right_pinky_PIP joint_index=11 from_rad=0.130405 to_rad=0.243134
+[action 000234 chunk_step=1] raw=[-0.3103,1.1438] sent=[-0.3103,1.1438] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.607
+[chunk 0117] inference=0.009s predicted=(2, 22)
+[cmd 000235 kind=policy chunk=0117 chunk_step=0] delta_max_rad=0.105538 delta_max_deg=6.0469 joint=right_pinky_PIP joint_index=11 from_rad=0.243134 to_rad=0.348672
+[action 000235 chunk_step=0] raw=[-0.3428,1.2175] sent=[-0.3428,1.2175] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000236 kind=policy chunk=0117 chunk_step=1] delta_max_rad=0.104080 delta_max_deg=5.9633 joint=right_pinky_PIP joint_index=11 from_rad=0.348672 to_rad=0.452752
+[action 000236 chunk_step=1] raw=[-0.3473,1.3182] sent=[-0.3473,1.3182] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.005
+[chunk 0118] inference=0.009s predicted=(2, 22)
+[cmd 000237 kind=policy chunk=0118 chunk_step=0] delta_max_rad=0.120154 delta_max_deg=6.8843 joint=right_index_PIP joint_index=2 from_rad=0.632047 to_rad=0.752201
+[action 000237 chunk_step=0] raw=[-0.3442,1.3806] sent=[-0.3442,1.3806] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000238 kind=policy chunk=0118 chunk_step=1] delta_max_rad=0.115365 delta_max_deg=6.6100 joint=right_ring_MCP_FE joint_index=13 from_rad=0.491294 to_rad=0.606660
+[action 000238 chunk_step=1] raw=[-0.3464,1.3770] sent=[-0.3464,1.3770] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.745
+[chunk 0119] inference=0.010s predicted=(2, 22)
+[cmd 000239 kind=policy chunk=0119 chunk_step=0] delta_max_rad=0.128860 delta_max_deg=7.3831 joint=right_middle_PIP joint_index=6 from_rad=0.189225 to_rad=0.318084
+[action 000239 chunk_step=0] raw=[-0.3423,1.3266] sent=[-0.3423,1.3266] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000240 kind=policy chunk=0119 chunk_step=1] delta_max_rad=0.128285 delta_max_deg=7.3502 joint=right_index_PIP joint_index=2 from_rad=0.789483 to_rad=0.661198
+[action 000240 chunk_step=1] raw=[-0.3489,1.3041] sent=[-0.3489,1.3041] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.076
+[chunk 0120] inference=0.009s predicted=(2, 22)
+[cmd 000241 kind=policy chunk=0120 chunk_step=0] delta_max_rad=0.123004 delta_max_deg=7.0476 joint=right_ring_DIP joint_index=16 from_rad=0.892283 to_rad=1.015287
+[action 000241 chunk_step=0] raw=[-0.3471,1.2778] sent=[-0.3471,1.2778] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000242 kind=policy chunk=0120 chunk_step=1] delta_max_rad=0.093436 delta_max_deg=5.3535 joint=right_middle_DIP joint_index=7 from_rad=0.945042 to_rad=1.038478
+[action 000242 chunk_step=1] raw=[-0.3430,1.2225] sent=[-0.3430,1.2225] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.638
+[chunk 0121] inference=0.010s predicted=(2, 22)
+[cmd 000243 kind=policy chunk=0121 chunk_step=0] delta_max_rad=0.099074 delta_max_deg=5.6765 joint=right_index_PIP joint_index=2 from_rad=0.484231 to_rad=0.385157
+[action 000243 chunk_step=0] raw=[-0.3491,1.1805] sent=[-0.3491,1.1805] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000244 kind=policy chunk=0121 chunk_step=1] delta_max_rad=0.105859 delta_max_deg=6.0653 joint=right_thumb_IP joint_index=21 from_rad=0.675694 to_rad=0.781553
+[action 000244 chunk_step=1] raw=[-0.3384,1.2676] sent=[-0.3384,1.2676] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.571
+[chunk 0122] inference=0.010s predicted=(2, 22)
+[cmd 000245 kind=policy chunk=0122 chunk_step=0] delta_max_rad=0.114576 delta_max_deg=6.5647 joint=right_thumb_IP joint_index=21 from_rad=0.781553 to_rad=0.896129
+[action 000245 chunk_step=0] raw=[-0.2752,1.3365] sent=[-0.2752,1.3365] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000246 kind=policy chunk=0122 chunk_step=1] delta_max_rad=0.097414 delta_max_deg=5.5814 joint=right_thumb_MCP_AA joint_index=20 from_rad=-0.275206 to_rad=-0.177792
+[action 000246 chunk_step=1] raw=[-0.2081,1.3641] sent=[-0.2081,1.3641] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.006
+[chunk 0123] inference=0.009s predicted=(2, 22)
+[cmd 000247 kind=policy chunk=0123 chunk_step=0] delta_max_rad=0.123422 delta_max_deg=7.0716 joint=right_thumb_MCP_AA joint_index=20 from_rad=-0.177792 to_rad=-0.054370
+[action 000247 chunk_step=0] raw=[-0.1501,1.3884] sent=[-0.1501,1.3884] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000248 kind=policy chunk=0123 chunk_step=1] delta_max_rad=0.088469 delta_max_deg=5.0689 joint=right_middle_PIP joint_index=6 from_rad=0.639782 to_rad=0.551313
+[action 000248 chunk_step=1] raw=[-0.1639,1.3472] sent=[-0.1639,1.3472] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.867
+[chunk 0124] inference=0.009s predicted=(2, 22)
+[cmd 000249 kind=policy chunk=0124 chunk_step=0] delta_max_rad=0.100880 delta_max_deg=5.7800 joint=right_ring_PIP joint_index=15 from_rad=0.765236 to_rad=0.664357
+[action 000249 chunk_step=0] raw=[-0.2171,1.2539] sent=[-0.2171,1.2539] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000250 kind=policy chunk=0124 chunk_step=1] delta_max_rad=0.103778 delta_max_deg=5.9461 joint=right_index_DIP joint_index=3 from_rad=0.935782 to_rad=1.039560
+[action 000250 chunk_step=1] raw=[-0.2969,1.1599] sent=[-0.2969,1.1599] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.712
+[chunk 0125] inference=0.010s predicted=(2, 22)
+[cmd 000251 kind=policy chunk=0125 chunk_step=0] delta_max_rad=0.109509 delta_max_deg=6.2744 joint=right_index_DIP joint_index=3 from_rad=1.039560 to_rad=1.149069
+[action 000251 chunk_step=0] raw=[-0.3310,1.1491] sent=[-0.3310,1.1491] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000252 kind=policy chunk=0125 chunk_step=1] delta_max_rad=0.094617 delta_max_deg=5.4212 joint=right_thumb_MCP_AA joint_index=20 from_rad=-0.196697 to_rad=-0.291314
+[action 000252 chunk_step=1] raw=[-0.3366,1.2427] sent=[-0.3366,1.2427] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.760
+[chunk 0126] inference=0.009s predicted=(2, 22)
+[cmd 000253 kind=policy chunk=0126 chunk_step=0] delta_max_rad=0.113298 delta_max_deg=6.4915 joint=right_index_PIP joint_index=2 from_rad=0.563188 to_rad=0.676486
+[action 000253 chunk_step=0] raw=[-0.3473,1.3444] sent=[-0.3473,1.3444] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000254 kind=policy chunk=0126 chunk_step=1] delta_max_rad=0.113463 delta_max_deg=6.5010 joint=right_thumb_IP joint_index=21 from_rad=0.533840 to_rad=0.420377
+[action 000254 chunk_step=1] raw=[-0.3475,1.3789] sent=[-0.3475,1.3789] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.765
+[chunk 0127] inference=0.009s predicted=(2, 22)
+[cmd 000255 kind=policy chunk=0127 chunk_step=0] delta_max_rad=0.119413 delta_max_deg=6.8419 joint=right_middle_MCP_FE joint_index=4 from_rad=0.538637 to_rad=0.658050
+[action 000255 chunk_step=0] raw=[-0.3401,1.3842] sent=[-0.3401,1.3842] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000256 kind=policy chunk=0127 chunk_step=1] delta_max_rad=0.097881 delta_max_deg=5.6082 joint=right_pinky_MCP_AA joint_index=10 from_rad=0.128370 to_rad=0.226251
+[action 000256 chunk_step=1] raw=[-0.3427,1.3253] sent=[-0.3427,1.3253] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.186
+[chunk 0128] inference=0.009s predicted=(2, 22)
+[cmd 000257 kind=policy chunk=0128 chunk_step=0] delta_max_rad=0.109680 delta_max_deg=6.2842 joint=right_pinky_PIP joint_index=11 from_rad=0.702643 to_rad=0.592963
+[action 000257 chunk_step=0] raw=[-0.3483,1.2482] sent=[-0.3483,1.2482] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000258 kind=policy chunk=0128 chunk_step=1] delta_max_rad=0.131831 delta_max_deg=7.5533 joint=right_middle_MCP_FE joint_index=4 from_rad=0.613270 to_rad=0.481440
+[action 000258 chunk_step=1] raw=[-0.3452,1.2038] sent=[-0.3452,1.2038] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.971
+[chunk 0129] inference=0.009s predicted=(2, 22)
+[cmd 000259 kind=policy chunk=0129 chunk_step=0] delta_max_rad=0.116474 delta_max_deg=6.6735 joint=right_ring_DIP joint_index=16 from_rad=1.037723 to_rad=1.154197
+[action 000259 chunk_step=0] raw=[-0.3491,1.1542] sent=[-0.3491,1.1542] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000260 kind=policy chunk=0129 chunk_step=1] delta_max_rad=0.112246 delta_max_deg=6.4312 joint=right_pinky_PIP joint_index=11 from_rad=0.402498 to_rad=0.290252
+[action 000260 chunk_step=1] raw=[-0.3399,1.2418] sent=[-0.3399,1.2418] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.842
+[chunk 0130] inference=0.009s predicted=(2, 22)
+[cmd 000261 kind=policy chunk=0130 chunk_step=0] delta_max_rad=0.133110 delta_max_deg=7.6266 joint=right_thumb_IP joint_index=21 from_rad=0.748108 to_rad=0.881218
+[action 000261 chunk_step=0] raw=[-0.3417,1.3256] sent=[-0.3417,1.3256] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000262 kind=policy chunk=0130 chunk_step=1] delta_max_rad=0.097764 delta_max_deg=5.6015 joint=right_middle_MCP_FE joint_index=4 from_rad=0.187384 to_rad=0.089620
+[action 000262 chunk_step=1] raw=[-0.3089,1.3727] sent=[-0.3089,1.3727] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.925
+[chunk 0131] inference=0.009s predicted=(2, 22)
+[cmd 000263 kind=policy chunk=0131 chunk_step=0] delta_max_rad=0.106515 delta_max_deg=6.1028 joint=right_thumb_IP joint_index=21 from_rad=0.975267 to_rad=1.081781
+[action 000263 chunk_step=0] raw=[-0.2457,1.3791] sent=[-0.2457,1.3791] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000264 kind=policy chunk=0131 chunk_step=1] delta_max_rad=0.090670 delta_max_deg=5.1950 joint=right_middle_MCP_FE joint_index=4 from_rad=-0.004558 to_rad=-0.095228
+[action 000264 chunk_step=1] raw=[-0.1905,1.3876] sent=[-0.1905,1.3876] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.924
+[chunk 0132] inference=0.009s predicted=(2, 22)
+[cmd 000265 kind=policy chunk=0132 chunk_step=0] delta_max_rad=0.094111 delta_max_deg=5.3922 joint=right_pinky_MCP_AA joint_index=10 from_rad=0.302785 to_rad=0.208674
+[action 000265 chunk_step=0] raw=[-0.2250,1.3461] sent=[-0.2250,1.3461] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000266 kind=policy chunk=0132 chunk_step=1] delta_max_rad=0.128351 delta_max_deg=7.3540 joint=right_thumb_IP joint_index=21 from_rad=1.087036 to_rad=0.958685
+[action 000266 chunk_step=1] raw=[-0.3037,1.2538] sent=[-0.3037,1.2538] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.987
+[chunk 0133] inference=0.009s predicted=(2, 22)
+[cmd 000267 kind=policy chunk=0133 chunk_step=0] delta_max_rad=0.096987 delta_max_deg=5.5569 joint=right_ring_PIP joint_index=15 from_rad=0.713328 to_rad=0.616341
+[action 000267 chunk_step=0] raw=[-0.3455,1.1648] sent=[-0.3455,1.1648] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000268 kind=policy chunk=0133 chunk_step=1] delta_max_rad=0.105075 delta_max_deg=6.0204 joint=right_index_DIP joint_index=3 from_rad=1.107808 to_rad=1.212883
+[action 000268 chunk_step=1] raw=[-0.3489,1.2129] sent=[-0.3489,1.2129] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.965
+[chunk 0134] inference=0.009s predicted=(2, 22)
+[cmd 000269 kind=policy chunk=0134 chunk_step=0] delta_max_rad=0.112939 delta_max_deg=6.4709 joint=right_index_DIP joint_index=3 from_rad=1.212883 to_rad=1.325822
+[action 000269 chunk_step=0] raw=[-0.3491,1.3258] sent=[-0.3491,1.3258] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000270 kind=policy chunk=0134 chunk_step=1] delta_max_rad=0.106696 delta_max_deg=6.1132 joint=right_index_PIP joint_index=2 from_rad=0.608025 to_rad=0.714721
+[action 000270 chunk_step=1] raw=[-0.3491,1.3917] sent=[-0.3491,1.3917] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.635
+[chunk 0135] inference=0.009s predicted=(2, 22)
+[cmd 000271 kind=policy chunk=0135 chunk_step=0] delta_max_rad=0.113036 delta_max_deg=6.4765 joint=right_thumb_IP joint_index=21 from_rad=0.614884 to_rad=0.501848
+[action 000271 chunk_step=0] raw=[-0.3478,1.3963] sent=[-0.3478,1.3963] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000272 kind=policy chunk=0135 chunk_step=1] delta_max_rad=0.118890 delta_max_deg=6.8119 joint=right_middle_MCP_FE joint_index=4 from_rad=0.258539 to_rad=0.377428
+[action 000272 chunk_step=1] raw=[-0.3459,1.3913] sent=[-0.3459,1.3913] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.765
+[chunk 0136] inference=0.009s predicted=(2, 22)
+[cmd 000273 kind=policy chunk=0136 chunk_step=0] delta_max_rad=0.124548 delta_max_deg=7.1361 joint=right_middle_MCP_FE joint_index=4 from_rad=0.377428 to_rad=0.501977
+[action 000273 chunk_step=0] raw=[-0.3465,1.3854] sent=[-0.3465,1.3854] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000274 kind=policy chunk=0136 chunk_step=1] delta_max_rad=0.085004 delta_max_deg=4.8703 joint=right_middle_PIP joint_index=6 from_rad=0.401817 to_rad=0.486820
+[action 000274 chunk_step=1] raw=[-0.3451,1.3741] sent=[-0.3451,1.3741] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.961
+[chunk 0137] inference=0.009s predicted=(2, 22)
+[cmd 000275 kind=policy chunk=0137 chunk_step=0] delta_max_rad=0.115209 delta_max_deg=6.6010 joint=right_ring_PIP joint_index=15 from_rad=0.437377 to_rad=0.552586
+[action 000275 chunk_step=0] raw=[-0.3452,1.2832] sent=[-0.3452,1.2832] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000276 kind=policy chunk=0137 chunk_step=1] delta_max_rad=0.112850 delta_max_deg=6.4659 joint=right_ring_DIP joint_index=16 from_rad=0.851353 to_rad=0.964203
+[action 000276 chunk_step=1] raw=[-0.3458,1.2006] sent=[-0.3458,1.2006] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.964
+[chunk 0138] inference=0.009s predicted=(2, 22)
+[cmd 000277 kind=policy chunk=0138 chunk_step=0] delta_max_rad=0.119076 delta_max_deg=6.8226 joint=right_thumb_IP joint_index=21 from_rad=0.597845 to_rad=0.716921
+[action 000277 chunk_step=0] raw=[-0.3444,1.2078] sent=[-0.3444,1.2078] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000278 kind=policy chunk=0138 chunk_step=1] delta_max_rad=0.092814 delta_max_deg=5.3179 joint=right_index_DIP joint_index=3 from_rad=1.098623 to_rad=1.005808
+[action 000278 chunk_step=1] raw=[-0.3346,1.1829] sent=[-0.3346,1.1829] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.169
+[chunk 0139] inference=0.009s predicted=(2, 22)
+[cmd 000279 kind=policy chunk=0139 chunk_step=0] delta_max_rad=0.118156 delta_max_deg=6.7698 joint=right_thumb_IP joint_index=21 from_rad=0.800257 to_rad=0.918413
+[action 000279 chunk_step=0] raw=[-0.3330,1.2398] sent=[-0.3330,1.2398] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000280 kind=policy chunk=0139 chunk_step=1] delta_max_rad=0.107569 delta_max_deg=6.1633 joint=right_pinky_PIP joint_index=11 from_rad=0.452045 to_rad=0.344475
+[action 000280 chunk_step=1] raw=[-0.3148,1.3237] sent=[-0.3148,1.3237] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.556
+[chunk 0140] inference=0.010s predicted=(2, 22)
+[cmd 000281 kind=policy chunk=0140 chunk_step=0] delta_max_rad=0.131341 delta_max_deg=7.5253 joint=right_thumb_IP joint_index=21 from_rad=0.988800 to_rad=1.120141
+[action 000281 chunk_step=0] raw=[-0.2634,1.3877] sent=[-0.2634,1.3877] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000282 kind=policy chunk=0140 chunk_step=1] delta_max_rad=0.090630 delta_max_deg=5.1927 joint=right_pinky_MCP_AA joint_index=10 from_rad=0.314856 to_rad=0.224226
+[action 000282 chunk_step=1] raw=[-0.2403,1.3786] sent=[-0.2403,1.3786] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.827
+[chunk 0141] inference=0.009s predicted=(2, 22)
+[cmd 000283 kind=policy chunk=0141 chunk_step=0] delta_max_rad=0.098609 delta_max_deg=5.6499 joint=right_middle_PIP joint_index=6 from_rad=0.950736 to_rad=0.852127
+[action 000283 chunk_step=0] raw=[-0.2843,1.2957] sent=[-0.2843,1.2957] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000284 kind=policy chunk=0141 chunk_step=1] delta_max_rad=0.115209 delta_max_deg=6.6010 joint=right_thumb_IP joint_index=21 from_rad=1.050696 to_rad=0.935487
+[action 000284 chunk_step=1] raw=[-0.3397,1.1978] sent=[-0.3397,1.1978] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.843
+[chunk 0142] inference=0.009s predicted=(2, 22)
+[cmd 000285 kind=policy chunk=0142 chunk_step=0] delta_max_rad=0.109511 delta_max_deg=6.2745 joint=right_thumb_IP joint_index=21 from_rad=0.935487 to_rad=0.825976
+[action 000285 chunk_step=0] raw=[-0.3436,1.1896] sent=[-0.3436,1.1896] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000286 kind=policy chunk=0142 chunk_step=1] delta_max_rad=0.099902 delta_max_deg=5.7240 joint=right_thumb_MCP_AA joint_index=20 from_rad=-0.208600 to_rad=-0.308503
+[action 000286 chunk_step=1] raw=[-0.3473,1.2537] sent=[-0.3473,1.2537] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.661
+[chunk 0143] inference=0.010s predicted=(2, 22)
+[cmd 000287 kind=policy chunk=0143 chunk_step=0] delta_max_rad=0.110466 delta_max_deg=6.3292 joint=right_thumb_IP joint_index=21 from_rad=0.745993 to_rad=0.635527
+[action 000287 chunk_step=0] raw=[-0.3423,1.3420] sent=[-0.3423,1.3420] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000288 kind=policy chunk=0143 chunk_step=1] delta_max_rad=0.092999 delta_max_deg=5.3285 joint=right_middle_DIP joint_index=7 from_rad=0.831595 to_rad=0.738596
+[action 000288 chunk_step=1] raw=[-0.3491,1.3933] sent=[-0.3491,1.3933] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.264
+[chunk 0144] inference=0.009s predicted=(2, 22)
+[cmd 000289 kind=policy chunk=0144 chunk_step=0] delta_max_rad=0.111874 delta_max_deg=6.4099 joint=right_middle_DIP joint_index=7 from_rad=0.738596 to_rad=0.626722
+[action 000289 chunk_step=0] raw=[-0.3458,1.3956] sent=[-0.3458,1.3956] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000290 kind=policy chunk=0144 chunk_step=1] delta_max_rad=0.111682 delta_max_deg=6.3989 joint=right_middle_MCP_FE joint_index=4 from_rad=0.407129 to_rad=0.518811
+[action 000290 chunk_step=1] raw=[-0.3437,1.3911] sent=[-0.3437,1.3911] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=10.296
+[chunk 0145] inference=0.010s predicted=(2, 22)
+[cmd 000291 kind=policy chunk=0145 chunk_step=0] delta_max_rad=0.101105 delta_max_deg=5.7929 joint=right_ring_PIP joint_index=15 from_rad=0.370554 to_rad=0.471660
+[action 000291 chunk_step=0] raw=[-0.3490,1.3939] sent=[-0.3490,1.3939] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000292 kind=policy chunk=0145 chunk_step=1] delta_max_rad=0.114748 delta_max_deg=6.5746 joint=right_middle_PIP joint_index=6 from_rad=0.329933 to_rad=0.444681
+[action 000292 chunk_step=1] raw=[-0.3482,1.4236] sent=[-0.3482,1.4236] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.935
+[chunk 0146] inference=0.009s predicted=(2, 22)
+[cmd 000293 kind=policy chunk=0146 chunk_step=0] delta_max_rad=0.119096 delta_max_deg=6.8237 joint=right_pinky_MCP_AA joint_index=10 from_rad=0.052675 to_rad=0.171771
+[action 000293 chunk_step=0] raw=[-0.3452,1.4604] sent=[-0.3452,1.4604] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000294 kind=policy chunk=0146 chunk_step=1] delta_max_rad=0.102527 delta_max_deg=5.8744 joint=right_pinky_PIP joint_index=11 from_rad=0.603925 to_rad=0.501397
+[action 000294 chunk_step=1] raw=[-0.3401,1.4496] sent=[-0.3401,1.4496] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.931
+[chunk 0147] inference=0.009s predicted=(2, 22)
+[cmd 000295 kind=policy chunk=0147 chunk_step=0] delta_max_rad=0.142770 delta_max_deg=8.1801 joint=right_thumb_IP joint_index=21 from_rad=0.695931 to_rad=0.838701
+[action 000295 chunk_step=0] raw=[-0.3491,1.4257] sent=[-0.3491,1.4257] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000296 kind=policy chunk=0147 chunk_step=1] delta_max_rad=0.104185 delta_max_deg=5.9693 joint=right_index_PIP joint_index=2 from_rad=0.745868 to_rad=0.641683
+[action 000296 chunk_step=1] raw=[-0.3474,1.3845] sent=[-0.3474,1.3845] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.989
+[chunk 0148] inference=0.009s predicted=(2, 22)
+[cmd 000297 kind=policy chunk=0148 chunk_step=0] delta_max_rad=0.129797 delta_max_deg=7.4368 joint=right_thumb_IP joint_index=21 from_rad=0.938277 to_rad=1.068074
+[action 000297 chunk_step=0] raw=[-0.3375,1.3416] sent=[-0.3375,1.3416] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000298 kind=policy chunk=0148 chunk_step=1] delta_max_rad=0.087327 delta_max_deg=5.0035 joint=right_index_DIP joint_index=3 from_rad=0.922760 to_rad=0.835433
+[action 000298 chunk_step=1] raw=[-0.2662,1.3395] sent=[-0.2662,1.3395] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.973
+[chunk 0149] inference=0.010s predicted=(2, 22)
+[cmd 000299 kind=policy chunk=0149 chunk_step=0] delta_max_rad=0.101215 delta_max_deg=5.7992 joint=right_index_MCP_FE joint_index=0 from_rad=0.572701 to_rad=0.673915
+[action 000299 chunk_step=0] raw=[-0.2072,1.3791] sent=[-0.2072,1.3791] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000300 kind=policy chunk=0149 chunk_step=1] delta_max_rad=0.092276 delta_max_deg=5.2870 joint=right_index_MCP_AA joint_index=1 from_rad=-0.207235 to_rad=-0.114959
+[action 000300 chunk_step=1] raw=[-0.1584,1.3271] sent=[-0.1584,1.3271] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.331
+[chunk 0150] inference=0.009s predicted=(2, 22)
+[cmd 000301 kind=policy chunk=0150 chunk_step=0] delta_max_rad=0.109397 delta_max_deg=6.2680 joint=right_thumb_IP joint_index=21 from_rad=1.096904 to_rad=0.987507
+[action 000301 chunk_step=0] raw=[-0.2179,1.3566] sent=[-0.2179,1.3566] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000302 kind=policy chunk=0150 chunk_step=1] delta_max_rad=0.108094 delta_max_deg=6.1933 joint=right_thumb_MCP_AA joint_index=20 from_rad=-0.217930 to_rad=-0.326024
+[action 000302 chunk_step=1] raw=[-0.3260,1.3885] sent=[-0.3260,1.3885] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.148
+[chunk 0151] inference=0.009s predicted=(2, 22)
+[cmd 000303 kind=policy chunk=0151 chunk_step=0] delta_max_rad=0.088824 delta_max_deg=5.0892 joint=right_thumb_IP joint_index=21 from_rad=0.912712 to_rad=0.823888
+[action 000303 chunk_step=0] raw=[-0.3490,1.3941] sent=[-0.3490,1.3941] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000304 kind=policy chunk=0151 chunk_step=1] delta_max_rad=0.101578 delta_max_deg=5.8200 joint=right_pinky_PIP joint_index=11 from_rad=0.377033 to_rad=0.478611
+[action 000304 chunk_step=1] raw=[-0.3483,1.3963] sent=[-0.3483,1.3963] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=10.412
+[chunk 0152] inference=0.010s predicted=(2, 22)
+[cmd 000305 kind=policy chunk=0152 chunk_step=0] delta_max_rad=0.089157 delta_max_deg=5.1083 joint=right_thumb_IP joint_index=21 from_rad=0.742309 to_rad=0.653152
+[action 000305 chunk_step=0] raw=[-0.3488,1.3963] sent=[-0.3488,1.3963] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000306 kind=policy chunk=0152 chunk_step=1] delta_max_rad=0.096697 delta_max_deg=5.5403 joint=right_ring_MCP_FE joint_index=13 from_rad=0.535951 to_rad=0.632648
+[action 000306 chunk_step=1] raw=[-0.3487,1.3962] sent=[-0.3487,1.3962] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.323
+[chunk 0153] inference=0.009s predicted=(2, 22)
+[cmd 000307 kind=policy chunk=0153 chunk_step=0] delta_max_rad=0.088621 delta_max_deg=5.0776 joint=right_ring_MCP_FE joint_index=13 from_rad=0.632648 to_rad=0.721269
+[action 000307 chunk_step=0] raw=[-0.3491,1.3958] sent=[-0.3491,1.3958] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000308 kind=policy chunk=0153 chunk_step=1] delta_max_rad=0.110324 delta_max_deg=6.3211 joint=right_ring_PIP joint_index=15 from_rad=0.646033 to_rad=0.756357
+[action 000308 chunk_step=1] raw=[-0.3479,1.3963] sent=[-0.3479,1.3963] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.245
+[chunk 0154] inference=0.009s predicted=(2, 22)
+[cmd 000309 kind=policy chunk=0154 chunk_step=0] delta_max_rad=0.093909 delta_max_deg=5.3806 joint=right_ring_DIP joint_index=16 from_rad=0.777549 to_rad=0.871458
+[action 000309 chunk_step=0] raw=[-0.3455,1.3702] sent=[-0.3455,1.3702] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000310 kind=policy chunk=0154 chunk_step=1] delta_max_rad=0.104661 delta_max_deg=5.9966 joint=right_pinky_MCP_FE joint_index=9 from_rad=1.102736 to_rad=1.207397
+[action 000310 chunk_step=1] raw=[-0.3481,1.3046] sent=[-0.3481,1.3046] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=10.086
+[chunk 0155] inference=0.010s predicted=(2, 22)
+[cmd 000311 kind=policy chunk=0155 chunk_step=0] delta_max_rad=0.112283 delta_max_deg=6.4333 joint=right_index_DIP joint_index=3 from_rad=1.050529 to_rad=0.938247
+[action 000311 chunk_step=0] raw=[-0.3487,1.2957] sent=[-0.3487,1.2957] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000312 kind=policy chunk=0155 chunk_step=1] delta_max_rad=0.109229 delta_max_deg=6.2584 joint=right_index_PIP joint_index=2 from_rad=0.232363 to_rad=0.123134
+[action 000312 chunk_step=1] raw=[-0.3491,1.3563] sent=[-0.3491,1.3563] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.148
+[chunk 0156] inference=0.009s predicted=(2, 22)
+[cmd 000313 kind=policy chunk=0156 chunk_step=0] delta_max_rad=0.121553 delta_max_deg=6.9645 joint=right_pinky_DIP joint_index=12 from_rad=1.112501 to_rad=0.990948
+[action 000313 chunk_step=0] raw=[-0.3491,1.3418] sent=[-0.3491,1.3418] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000314 kind=policy chunk=0156 chunk_step=1] delta_max_rad=0.106165 delta_max_deg=6.0828 joint=right_index_PIP joint_index=2 from_rad=0.113456 to_rad=0.219621
+[action 000314 chunk_step=1] raw=[-0.3486,1.2658] sent=[-0.3486,1.2658] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.198
+[chunk 0157] inference=0.009s predicted=(2, 22)
+[cmd 000315 kind=policy chunk=0157 chunk_step=0] delta_max_rad=0.104134 delta_max_deg=5.9664 joint=right_thumb_MCP_FE joint_index=19 from_rad=0.479247 to_rad=0.375113
+[action 000315 chunk_step=0] raw=[-0.3491,1.2222] sent=[-0.3491,1.2222] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000316 kind=policy chunk=0157 chunk_step=1] delta_max_rad=0.099564 delta_max_deg=5.7046 joint=right_thumb_MCP_FE joint_index=19 from_rad=0.375113 to_rad=0.275549
+[action 000316 chunk_step=1] raw=[-0.3475,1.2418] sent=[-0.3475,1.2418] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.499
+[chunk 0158] inference=0.009s predicted=(2, 22)
+[cmd 000317 kind=policy chunk=0158 chunk_step=0] delta_max_rad=0.102197 delta_max_deg=5.8554 joint=right_middle_PIP joint_index=6 from_rad=0.159789 to_rad=0.261986
+[action 000317 chunk_step=0] raw=[-0.3491,1.2851] sent=[-0.3491,1.2851] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000318 kind=policy chunk=0158 chunk_step=1] delta_max_rad=0.092773 delta_max_deg=5.3155 joint=right_ring_MCP_FE joint_index=13 from_rad=0.539142 to_rad=0.631916
+[action 000318 chunk_step=1] raw=[-0.3477,1.3473] sent=[-0.3477,1.3473] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.677
+[chunk 0159] inference=0.010s predicted=(2, 22)
+[cmd 000319 kind=policy chunk=0159 chunk_step=0] delta_max_rad=0.096993 delta_max_deg=5.5573 joint=right_pinky_PIP joint_index=11 from_rad=0.424119 to_rad=0.521112
+[action 000319 chunk_step=0] raw=[-0.3488,1.3876] sent=[-0.3488,1.3876] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000320 kind=policy chunk=0159 chunk_step=1] delta_max_rad=0.117383 delta_max_deg=6.7255 joint=right_ring_MCP_FE joint_index=13 from_rad=0.712715 to_rad=0.830098
+[action 000320 chunk_step=1] raw=[-0.3462,1.3889] sent=[-0.3462,1.3889] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.258
+[chunk 0160] inference=0.009s predicted=(2, 22)
+[cmd 000321 kind=policy chunk=0160 chunk_step=0] delta_max_rad=0.099489 delta_max_deg=5.7003 joint=right_thumb_MCP_FE joint_index=19 from_rad=0.171651 to_rad=0.271140
+[action 000321 chunk_step=0] raw=[-0.3491,1.3942] sent=[-0.3491,1.3942] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000322 kind=policy chunk=0160 chunk_step=1] delta_max_rad=0.124934 delta_max_deg=7.1582 joint=right_ring_DIP joint_index=16 from_rad=0.687222 to_rad=0.812156
+[action 000322 chunk_step=1] raw=[-0.3482,1.3530] sent=[-0.3482,1.3530] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.525
+[chunk 0161] inference=0.010s predicted=(2, 22)
+[cmd 000323 kind=policy chunk=0161 chunk_step=0] delta_max_rad=0.107133 delta_max_deg=6.1383 joint=right_ring_MCP_FE joint_index=13 from_rad=0.788573 to_rad=0.681440
+[action 000323 chunk_step=0] raw=[-0.3478,1.3050] sent=[-0.3478,1.3050] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000324 kind=policy chunk=0161 chunk_step=1] delta_max_rad=0.113349 delta_max_deg=6.4944 joint=right_index_DIP joint_index=3 from_rad=1.099225 to_rad=0.985876
+[action 000324 chunk_step=1] raw=[-0.3491,1.3718] sent=[-0.3491,1.3718] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.386
+[chunk 0162] inference=0.009s predicted=(2, 22)
+[cmd 000325 kind=policy chunk=0162 chunk_step=0] delta_max_rad=0.119396 delta_max_deg=6.8409 joint=right_pinky_PIP joint_index=11 from_rad=0.227907 to_rad=0.108512
+[action 000325 chunk_step=0] raw=[-0.3487,1.3793] sent=[-0.3487,1.3793] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000326 kind=policy chunk=0162 chunk_step=1] delta_max_rad=0.088273 delta_max_deg=5.0577 joint=right_pinky_DIP joint_index=12 from_rad=1.082136 to_rad=0.993863
+[action 000326 chunk_step=1] raw=[-0.3472,1.3440] sent=[-0.3472,1.3440] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.129
+[chunk 0163] inference=0.009s predicted=(2, 22)
+[cmd 000327 kind=policy chunk=0163 chunk_step=0] delta_max_rad=0.091899 delta_max_deg=5.2655 joint=right_pinky_MCP_AA joint_index=10 from_rad=0.297437 to_rad=0.205538
+[action 000327 chunk_step=0] raw=[-0.3447,1.2905] sent=[-0.3447,1.2905] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000328 kind=policy chunk=0163 chunk_step=1] delta_max_rad=0.103776 delta_max_deg=5.9459 joint=right_index_DIP joint_index=3 from_rad=0.873360 to_rad=0.977137
+[action 000328 chunk_step=1] raw=[-0.3443,1.2525] sent=[-0.3443,1.2525] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.686
+[chunk 0164] inference=0.010s predicted=(2, 22)
+[cmd 000329 kind=policy chunk=0164 chunk_step=0] delta_max_rad=0.109550 delta_max_deg=6.2768 joint=right_pinky_DIP joint_index=12 from_rad=1.069747 to_rad=1.179297
+[action 000329 chunk_step=0] raw=[-0.3464,1.2940] sent=[-0.3464,1.2940] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000330 kind=policy chunk=0164 chunk_step=1] delta_max_rad=0.099445 delta_max_deg=5.6978 joint=right_index_DIP joint_index=3 from_rad=1.065109 to_rad=1.164554
+[action 000330 chunk_step=1] raw=[-0.3491,1.2906] sent=[-0.3491,1.2906] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.490
+[chunk 0165] inference=0.009s predicted=(2, 22)
+[cmd 000331 kind=policy chunk=0165 chunk_step=0] delta_max_rad=0.108465 delta_max_deg=6.2146 joint=right_pinky_PIP joint_index=11 from_rad=0.272937 to_rad=0.381402
+[action 000331 chunk_step=0] raw=[-0.3483,1.3459] sent=[-0.3483,1.3459] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000332 kind=policy chunk=0165 chunk_step=1] delta_max_rad=0.089682 delta_max_deg=5.1384 joint=right_middle_PIP joint_index=6 from_rad=0.316036 to_rad=0.405718
+[action 000332 chunk_step=1] raw=[-0.3466,1.3908] sent=[-0.3466,1.3908] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.153
+[chunk 0166] inference=0.009s predicted=(2, 22)
+[cmd 000333 kind=policy chunk=0166 chunk_step=0] delta_max_rad=0.116525 delta_max_deg=6.6764 joint=right_pinky_PIP joint_index=11 from_rad=0.462138 to_rad=0.345613
+[action 000333 chunk_step=0] raw=[-0.3491,1.3938] sent=[-0.3491,1.3938] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000334 kind=policy chunk=0166 chunk_step=1] delta_max_rad=0.105316 delta_max_deg=6.0342 joint=right_ring_DIP joint_index=16 from_rad=0.797306 to_rad=0.902622
+[action 000334 chunk_step=1] raw=[-0.3477,1.3584] sent=[-0.3477,1.3584] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=10.221
+[chunk 0167] inference=0.010s predicted=(2, 22)
+[cmd 000335 kind=policy chunk=0167 chunk_step=0] delta_max_rad=0.108472 delta_max_deg=6.2150 joint=right_pinky_DIP joint_index=12 from_rad=1.358374 to_rad=1.249902
+[action 000335 chunk_step=0] raw=[-0.3469,1.2946] sent=[-0.3469,1.2946] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000336 kind=policy chunk=0167 chunk_step=1] delta_max_rad=0.104397 delta_max_deg=5.9815 joint=right_index_DIP joint_index=3 from_rad=0.999785 to_rad=0.895388
+[action 000336 chunk_step=1] raw=[-0.3106,1.3451] sent=[-0.3106,1.3451] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.166
+[chunk 0168] inference=0.009s predicted=(2, 22)
+[cmd 000337 kind=policy chunk=0168 chunk_step=0] delta_max_rad=0.105034 delta_max_deg=6.0180 joint=right_ring_MCP_FE joint_index=13 from_rad=0.485272 to_rad=0.380238
+[action 000337 chunk_step=0] raw=[-0.3057,1.3271] sent=[-0.3057,1.3271] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000338 kind=policy chunk=0168 chunk_step=1] delta_max_rad=0.100658 delta_max_deg=5.7673 joint=right_ring_MCP_FE joint_index=13 from_rad=0.380238 to_rad=0.279580
+[action 000338 chunk_step=1] raw=[-0.2376,1.2718] sent=[-0.2376,1.2718] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.191
+[chunk 0169] inference=0.009s predicted=(2, 22)
+[cmd 000339 kind=policy chunk=0169 chunk_step=0] delta_max_rad=0.104195 delta_max_deg=5.9699 joint=right_pinky_DIP joint_index=12 from_rad=0.951082 to_rad=0.846887
+[action 000339 chunk_step=0] raw=[-0.2209,1.3328] sent=[-0.2209,1.3328] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000340 kind=policy chunk=0169 chunk_step=1] delta_max_rad=0.081438 delta_max_deg=4.6661 joint=right_middle_DIP joint_index=7 from_rad=1.224822 to_rad=1.306260
+[action 000340 chunk_step=1] raw=[-0.2210,1.3063] sent=[-0.2210,1.3063] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.959
+[chunk 0170] inference=0.010s predicted=(2, 22)
+[cmd 000341 kind=policy chunk=0170 chunk_step=0] delta_max_rad=0.098458 delta_max_deg=5.6412 joint=right_index_DIP joint_index=3 from_rad=0.834911 to_rad=0.933369
+[action 000341 chunk_step=0] raw=[-0.2925,1.2700] sent=[-0.2925,1.2700] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000342 kind=policy chunk=0170 chunk_step=1] delta_max_rad=0.105293 delta_max_deg=6.0329 joint=right_thumb_MCP_AA joint_index=20 from_rad=-0.193846 to_rad=-0.299139
+[action 000342 chunk_step=1] raw=[-0.3461,1.2449] sent=[-0.3461,1.2449] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.153
+[chunk 0171] inference=0.009s predicted=(2, 22)
+[cmd 000343 kind=policy chunk=0171 chunk_step=0] delta_max_rad=0.106550 delta_max_deg=6.1049 joint=right_pinky_DIP joint_index=12 from_rad=0.883938 to_rad=0.990488
+[action 000343 chunk_step=0] raw=[-0.3491,1.2160] sent=[-0.3491,1.2160] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000344 kind=policy chunk=0171 chunk_step=1] delta_max_rad=0.100438 delta_max_deg=5.7546 joint=right_thumb_MCP_FE joint_index=19 from_rad=0.604235 to_rad=0.503797
+[action 000344 chunk_step=1] raw=[-0.3491,1.1986] sent=[-0.3491,1.1986] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=9.229
+[chunk 0172] inference=0.009s predicted=(2, 22)
+[cmd 000345 kind=policy chunk=0172 chunk_step=0] delta_max_rad=0.101629 delta_max_deg=5.8229 joint=right_ring_MCP_FE joint_index=13 from_rad=0.422704 to_rad=0.524333
+[action 000345 chunk_step=0] raw=[-0.3491,1.2939] sent=[-0.3491,1.2939] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000346 kind=policy chunk=0172 chunk_step=1] delta_max_rad=0.109587 delta_max_deg=6.2789 joint=right_ring_MCP_FE joint_index=13 from_rad=0.524333 to_rad=0.633920
+[action 000346 chunk_step=1] raw=[-0.3460,1.3650] sent=[-0.3460,1.3650] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.993
+[chunk 0173] inference=0.009s predicted=(2, 22)
+[cmd 000347 kind=policy chunk=0173 chunk_step=0] delta_max_rad=0.099476 delta_max_deg=5.6996 joint=right_ring_MCP_FE joint_index=13 from_rad=0.633920 to_rad=0.733396
+[action 000347 chunk_step=0] raw=[-0.3491,1.3836] sent=[-0.3491,1.3836] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000348 kind=policy chunk=0173 chunk_step=1] delta_max_rad=0.110303 delta_max_deg=6.3199 joint=right_index_PIP joint_index=2 from_rad=0.508935 to_rad=0.398632
+[action 000348 chunk_step=1] raw=[-0.3491,1.3364] sent=[-0.3491,1.3364] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=10.130
+[chunk 0174] inference=0.010s predicted=(2, 22)
+[cmd 000349 kind=policy chunk=0174 chunk_step=0] delta_max_rad=0.093869 delta_max_deg=5.3783 joint=right_ring_DIP joint_index=16 from_rad=0.753446 to_rad=0.847315
+[action 000349 chunk_step=0] raw=[-0.3487,1.2815] sent=[-0.3487,1.2815] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000350 kind=policy chunk=0174 chunk_step=1] delta_max_rad=0.092670 delta_max_deg=5.3096 joint=right_thumb_MCP_FE joint_index=19 from_rad=0.488446 to_rad=0.581116
+[action 000350 chunk_step=1] raw=[-0.3481,1.2622] sent=[-0.3481,1.2622] limit_clips=0 step_clips=0 tracking_max=nan
+[latency] hand_policy inference_ms=8.776
+[chunk 0175] inference=0.009s predicted=(2, 22)
+[cmd 000351 kind=policy chunk=0175 chunk_step=0] delta_max_rad=0.098234 delta_max_deg=5.6284 joint=right_ring_DIP joint_index=16 from_rad=0.933478 to_rad=1.031712
+[action 000351 chunk_step=0] raw=[-0.3491,1.2706] sent=[-0.3491,1.2706] limit_clips=0 step_clips=0 tracking_max=nan
+[cmd 000352 kind=policy chunk=0175 chunk_step=1] delta_max_rad=0.095776 delta_max_deg=5.4876 joint=right_pinky_PIP joint_index=11 from_rad=0.179442 to_rad=0.083666
+[cmd 000353 kind=exit_hold chunk=0175 chunk_step=-] delta_max_rad=0.157513 delta_max_deg=9.0249 joint=right_pinky_PIP joint_index=11 from_rad=0.083666 to_rad=0.241179
+[cleanup] SharpA held at measured position
+
+[real] stopped by Ctrl-C
+
+[experiment-annotation] 用户事后确认：放灯泡、不holding；运行开始=2026-09-17T16:37:06+08:00；HOLD_DURING_INFERENCE=0已由TXT及JSONL核对；归档=reports/bulb_no_hold_20260917_1637/bulb_no_hold_163706.txt。

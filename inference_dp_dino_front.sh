@@ -10,6 +10,12 @@ DP_CONDA_PREFIX="${DP_CONDA_PREFIX:-/home/frankagvl/anaconda3/envs/dp_w}"
 PYTHON="${PYTHON:-${DP_CONDA_PREFIX}/bin/python}"
 INFERENCE_SCRIPT="${INFERENCE_SCRIPT:-${SCRIPT_DIR}/inference_dp_front.py}"
 ROBOT_INIT_SCRIPT="${ROBOT_INIT_SCRIPT:-${SCRIPT_DIR}/eval/real/robot_init.py}"
+# SharpA initial pose: ZERO or ROTATE.
+INIT_POSE="${INIT_POSE:-ZERO}"
+[[ "${INIT_POSE}" == "ZERO" || "${INIT_POSE}" == "ROTATE" ]] || {
+    echo "INIT_POSE must be ZERO or ROTATE" >&2
+    exit 2
+}
 
 # Set CKPT_PATH to a front-only checkpoint, or select CHECKPOINT_DIR + CKPT_EPOCH.
 # Example: CKPT_PATH=/path/to/front/checkpoints/latest.ckpt CHECK_ONLY=1 bash inference_dp_dino_front.sh
@@ -114,6 +120,7 @@ if failed:
 PY
 [[ -f "${ROBOT_INIT_SCRIPT}" ]] || { echo "Robot init script not found: ${ROBOT_INIT_SCRIPT}" >&2; exit 1; }
 "${PYTHON}" "${ROBOT_INIT_SCRIPT}" \
+        --init-pose "${INIT_POSE}" \
   --franka-host "${FRANKA_HOST}" --franka-port "${FRANKA_PORT}" \
   --hand-host "${HAND_HOST}" --hand-port "${HAND_PORT}"
 echo "[hardware] Franka ${FRANKA_HOST}:${FRANKA_PORT} (joints server); SharpA ${HAND_HOST}:${HAND_PORT}"

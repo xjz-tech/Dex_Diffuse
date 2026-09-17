@@ -9,10 +9,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 task_name="${task_name:-manipulate_bulb}"
-OUTPUT_DIR="${SCRIPT_DIR}/runs/${task_name}"
+RUN_TIMESTAMP="$(date +%Y.%m.%d_%H.%M.%S)"
+OUTPUT_DIR="${SCRIPT_DIR}/runs/${RUN_TIMESTAMP}_${task_name}"
 
 PYTHON="${PYTHON:-/home/bighand/miniconda3/envs/dp/bin/python}"
-DATASET_PATH="${DATASET_PATH:-/mnt/work/dexIL/Dex_Diffuse/data/real_data/bulb_tac_80_dp_}"
+DATASET_PATH="${DATASET_PATH:-/mnt/work/dexIL/Dex_Diffuse/data/real_data/realworld_bulb_sft_260909_dp}"
 DINOV2_REPO_OR_DIR="$SCRIPT_DIR/assets/dinov2_assets/facebookresearch_dinov2_main"
 DINOV2_WEIGHTS="$SCRIPT_DIR/assets/dinov2_assets/dinov2_vits14_pretrain.pth"
 RELATIVE="${RELATIVE:-0}"
@@ -79,7 +80,7 @@ exec "$PYTHON" train.py \
     optimizer.weight_decay="$WEIGHT_DECAY" \
     training.device=cuda:0 \
     training.num_epochs=500 \
-    training.checkpoint_every=20 \
+    training.checkpoint_every=25 \
     training.rollout_every=50 \
     dataloader.batch_size=64 \
     dataloader.num_workers=16 \

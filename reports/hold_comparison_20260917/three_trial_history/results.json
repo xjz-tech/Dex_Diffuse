@@ -1,0 +1,361 @@
+{
+  "runs": [
+    {
+      "name": "pair1_seed50_hold0",
+      "pair": 1,
+      "seed": 50,
+      "hold": 0,
+      "log": "/media/frankagvl/U393/Dex_Diffuse/reports/hold_comparison_20260917/pair1_seed50_hold0.txt",
+      "started": 1789631591.0790002,
+      "seconds": 32.974167823791504,
+      "returncode": 0,
+      "description": "空手无灯泡 holding 对照实验; 配对轮次=1/3; HOLD_DURING_INFERENCE=0; SEED=50; 每轮600动作/300chunk; chunk=2; 30Hz; 每轮ROTATE复位; TensorRT FP32; FUSED_DDIM=1; DDIM=4步; 不插值; 沿用软件限幅关闭配置; 完整TXT+JSONL记录; 比较纯策略跨chunk/内部跳变及含hold实际指令跳变; 三轮分别统计后等权平均; 排除初始化/首个策略动作/退出hold",
+      "metrics": {
+        "within": {
+          "n": 300,
+          "mean_rad": 0.10474889879425367,
+          "mean_deg": 6.001669809553733,
+          "median_deg": 5.955547588299476,
+          "p95_deg": 6.939230237281608,
+          "max_deg": 8.088018024542082
+        },
+        "policy_boundary": {
+          "n": 299,
+          "mean_rad": 0.10618712474595145,
+          "mean_deg": 6.084074086572202,
+          "median_deg": 5.997824751714562,
+          "p95_deg": 7.262982740732776,
+          "max_deg": 8.73890260904574
+        },
+        "last_to_hold": null,
+        "first_command": {
+          "n": 299,
+          "mean_rad": 0.10618712474595145,
+          "mean_deg": 6.084074086572202,
+          "median_deg": 5.997824751714562,
+          "p95_deg": 7.262982740732776,
+          "max_deg": 8.73890260904574
+        },
+        "boundary_peak": {
+          "n": 299,
+          "mean_rad": 0.10618712474595145,
+          "mean_deg": 6.084074086572202,
+          "median_deg": 5.997824751714562,
+          "p95_deg": 7.262982740732776,
+          "max_deg": 8.73890260904574
+        }
+      }
+    },
+    {
+      "name": "pair1_seed50_hold1",
+      "pair": 1,
+      "seed": 50,
+      "hold": 1,
+      "log": "/media/frankagvl/U393/Dex_Diffuse/reports/hold_comparison_20260917/pair1_seed50_hold1.txt",
+      "started": 1789631624.053591,
+      "seconds": 33.01920008659363,
+      "returncode": 0,
+      "description": "空手无灯泡 holding 对照实验; 配对轮次=1/3; HOLD_DURING_INFERENCE=1; SEED=50; 每轮600动作/300chunk; chunk=2; 30Hz; 每轮ROTATE复位; TensorRT FP32; FUSED_DDIM=1; DDIM=4步; 不插值; 沿用软件限幅关闭配置; 完整TXT+JSONL记录; 比较纯策略跨chunk/内部跳变及含hold实际指令跳变; 三轮分别统计后等权平均; 排除初始化/首个策略动作/退出hold",
+      "metrics": {
+        "within": {
+          "n": 300,
+          "mean_rad": 0.10518434191743532,
+          "mean_deg": 6.026618862730037,
+          "median_deg": 6.019766734423228,
+          "p95_deg": 6.809930828934494,
+          "max_deg": 7.803368183334507
+        },
+        "policy_boundary": {
+          "n": 299,
+          "mean_rad": 0.10623206819577398,
+          "mean_deg": 6.086649156563791,
+          "median_deg": 6.030046169124097,
+          "p95_deg": 7.015522596536998,
+          "max_deg": 8.023671239258215
+        },
+        "last_to_hold": {
+          "n": 299,
+          "mean_rad": 0.08105200535328093,
+          "mean_deg": 4.643937827814752,
+          "median_deg": 4.589422669385008,
+          "p95_deg": 5.964630715367217,
+          "max_deg": 6.371555627624735
+        },
+        "first_command": {
+          "n": 299,
+          "mean_rad": 0.1700478504041216,
+          "mean_deg": 9.743024143428158,
+          "median_deg": 9.843197348769646,
+          "p95_deg": 11.540537265067709,
+          "max_deg": 13.529709991013988
+        },
+        "boundary_peak": {
+          "n": 299,
+          "mean_rad": 0.1700478504041216,
+          "mean_deg": 9.743024143428158,
+          "median_deg": 9.843197348769646,
+          "p95_deg": 11.540537265067709,
+          "max_deg": 13.529709991013988
+        }
+      }
+    },
+    {
+      "name": "pair2_seed51_hold1",
+      "pair": 2,
+      "seed": 51,
+      "hold": 1,
+      "log": "/media/frankagvl/U393/Dex_Diffuse/reports/hold_comparison_20260917/pair2_seed51_hold1.txt",
+      "started": 1789631657.0731041,
+      "seconds": 33.06703233718872,
+      "returncode": 0,
+      "description": "空手无灯泡 holding 对照实验; 配对轮次=2/3; HOLD_DURING_INFERENCE=1; SEED=51; 每轮600动作/300chunk; chunk=2; 30Hz; 每轮ROTATE复位; TensorRT FP32; FUSED_DDIM=1; DDIM=4步; 不插值; 沿用软件限幅关闭配置; 完整TXT+JSONL记录; 比较纯策略跨chunk/内部跳变及含hold实际指令跳变; 三轮分别统计后等权平均; 排除初始化/首个策略动作/退出hold",
+      "metrics": {
+        "within": {
+          "n": 300,
+          "mean_rad": 0.10220581647008657,
+          "mean_deg": 5.855961925424638,
+          "median_deg": 5.963305829422964,
+          "p95_deg": 6.913360511602043,
+          "max_deg": 7.954062646992499
+        },
+        "policy_boundary": {
+          "n": 299,
+          "mean_rad": 0.10337219483539911,
+          "mean_deg": 5.922790483072415,
+          "median_deg": 5.931969775284592,
+          "p95_deg": 6.916112949771509,
+          "max_deg": 8.961361870313054
+        },
+        "last_to_hold": {
+          "n": 299,
+          "mean_rad": 0.0798143970104165,
+          "mean_deg": 4.573028093078441,
+          "median_deg": 4.578712932766428,
+          "p95_deg": 5.86963644439068,
+          "max_deg": 6.4202275556502455
+        },
+        "first_command": {
+          "n": 299,
+          "mean_rad": 0.165515561249375,
+          "mean_deg": 9.483343103328263,
+          "median_deg": 9.646238598768573,
+          "p95_deg": 11.74105334834325,
+          "max_deg": 14.053243990895465
+        },
+        "boundary_peak": {
+          "n": 299,
+          "mean_rad": 0.165515561249375,
+          "mean_deg": 9.483343103328263,
+          "median_deg": 9.646238598768573,
+          "p95_deg": 11.74105334834325,
+          "max_deg": 14.053243990895465
+        }
+      }
+    },
+    {
+      "name": "pair2_seed51_hold0",
+      "pair": 2,
+      "seed": 51,
+      "hold": 0,
+      "log": "/media/frankagvl/U393/Dex_Diffuse/reports/hold_comparison_20260917/pair2_seed51_hold0.txt",
+      "started": 1789631690.1404471,
+      "seconds": 32.55693745613098,
+      "returncode": 0,
+      "description": "空手无灯泡 holding 对照实验; 配对轮次=2/3; HOLD_DURING_INFERENCE=0; SEED=51; 每轮600动作/300chunk; chunk=2; 30Hz; 每轮ROTATE复位; TensorRT FP32; FUSED_DDIM=1; DDIM=4步; 不插值; 沿用软件限幅关闭配置; 完整TXT+JSONL记录; 比较纯策略跨chunk/内部跳变及含hold实际指令跳变; 三轮分别统计后等权平均; 排除初始化/首个策略动作/退出hold",
+      "metrics": {
+        "within": {
+          "n": 300,
+          "mean_rad": 0.10404704253189266,
+          "mean_deg": 5.9614564078956205,
+          "median_deg": 5.992722173517739,
+          "p95_deg": 6.850734122904056,
+          "max_deg": 7.412903343957804
+        },
+        "policy_boundary": {
+          "n": 299,
+          "mean_rad": 0.10570765391341021,
+          "mean_deg": 6.056602431467965,
+          "median_deg": 6.0554476426473745,
+          "p95_deg": 7.0240241329969155,
+          "max_deg": 7.755406594982678
+        },
+        "last_to_hold": null,
+        "first_command": {
+          "n": 299,
+          "mean_rad": 0.10570765391341021,
+          "mean_deg": 6.056602431467965,
+          "median_deg": 6.0554476426473745,
+          "p95_deg": 7.0240241329969155,
+          "max_deg": 7.755406594982678
+        },
+        "boundary_peak": {
+          "n": 299,
+          "mean_rad": 0.10570765391341021,
+          "mean_deg": 6.056602431467965,
+          "median_deg": 6.0554476426473745,
+          "p95_deg": 7.0240241329969155,
+          "max_deg": 7.755406594982678
+        }
+      }
+    },
+    {
+      "name": "pair3_seed52_hold0",
+      "pair": 3,
+      "seed": 52,
+      "hold": 0,
+      "log": "/media/frankagvl/U393/Dex_Diffuse/reports/hold_comparison_20260917/pair3_seed52_hold0.txt",
+      "started": 1789631722.697812,
+      "seconds": 32.510846853256226,
+      "returncode": 0,
+      "description": "空手无灯泡 holding 对照实验; 配对轮次=3/3; HOLD_DURING_INFERENCE=0; SEED=52; 每轮600动作/300chunk; chunk=2; 30Hz; 每轮ROTATE复位; TensorRT FP32; FUSED_DDIM=1; DDIM=4步; 不插值; 沿用软件限幅关闭配置; 完整TXT+JSONL记录; 比较纯策略跨chunk/内部跳变及含hold实际指令跳变; 三轮分别统计后等权平均; 排除初始化/首个策略动作/退出hold",
+      "metrics": {
+        "within": {
+          "n": 300,
+          "mean_rad": 0.1045513517052556,
+          "mean_deg": 5.9903511950990485,
+          "median_deg": 5.935740893480085,
+          "p95_deg": 6.849698751603247,
+          "max_deg": 7.958673024682258
+        },
+        "policy_boundary": {
+          "n": 299,
+          "mean_rad": 0.10600863509253913,
+          "mean_deg": 6.0738473827449235,
+          "median_deg": 6.052599453763479,
+          "p95_deg": 6.982982337359275,
+          "max_deg": 8.360493053554109
+        },
+        "last_to_hold": null,
+        "first_command": {
+          "n": 299,
+          "mean_rad": 0.10600863509253913,
+          "mean_deg": 6.0738473827449235,
+          "median_deg": 6.052599453763479,
+          "p95_deg": 6.982982337359275,
+          "max_deg": 8.360493053554109
+        },
+        "boundary_peak": {
+          "n": 299,
+          "mean_rad": 0.10600863509253913,
+          "mean_deg": 6.0738473827449235,
+          "median_deg": 6.052599453763479,
+          "p95_deg": 6.982982337359275,
+          "max_deg": 8.360493053554109
+        }
+      }
+    },
+    {
+      "name": "pair3_seed52_hold1",
+      "pair": 3,
+      "seed": 52,
+      "hold": 1,
+      "log": "/media/frankagvl/U393/Dex_Diffuse/reports/hold_comparison_20260917/pair3_seed52_hold1.txt",
+      "started": 1789631755.2089958,
+      "seconds": 31.8630850315094,
+      "returncode": 0,
+      "description": "空手无灯泡 holding 对照实验; 配对轮次=3/3; HOLD_DURING_INFERENCE=1; SEED=52; 每轮600动作/300chunk; chunk=2; 30Hz; 每轮ROTATE复位; TensorRT FP32; FUSED_DDIM=1; DDIM=4步; 不插值; 沿用软件限幅关闭配置; 完整TXT+JSONL记录; 比较纯策略跨chunk/内部跳变及含hold实际指令跳变; 三轮分别统计后等权平均; 排除初始化/首个策略动作/退出hold",
+      "metrics": {
+        "within": {
+          "n": 300,
+          "mean_rad": 0.1041152373328805,
+          "mean_deg": 5.9653636821769584,
+          "median_deg": 6.006140507029053,
+          "p95_deg": 6.753677305552904,
+          "max_deg": 7.5077166149213355
+        },
+        "policy_boundary": {
+          "n": 299,
+          "mean_rad": 0.10459635624456465,
+          "mean_deg": 5.992929765260388,
+          "median_deg": 5.988927576546974,
+          "p95_deg": 6.874203250533771,
+          "max_deg": 8.416987255726577
+        },
+        "last_to_hold": {
+          "n": 299,
+          "mean_rad": 0.08067999421354122,
+          "mean_deg": 4.622623159575816,
+          "median_deg": 4.587443622072996,
+          "p95_deg": 5.904087235545307,
+          "max_deg": 6.635241910722247
+        },
+        "first_command": {
+          "n": 299,
+          "mean_rad": 0.16737072748684148,
+          "mean_deg": 9.589636299030257,
+          "median_deg": 9.683753412784869,
+          "p95_deg": 11.564221287524184,
+          "max_deg": 13.476332062650338
+        },
+        "boundary_peak": {
+          "n": 299,
+          "mean_rad": 0.16737072748684148,
+          "mean_deg": 9.589636299030257,
+          "median_deg": 9.683753412784869,
+          "p95_deg": 11.564221287524184,
+          "max_deg": 13.476332062650338
+        }
+      }
+    }
+  ],
+  "groups": {
+    "0": {
+      "within": {
+        "mean_of_trial_means_deg": 5.984492470849467,
+        "sd_of_trial_means_deg": 0.02073699364912006,
+        "mean_of_trial_p95_deg": 6.879887703929637,
+        "maximum_deg": 8.088018024542082
+      },
+      "policy_boundary": {
+        "mean_of_trial_means_deg": 6.071507966928364,
+        "sd_of_trial_means_deg": 0.01388443763044129,
+        "mean_of_trial_p95_deg": 7.089996403696322,
+        "maximum_deg": 8.73890260904574
+      },
+      "first_command": {
+        "mean_of_trial_means_deg": 6.071507966928364,
+        "sd_of_trial_means_deg": 0.01388443763044129,
+        "mean_of_trial_p95_deg": 7.089996403696322,
+        "maximum_deg": 8.73890260904574
+      },
+      "boundary_peak": {
+        "mean_of_trial_means_deg": 6.071507966928364,
+        "sd_of_trial_means_deg": 0.01388443763044129,
+        "mean_of_trial_p95_deg": 7.089996403696322,
+        "maximum_deg": 8.73890260904574
+      }
+    },
+    "1": {
+      "within": {
+        "mean_of_trial_means_deg": 5.949314823443878,
+        "sd_of_trial_means_deg": 0.08645300435838241,
+        "mean_of_trial_p95_deg": 6.825656215363147,
+        "maximum_deg": 7.954062646992499
+      },
+      "policy_boundary": {
+        "mean_of_trial_means_deg": 6.000789801632198,
+        "sd_of_trial_means_deg": 0.0822116253848138,
+        "mean_of_trial_p95_deg": 6.935279598947426,
+        "maximum_deg": 8.961361870313054
+      },
+      "last_to_hold": {
+        "mean_of_trial_means_deg": 4.613196360156336,
+        "sd_of_trial_means_deg": 0.03638263363975772,
+        "mean_of_trial_p95_deg": 5.9127847984344015,
+        "maximum_deg": 6.635241910722247
+      },
+      "first_command": {
+        "mean_of_trial_means_deg": 9.605334515262227,
+        "sd_of_trial_means_deg": 0.13055032034234967,
+        "mean_of_trial_p95_deg": 11.615270633645048,
+        "maximum_deg": 14.053243990895465
+      },
+      "boundary_peak": {
+        "mean_of_trial_means_deg": 9.605334515262227,
+        "sd_of_trial_means_deg": 0.13055032034234967,
+        "mean_of_trial_p95_deg": 11.615270633645048,
+        "maximum_deg": 14.053243990895465
+      }
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "source_h5": "/media/frankagvl/U393/20260907173246/shards/shard_000075.h5",
+  "row": 643156,
+  "episode_id": 148869,
+  "env_id": 1225,
+  "step": 0,
+  "available_fields": [
+    "index/done",
+    "index/env_id",
+    "index/episode_id",
+    "index/failure",
+    "index/reset_reason",
+    "index/step",
+    "index/success",
+    "index/timeout",
+    "robot/qpos",
+    "robot/target_after",
+    "robot/target_before"
+  ],
+  "missing_fields": [
+    "RGB image",
+    "bulb position/orientation",
+    "wrist world pose",
+    "contact or grasp stability measurements"
+  ],
+  "selection_criteria": "step=0, not_done, not_failure, within URDF bounds, abs marginal z<=3, target_before=qpos; no grasp or downward-axis filter",
+  "grasp_verified": false,
+  "bulb_downward_verified": false,
+  "image": "hand_pose_comparison.png",
+  "image_type": "offline URDF reconstruction of exact joint angles, no bulb rendered, display orientation arbitrary",
+  "robot_configuration_changed": false,
+  "hardware_connected": false
+}

@@ -1,0 +1,119 @@
+media audit 1/75: id_0
+media audit 2/75: id_1
+media audit 3/75: id_2
+media audit 4/75: id_3
+media audit 5/75: id_4
+media audit 6/75: id_5
+media audit 7/75: id_6
+media audit 8/75: id_7
+media audit 9/75: id_8
+media audit 10/75: id_9
+media audit 11/75: id_10
+media audit 12/75: id_11
+media audit 13/75: id_12
+media audit 14/75: id_13
+media audit 15/75: id_14
+media audit 16/75: id_15
+media audit 17/75: id_16
+media audit 18/75: id_17
+media audit 19/75: id_18
+media audit 20/75: id_19
+media audit 21/75: id_20
+media audit 22/75: id_21
+media audit 23/75: id_22
+media audit 24/75: id_23
+media audit 25/75: id_24
+media audit 26/75: id_25
+media audit 27/75: id_26
+media audit 28/75: id_27
+media audit 29/75: id_28
+media audit 30/75: id_29
+media audit 31/75: id_30
+media audit 32/75: id_31
+media audit 33/75: id_32
+media audit 34/75: id_33
+media audit 35/75: id_34
+media audit 36/75: id_35
+media audit 37/75: id_37
+media audit 38/75: id_38
+media audit 39/75: id_39
+media audit 40/75: id_40
+media audit 41/75: id_41
+media audit 42/75: id_42
+media audit 43/75: id_43
+media audit 44/75: id_44
+media audit 45/75: id_45
+media audit 46/75: id_46
+media audit 47/75: id_47
+media audit 48/75: id_48
+media audit 49/75: id_49
+media audit 50/75: id_50
+media audit 51/75: id_51
+media audit 52/75: id_52
+media audit 53/75: id_53
+media audit 54/75: id_54
+media audit 55/75: id_55
+media audit 56/75: id_56
+media audit 57/75: id_57
+media audit 58/75: id_58
+media audit 59/75: id_59
+media audit 60/75: id_60
+media audit 61/75: id_61
+media audit 62/75: id_62
+media audit 63/75: id_63
+media audit 64/75: id_64
+media audit 65/75: id_65
+media audit 66/75: id_66
+media audit 67/75: id_67
+media audit 68/75: id_68
+media audit 69/75: id_69
+media audit 70/75: id_70
+media audit 71/75: id_71
+media audit 72/75: id_72
+media audit 73/75: id_73
+media audit 74/75: id_74
+media audit 75/75: id_75
+{
+  "scope": "All image bytes checked for PNG header/footer and adjacent equality; 5 images per camera per complete episode fully decoded. All deformation arrays scanned.",
+  "totals": {
+    "frames": 48894,
+    "image_frames": 48894,
+    "image_empty": 0,
+    "image_bad_header_or_footer": 0,
+    "image_duplicate_adjacent": 0,
+    "image_decoded": 375,
+    "image_decoded_black": 0,
+    "image_decode_error": 0,
+    "extra_view_image_frames": 48894,
+    "extra_view_image_empty": 0,
+    "extra_view_image_bad_header_or_footer": 0,
+    "extra_view_image_duplicate_adjacent": 0,
+    "extra_view_image_decoded": 375,
+    "extra_view_image_decoded_black": 0,
+    "extra_view_image_decode_error": 0,
+    "deform_0_nonzero_frames": 157,
+    "deform_1_nonzero_frames": 19995,
+    "deform_2_nonzero_frames": 33095,
+    "deform_3_nonzero_frames": 36162,
+    "deform_4_nonzero_frames": 25755
+  },
+  "errors": [],
+  "duplicate_episode_camera_streams": [],
+  "deform_nonzero_frame_fraction": [
+    0.003211027937988301,
+    0.4089458829304209,
+    0.6768724178835849,
+    0.7395999509142226,
+    0.5267517486808198
+  ],
+  "deform_max": [
+    130,
+    172,
+    164,
+    162,
+    156
+  ],
+  "deform_all_sensors_zero_frames": 5076,
+  "image_max_identical_run": 1,
+  "extra_view_image_max_identical_run": 1
+}

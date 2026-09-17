@@ -1,0 +1,44 @@
+{
+  "scope": "All image bytes checked for PNG header/footer and adjacent equality; 5 images per camera per complete episode fully decoded. All deformation arrays scanned.",
+  "totals": {
+    "frames": 48894,
+    "image_frames": 48894,
+    "image_empty": 0,
+    "image_bad_header_or_footer": 0,
+    "image_duplicate_adjacent": 0,
+    "image_decoded": 375,
+    "image_decoded_black": 0,
+    "image_decode_error": 0,
+    "extra_view_image_frames": 48894,
+    "extra_view_image_empty": 0,
+    "extra_view_image_bad_header_or_footer": 0,
+    "extra_view_image_duplicate_adjacent": 0,
+    "extra_view_image_decoded": 375,
+    "extra_view_image_decoded_black": 0,
+    "extra_view_image_decode_error": 0,
+    "deform_0_nonzero_frames": 157,
+    "deform_1_nonzero_frames": 19995,
+    "deform_2_nonzero_frames": 33095,
+    "deform_3_nonzero_frames": 36162,
+    "deform_4_nonzero_frames": 25755
+  },
+  "errors": [],
+  "duplicate_episode_camera_streams": [],
+  "deform_nonzero_frame_fraction": [
+    0.003211027937988301,
+    0.4089458829304209,
+    0.6768724178835849,
+    0.7395999509142226,
+    0.5267517486808198
+  ],
+  "deform_max": [
+    130,
+    172,
+    164,
+    162,
+    156
+  ],
+  "deform_all_sensors_zero_frames": 5076,
+  "image_max_identical_run": 1,
+  "extra_view_image_max_identical_run": 1
+}

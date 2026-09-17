@@ -29,7 +29,8 @@ HAND_HOST="${HAND_HOST:-localhost}"
 HAND_PORT="${HAND_PORT:-5570}"
 HAND_TIMEOUT_MS="${HAND_TIMEOUT_MS:-2000}"
 HAND_INTERPOLATE="${HAND_INTERPOLATE:-0}"
-# The reset pose is configured only by HAND_READY_JOINTS in robot_init.py.
+# SharpA initial pose: ZERO or ROTATE.
+INIT_POSE="${INIT_POSE:-ZERO}"
 MOVE_TO_INITIAL_POSE="${MOVE_TO_INITIAL_POSE:-1}"
 INITIAL_POSE_STEPS="${INITIAL_POSE_STEPS:-50}"
 INITIAL_POSE_SECONDS="${INITIAL_POSE_SECONDS:-2.0}"
@@ -71,6 +72,7 @@ fi
 [[ "${ACTION_CHUNK_STEPS}" =~ ^[1-9][0-9]*$ ]] || die "ACTION_CHUNK_STEPS must be a positive integer"
 (( ACTION_CHUNK_STEPS <= 5 )) || die "ACTION_CHUNK_STEPS cannot exceed the checkpoint output length 5"
 [[ "${MAX_STEPS}" =~ ^(0|[1-9][0-9]*)$ ]] || die "MAX_STEPS must be a non-negative integer"
+[[ "${INIT_POSE}" == "ZERO" || "${INIT_POSE}" == "ROTATE" ]] || die "INIT_POSE must be ZERO or ROTATE"
 require_bool LIVE "${LIVE}"
 require_bool CHECK_ONLY "${CHECK_ONLY}"
 require_bool PREFLIGHT_ONLY "${PREFLIGHT_ONLY}"
@@ -156,7 +158,7 @@ if [[ "${PREFLIGHT_ONLY}" == "1" ]]; then
     [[ -f "${REAL_DIR}/robot_init.py" ]] || die "missing ${REAL_DIR}/robot_init.py"
     echo "[real] PREFLIGHT_ONLY: checking SharpA communication; no motion command will be sent"
     exec env "${COMMON_ENV[@]}" "${MODEL_PYTHON}" -u "${REAL_DIR}/robot_init.py" \
-        --skip-franka \
+        --skip-franka --init-pose "${INIT_POSE}" \
         --hand-host "${HAND_HOST}" \
         --hand-port "${HAND_PORT}" \
         --hand-timeout-ms "${HAND_TIMEOUT_MS}" \
@@ -168,7 +170,7 @@ if [[ "${LIVE}" == "1" ]]; then
     if [[ "${MOVE_TO_INITIAL_POSE}" == "1" ]]; then
         echo "[real] startup: robot_init.py (SharpA only) -> wait for Enter (if enabled) -> load model -> infer"
         env "${COMMON_ENV[@]}" "${MODEL_PYTHON}" -u "${REAL_DIR}/robot_init.py" \
-            --skip-franka \
+            --skip-franka --init-pose "${INIT_POSE}" \
             --hand-host "${HAND_HOST}" --hand-port "${HAND_PORT}" \
             --hand-timeout-ms "${HAND_TIMEOUT_MS}" \
             --hand-steps "${INITIAL_POSE_STEPS}" --hand-seconds "${INITIAL_POSE_SECONDS}" \

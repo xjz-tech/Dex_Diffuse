@@ -8,6 +8,7 @@ so the real runner does not import Python code from outside ``eval/real``.
 from __future__ import annotations
 
 import math
+from types import FunctionType, MethodType
 from typing import Any
 
 import einops
@@ -444,6 +445,52 @@ class LowdimMaskGenerator(ModuleAttrMixin):
         self.action_visible = bool(action_visible)
 
 
+def _captured_scheduler_step(scheduler, capture):
+    """Clone only this callable's globals to observe its existing noise draws.
+
+    Diffusers' DDIM/DDPM use ``randn_tensor``. Neither the scheduler instance
+    nor module globals are patched, and its algorithm and RNG calls are intact.
+    Other implementations fall back to pre-step RNG snapshots: replay requires
+    the same torch/scheduler version, backend, and generator device, restoring
+    those states immediately before each scheduler step. Such states are not
+    portable CPU/CUDA noise tensors.
+    """
+    step = scheduler.step
+    function = getattr(step, "__func__", None)
+    if (function is not None and hasattr(function, "__code__")
+            and "randn_tensor" in function.__code__.co_names
+            and callable(function.__globals__.get("randn_tensor"))):
+        original_randn = function.__globals__["randn_tensor"]
+
+        def record_randn(*args, **kwargs):
+            noise = original_randn(*args, **kwargs)
+            capture["scheduler_noise"][-1].append(noise.detach().clone())
+            return noise
+
+        namespace = dict(function.__globals__, randn_tensor=record_randn)
+        scoped = FunctionType(function.__code__, namespace, function.__name__,
+                              function.__defaults__, function.__closure__)
+        scoped.__kwdefaults__ = function.__kwdefaults__
+        capture["scheduler_capture_method"] = "randn_tensor"
+        capture["scheduler_noise"] = []
+        return MethodType(scoped, step.__self__)
+    capture["scheduler_capture_method"] = "pre_step_rng_state"
+    capture["scheduler_rng_states"] = []
+    return step
+
+
+def _scheduler_rng_snapshot(sample, generator):
+    state = {"cpu": torch.get_rng_state().clone(), "sample_device": str(sample.device)}
+    if sample.device.type == "cuda":
+        state["cuda"] = torch.cuda.get_rng_state(sample.device).clone()
+    generators = generator if isinstance(generator, (tuple, list)) else [generator]
+    state["generators"] = [
+        {"device": str(item.device), "state": item.get_state().clone()}
+        for item in generators if item is not None
+    ]
+    return state
+
+
 class DiffusionUnetLowdimPolicy(ModuleAttrMixin):
     def __init__(
         self,
@@ -503,6 +550,12 @@ class DiffusionUnetLowdimPolicy(ModuleAttrMixin):
             device=condition_data.device,
         )
         self.noise_scheduler.set_timesteps(self.num_inference_steps)
+        capture = getattr(self, "_debug_capture", None)
+        step = self.noise_scheduler.step
+        if capture is not None:
+            capture["initial_noise"] = trajectory.detach().clone()
+            capture["timesteps"] = self.noise_scheduler.timesteps.detach().clone()
+            step = _captured_scheduler_step(self.noise_scheduler, capture)
         for timestep in self.noise_scheduler.timesteps:
             trajectory[condition_mask] = condition_data[condition_mask]
             model_output = self.model(
@@ -511,7 +564,16 @@ class DiffusionUnetLowdimPolicy(ModuleAttrMixin):
                 local_cond=local_cond,
                 global_cond=global_cond,
             )
-            trajectory = self.noise_scheduler.step(
+            if capture is not None:
+                if capture["scheduler_capture_method"] == "randn_tensor":
+                    capture["scheduler_noise"].append([])
+                else:
+                    capture["scheduler_rng_states"].append(_scheduler_rng_snapshot(
+                        trajectory, self.scheduler_step_kwargs.get("generator")))
+                supplied_noise = self.scheduler_step_kwargs.get("variance_noise")
+                if supplied_noise is not None:
+                    capture["scheduler_supplied_variance_noise"] = supplied_noise.detach().clone()
+            trajectory = step(
                 model_output,
                 timestep,
                 trajectory,
@@ -553,6 +615,13 @@ class DiffusionUnetLowdimPolicy(ModuleAttrMixin):
 
         condition_data = torch.zeros(shape, device=self.device, dtype=self.dtype)
         condition_mask = torch.zeros_like(condition_data, dtype=torch.bool)
+        capture = getattr(self, "_debug_capture", None)
+        if capture is not None:
+            capture["normalized_obs"] = normalized_obs.detach().clone()
+            capture["local_cond"] = None if local_cond is None else local_cond.detach().clone()
+            capture["global_cond"] = None if global_cond is None else global_cond.detach().clone()
+            capture["condition_data"] = condition_data.detach().clone()
+            capture["condition_mask"] = condition_mask.detach().clone()
         normalized_prediction = self.conditional_sample(
             condition_data,
             condition_mask,
@@ -562,6 +631,9 @@ class DiffusionUnetLowdimPolicy(ModuleAttrMixin):
         action_prediction = self.normalizer["action"].unnormalize(
             normalized_prediction[..., : self.action_dim]
         )
+        if capture is not None:
+            capture["normalized_trajectory"] = normalized_prediction.detach().clone()
+            capture["action_pred"] = action_prediction.detach().clone()
         if self.pred_action_steps_only:
             action = action_prediction
         else:

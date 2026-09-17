@@ -1,0 +1,58 @@
+digraph Pipeline {
+  graph [rankdir=TB, bgcolor="white", pad=0.3, nodesep=0.45, ranksep=0.65, compound=true,
+    fontname="DejaVu Sans", fontsize=20, labelloc=t,
+    label="Dual-Guided Strong Prior for Real-World Manipulation", splines=polyline];
+  node [shape=box, style="rounded,filled", fillcolor="#F7F8FA", color="#697586", penwidth=1.2,
+    fontname="DejaVu Sans", fontsize=12, margin="0.17,0.12"];
+  edge [color="#526171", penwidth=1.25, arrowsize=0.7, fontname="DejaVu Sans", fontsize=10];
+
+  subgraph cluster_dp {
+    label="A   Visual task planning • once per 8 executed actions";
+    fontsize=14; fontcolor="#24476B"; color="#B9CBDC"; style="rounded"; margin=20;
+    visual [label="Observation history\nFront + wrist RGB\nEnd-effector pose + hand joints", fillcolor="#EEF4FA"];
+    dp [label="Visual Diffusion Policy\n16 denoising iterations", fillcolor="#DDEAF7"];
+    plan [label="Cached task proposal\n16 actions × 31 dimensions\n9-D arm / EEF + 22-D hand", fillcolor="#EEF4FA"];
+    {rank=same; visual; dp; plan;}
+    visual -> dp -> plan;
+  }
+  subgraph cluster_control {
+    label="B   Hand replanning • four controller calls per DP proposal";
+    fontsize=14; fontcolor="#325B4A"; color="#B9D0C4"; style="rounded"; margin=20;
+    history [label="Latest hand observation history\n4 frames × 66 dimensions\n[q, previous target, target − q]", fillcolor="#EFF6F2"];
+    weak [label="Weak hand policy\n4 DDIM iterations\nKeep first 2 future actions", fillcolor="#FBEEDC", color="#C79D60"];
+    dpref [label="Sliding DP hand reference\n9 actions × 22 joints", fillcolor="#EEF4FA"];
+    subgraph cluster_ddim {
+      label="Strong-prior sampling • 8 DDIM iterations";
+      fontsize=13; color="#85AD99"; style="rounded,filled"; fillcolor="#F6FAF7";
+      prior [label="Frozen strong hand prior\nPredict εθ(xₜ, t | hand history)\nEstimate x̂₀ with detached εθ", fillcolor="#DEEEE4"];
+      loss [label=<
+        <B>Two independent guidance losses</B><BR/><BR/>
+        L<SUB>DP</SUB> = MSE(x̂₀[0:9], DP reference)<BR/>
+        L<SUB>weak</SUB> = MSE(x̂₀[0:2], weak reference)<BR/><BR/>
+        g = 100 ∇<SUB>xₜ</SUB>L<SUB>DP</SUB> + 25 ∇<SUB>xₜ</SUB>L<SUB>weak</SUB>
+      >, fillcolor="#FFFFFF"];
+      update [label="Score-guided DDIM update\nεguided = εbase + √(1 − ᾱₜ) g\nxₜ → xₜ₋₁", fillcolor="#DEEEE4"];
+      {rank=same; prior; loss; update;}
+      prior -> loss [label="clean-action estimate"];
+      loss -> update [label="combined gradient"];
+      update:s -> prior:s [label="next denoising step", style=dashed, constraint=false, color="#438367"];
+    }
+    noise [label="Fixed initial Gaussian noise", shape=ellipse, fillcolor="#FFFFFF"];
+    hand [label="Final strong-prior trajectory\nUnnormalize and take\nfirst 2 hand actions", fillcolor="#DEEEE4"];
+    {rank=same; history; weak; dpref; noise;}
+    history -> weak;
+    history -> prior [label="observation condition"];
+    noise -> prior;
+    weak -> loss [label="2-step reference", color="#B0803B"];
+    dpref -> loss [label="9-step reference", color="#3D6E9B"];
+    update -> hand [label="after 8 iterations"];
+  }
+  compose [label="Assemble 2 executable actions\nArm / EEF: cached DP output\nHand: dual-guided strong prior", fillcolor="#EDE9F5", color="#9685B4"];
+  robot [label="Franka + SharpA\nCoordinate conversion / control limits\nExecute 2 actions at target 30 Hz", fillcolor="#EDE9F5", color="#9685B4"];
+  plan -> dpref [label="window [2k : 2k + 9]"];
+  plan -> compose [label="arm window [2k : 2k + 2]", color="#3D6E9B"];
+  hand -> compose;
+  compose -> robot;
+  robot -> history [label="refresh feedback after every action", style=dashed, color="#438367", constraint=false];
+  robot -> visual [label="replan DP after k = 0, 1, 2, 3 (8 executed actions)", style=dashed, color="#3D6E9B", constraint=false];
+}

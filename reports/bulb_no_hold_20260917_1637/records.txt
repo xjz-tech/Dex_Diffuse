@@ -1,0 +1,13 @@
+放灯泡 / 不holding：2026-09-17新增两次实验记录
+条件由用户事后确认；TXT与JSONL均核对holding=False，无inference_hold指令。
+共用参数：seed=50、obs_4-66.ckpt、TensorRT FP32、fused DDIM、4步推理、chunk=2、30Hz、ROTATE初始化。
+两个实验均由Ctrl-C停止并记录退出保持。已下发动作数包含最后一条被中断的控制周期，不能等同于完整执行步数。
+本目录为固定归档；eval/real/latest_run*.txt会随着后续运行轮转。
+
+| 开始时间 | 原TXT | 已下发策略指令 | 完成动作步数 | 归档TXT |
+| --- | --- | ---: | ---: | --- |
+| 2026-09-17T16:37:06+08:00 | eval/real/latest_run.1.txt | 352 | 351 | reports/bulb_no_hold_20260917_1637/bulb_no_hold_163706.txt |
+| 2026-09-17T16:37:49+08:00 | eval/real/latest_run.txt | 457 | 456 | reports/bulb_no_hold_20260917_1637/bulb_no_hold_163749.txt |
+
+两份TXT均有同名JSONL，包含完整关节目标，可用于直接计算两个chunk之间的策略目标差。
+对应记录的物体条件标注已追加到原TXT和归档TXT；JSONL原样保留。完整元数据及SHA256见manifest.json。

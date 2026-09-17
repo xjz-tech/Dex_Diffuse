@@ -1,0 +1,57 @@
+WARNING:torch_tensorrt.dynamo.conversion.aten_ops_converters:Unable to import quantization op. Please install modelopt library (https://github.com/NVIDIA/TensorRT-Model-Optimizer?tab=readme-ov-file#installation) to add support for compiling quantized models
+[guidance] guide=/media/frankagvl/U393/Dex_Diffuse/runs/epoch_0200.ckpt; weights=EMA model; scale=25.0; prior_steps=8; guide_steps=4; guidance_actions=2; fixed_noise=1; seeds=42/42; fused_ddim=False
+eager: mean=64.025 ms median=78.087 ms
+fused: mean=26.913 ms median=26.766 ms
+fused action max_error=0.0001239 rad
+INFO:torch_tensorrt.dynamo._compiler:Compilation Settings: CompilationSettings(enabled_precisions={<dtype.f32: 7>}, debug=False, workspace_size=0, min_block_size=1, torch_executed_ops=set(), pass_through_build_failures=False, max_aux_streams=None, version_compatible=False, optimization_level=None, use_python_runtime=False, truncate_double=False, use_fast_partitioner=True, enable_experimental_decompositions=False, device=Device(type=DeviceType.GPU, gpu_id=0), require_full_compilation=False, disable_tf32=True, assume_dynamic_shape_support=False, sparse_weights=False, refit=False, engine_capability=<EngineCapability.STANDARD: 1>, num_avg_timing_iters=1, dla_sram_size=1048576, dla_local_dram_size=1073741824, dla_global_dram_size=536870912, dryrun=False, hardware_compatible=False, timing_cache_path='/tmp/timing_cache.bin')
+
+INFO:torch_tensorrt.dynamo._compiler:Partitioning the graph via the fast partitioner
+INFO:torch_tensorrt [TensorRT Conversion Context]:[MemUsageChange] Init CUDA: CPU +2, GPU +0, now: CPU 661, GPU 7601 (MiB)
+INFO:torch_tensorrt [TensorRT Conversion Context]:[MemUsageChange] Init builder kernel library: CPU +1632, GPU +304, now: CPU 2440, GPU 7885 (MiB)
+INFO:torch_tensorrt.dynamo.conversion._TRTInterpreter:TRT INetwork construction elapsed time: 0:00:00.873505
+INFO:torch_tensorrt [TensorRT Conversion Context]:Global timing cache in use. Profiling results in this builder pass will be stored.
+INFO:torch_tensorrt [TensorRT Conversion Context]:Detected 3 inputs and 1 output network tensors.
+INFO:torch_tensorrt [TensorRT Conversion Context]:Total Host Persistent Memory: 212928
+INFO:torch_tensorrt [TensorRT Conversion Context]:Total Device Persistent Memory: 0
+INFO:torch_tensorrt [TensorRT Conversion Context]:Total Scratch Memory: 49152
+INFO:torch_tensorrt [TensorRT Conversion Context]:[BlockAssignment] Started assigning block shifts. This will take 213 steps to complete.
+INFO:torch_tensorrt [TensorRT Conversion Context]:[BlockAssignment] Algorithm ShiftNTopDown took 5.71662ms to assign 9 blocks to 213 nodes requiring 150528 bytes.
+INFO:torch_tensorrt [TensorRT Conversion Context]:Total Activation Memory: 150016
+INFO:torch_tensorrt [TensorRT Conversion Context]:Total Weights Memory: 281255768
+INFO:torch_tensorrt [TensorRT Conversion Context]:Engine generation completed in 8.84397 seconds.
+INFO:torch_tensorrt [TensorRT Conversion Context]:[MemUsageStats] Peak memory usage of TRT CPU/GPU memory allocators: CPU 20 MiB, GPU 268 MiB
+INFO:torch_tensorrt [TensorRT Conversion Context]:[MemUsageStats] Peak memory usage during Engine building and serialization: CPU: 4849 MiB
+INFO:torch_tensorrt.dynamo.conversion._TRTInterpreter:Build TRT engine elapsed time: 0:00:09.052720
+INFO:torch_tensorrt.dynamo.conversion._TRTInterpreter:TRT Engine uses: 285625052 bytes of Memory
+INFO:torch_tensorrt [TensorRT Conversion Context]:Serialized 1076 bytes of code generator cache.
+INFO:torch_tensorrt [TensorRT Conversion Context]:Serialized 3013105 bytes of compilation cache.
+INFO:torch_tensorrt [TensorRT Conversion Context]:Serialized 2266 timing cache entries
+INFO:torch_tensorrt.dynamo._compiler:Compilation Settings: CompilationSettings(enabled_precisions={<dtype.f32: 7>}, debug=False, workspace_size=0, min_block_size=1, torch_executed_ops=set(), pass_through_build_failures=False, max_aux_streams=None, version_compatible=False, optimization_level=None, use_python_runtime=False, truncate_double=False, use_fast_partitioner=True, enable_experimental_decompositions=False, device=Device(type=DeviceType.GPU, gpu_id=0), require_full_compilation=False, disable_tf32=True, assume_dynamic_shape_support=False, sparse_weights=False, refit=False, engine_capability=<EngineCapability.STANDARD: 1>, num_avg_timing_iters=1, dla_sram_size=1048576, dla_local_dram_size=1073741824, dla_global_dram_size=536870912, dryrun=False, hardware_compatible=False, timing_cache_path='/tmp/timing_cache.bin')
+
+INFO:torch_tensorrt.dynamo._compiler:Partitioning the graph via the fast partitioner
+INFO:torch_tensorrt [TensorRT Conversion Context]:The logger passed into createInferBuilder differs from one already provided for an existing builder, runtime, or refitter. Uses of the global logger, returned by nvinfer1::getLogger(), will return the existing value.
+INFO:torch_tensorrt [TensorRT Conversion Context]:[MemUsageChange] Init CUDA: CPU +0, GPU +0, now: CPU 1026, GPU 7768 (MiB)
+INFO:torch_tensorrt [TensorRT Conversion Context]:[MemUsageChange] Init builder kernel library: CPU +1629, GPU +238, now: CPU 2655, GPU 8006 (MiB)
+INFO:torch_tensorrt.dynamo.conversion._TRTInterpreter:TRT INetwork construction elapsed time: 0:00:01.259085
+INFO:torch_tensorrt [TensorRT Conversion Context]:Global timing cache in use. Profiling results in this builder pass will be stored.
+INFO:torch_tensorrt [TensorRT Conversion Context]:Detected 3 inputs and 1 output network tensors.
+INFO:torch_tensorrt [TensorRT Conversion Context]:Total Host Persistent Memory: 212928
+INFO:torch_tensorrt [TensorRT Conversion Context]:Total Device Persistent Memory: 0
+INFO:torch_tensorrt [TensorRT Conversion Context]:Total Scratch Memory: 49152
+INFO:torch_tensorrt [TensorRT Conversion Context]:[BlockAssignment] Started assigning block shifts. This will take 213 steps to complete.
+INFO:torch_tensorrt [TensorRT Conversion Context]:[BlockAssignment] Algorithm ShiftNTopDown took 4.23623ms to assign 9 blocks to 213 nodes requiring 150528 bytes.
+INFO:torch_tensorrt [TensorRT Conversion Context]:Total Activation Memory: 150016
+INFO:torch_tensorrt [TensorRT Conversion Context]:Total Weights Memory: 281255768
+INFO:torch_tensorrt [TensorRT Conversion Context]:Engine generation completed in 1.18016 seconds.
+INFO:torch_tensorrt [TensorRT Conversion Context]:[MemUsageStats] Peak memory usage of TRT CPU/GPU memory allocators: CPU 20 MiB, GPU 536 MiB
+INFO:torch_tensorrt [TensorRT Conversion Context]:[MemUsageStats] Peak memory usage during Engine building and serialization: CPU: 5395 MiB
+INFO:torch_tensorrt.dynamo.conversion._TRTInterpreter:Build TRT engine elapsed time: 0:00:01.415938
+INFO:torch_tensorrt.dynamo.conversion._TRTInterpreter:TRT Engine uses: 285625052 bytes of Memory
+INFO:torch_tensorrt [TensorRT Conversion Context]:Serialized 1076 bytes of code generator cache.
+INFO:torch_tensorrt [TensorRT Conversion Context]:Serialized 3013105 bytes of compilation cache.
+INFO:torch_tensorrt [TensorRT Conversion Context]:Serialized 2266 timing cache entries
+TRT compile: 21.2s
+WARNING: [Torch-TensorRT] - Using default stream in enqueueV3() may lead to performance issues due to additional calls to cudaStreamSynchronize() by TensorRT to ensure correct synchronization. Please use non-default stream instead.
+WARNING: [Torch-TensorRT] - Using default stream in enqueueV3() may lead to performance issues due to additional calls to cudaStreamSynchronize() by TensorRT to ensure correct synchronization. Please use non-default stream instead.
+TRT FP32 + fused: mean=34.090 ms median=34.344 ms
+TRT action mae=0.0113155 max_error=0.0395026 rad

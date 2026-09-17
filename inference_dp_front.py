@@ -9,7 +9,7 @@ import argparse
 # Reuse checkpoint loading and coordinate transforms without changing the
 # original two-camera entrypoint or its module globals.
 from inference_dp import (
-    ACTION_DIM, EE_DIM, OmegaConf, np, torch, ee_pose_relative_to,
+    ACTION_DIM, EE_DIM, OmegaConf, np, torch, ee_pose_relative_to, InferenceTimer,
     load_policy, mixed_actions_to_absolute, resize_chw_float,
 )
 from direct_robot_front_env import FrontDirectRobotEnv
@@ -174,7 +174,7 @@ def main():
                 1, n_obs_steps, ACTION_DIM - EE_DIM, device=device
             ),
         }
-        with torch.inference_mode():
+        with InferenceTimer(device, "dp_front_check"), torch.inference_mode():
             check_action = policy.predict_action(dummy_obs)["action"]
         expected_shape = (1, inference_action_steps, ACTION_DIM)
         if tuple(check_action.shape) != expected_shape:
@@ -211,7 +211,7 @@ def main():
             policy_obs, base_ee_pose = build_policy_obs(
                 obs_history, device, relative_ee
             )
-            with torch.inference_mode():
+            with InferenceTimer(device, "dp_front"), torch.inference_mode():
                 prediction = policy.predict_action(policy_obs)
             mixed_actions = prediction["action"][0].detach().cpu().numpy()
             if relative_ee:

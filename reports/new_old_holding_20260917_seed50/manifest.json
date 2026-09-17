@@ -1,0 +1,13 @@
+[
+  {
+    "name": "new_holding_seed50",
+    "pair": 1,
+    "seed": 50,
+    "hold": 1,
+    "log": "/media/frankagvl/U393/Dex_Diffuse/reports/new_old_holding_20260917_seed50/new_holding_seed50.txt",
+    "started": 1789633775.135621,
+    "seconds": 31.50783920288086,
+    "returncode": 0,
+    "description": "空手无灯泡 新holding 对照实验（统一周期末采样，先固定obs，再同步发送hold；不额外读取qpos）; 配对轮次=1/1; HOLD_DURING_INFERENCE=1; SEED=50; 每轮600动作/300chunk; chunk=2; 30Hz; 每轮ROTATE复位; TensorRT FP32; FUSED_DDIM=1; DDIM=4步; 不插值; 沿用软件限幅关闭配置; 完整TXT+JSONL记录; 比较纯策略跨chunk/内部跳变及含hold实际指令跳变; 每种条件单轮统计; 排除初始化/首个策略动作/退出hold"
+  }
+]

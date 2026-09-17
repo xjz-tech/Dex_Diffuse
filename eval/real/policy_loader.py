@@ -177,4 +177,11 @@ def load_policy(
             raise ValueError("inference_steps must be positive")
         policy.num_inference_steps = int(inference_steps)
     policy.to(device).eval()
+    from omegaconf import OmegaConf
+
+    policy._loaded_checkpoint_metadata = {
+        "weight_source": loaded.weight_source, "global_step": loaded.global_step,
+        "epoch": loaded.epoch, "checkpoint_spec": spec,
+        "policy_config": OmegaConf.to_container(loaded.cfg.policy, resolve=True),
+    }
     return loaded, policy, spec

@@ -68,6 +68,12 @@ WRIST_SERIAL="${WRIST_SERIAL:-}"
 SHOW_CAMERA_INPUT="${SHOW_CAMERA_INPUT:-1}"
 STOP_ON_CLOSE="${STOP_ON_CLOSE:-1}"
 ROBOT_INIT_SCRIPT="${ROBOT_INIT_SCRIPT:-${SCRIPT_DIR}/real/robot_init.py}"
+# SharpA initial pose: ZERO or ROTATE.
+INIT_POSE="${INIT_POSE:-ZERO}"
+[[ "${INIT_POSE}" == "ZERO" || "${INIT_POSE}" == "ROTATE" ]] || {
+    echo "INIT_POSE must be ZERO or ROTATE" >&2
+    exit 2
+}
 
 [[ $# -eq 0 ]] || die "this launcher takes no positional arguments; use environment variables"
 [[ -n "${DP_CKPT_PATH}" ]] || die "set DP_CKPT_PATH to the real-task Diffusion Policy checkpoint"
@@ -185,6 +191,7 @@ PY
         PYTHONDONTWRITEBYTECODE=1 \
         LD_LIBRARY_PATH="${RUNTIME_LD_LIBRARY_PATH}" \
         "${MODEL_PYTHON}" "${ROBOT_INIT_SCRIPT}" \
+        --init-pose "${INIT_POSE}" \
         --franka-host "${FRANKA_HOST}" \
         --franka-port "${FRANKA_PORT}" \
         --hand-host "${HAND_HOST}" \

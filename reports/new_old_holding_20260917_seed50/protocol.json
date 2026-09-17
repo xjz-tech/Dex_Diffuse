@@ -1,0 +1,16 @@
+{
+  "status": "completed and verified",
+  "conditions": {
+    "no_hold": "Previous policy target retained during inference; no boundary state read.",
+    "old_holding": "At each inference boundary, read qpos again, send hold at that reading, refresh latest observation frame with new qpos and unchanged previous policy target, then infer.",
+    "new_holding": "Reuse the action-period-end qpos (startup sample for chunk 0), freeze observation first, send hold from the same qpos without any additional read/history update, then infer. Hold acknowledgement remains synchronous; no parallel inference."
+  },
+  "seed": 50,
+  "actions": 600,
+  "chunk_steps": 2,
+  "control_hz": 30,
+  "initial_pose": "ROTATE",
+  "baseline_no_hold": "reports/hold_comparison_20260917/pair1_seed50_hold0.txt",
+  "baseline_old_holding": "reports/hold_comparison_20260917/pair1_seed50_hold1.txt",
+  "new_holding_log": "/media/frankagvl/U393/Dex_Diffuse/reports/new_old_holding_20260917_seed50/new_holding_seed50.txt"
+}

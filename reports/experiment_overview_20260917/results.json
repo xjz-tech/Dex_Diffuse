@@ -1,0 +1,861 @@
+{
+  "runs": [
+    {
+      "group": "空手原初始化/不holding",
+      "label": "seed=50",
+      "jsonl": "reports/hold_comparison_20260917/pair1_seed50_hold0.jsonl",
+      "txt": "reports/hold_comparison_20260917/pair1_seed50_hold0.txt",
+      "policy_commands": 600,
+      "completed_steps": 600,
+      "qpos_age_ms_mean": 11.281485458193979,
+      "metrics": {
+        "within": {
+          "n": 300,
+          "mean_deg": 6.001669809553733,
+          "median_deg": 5.955547588299476,
+          "p95_deg": 6.939230237281608,
+          "max_deg": 8.088018024542082
+        },
+        "between": {
+          "n": 299,
+          "mean_deg": 6.084074086572202,
+          "median_deg": 5.997824751714562,
+          "p95_deg": 7.262982740732776,
+          "max_deg": 8.73890260904574
+        },
+        "new_action_qpos": {
+          "n": 299,
+          "mean_deg": 9.679711660546017,
+          "median_deg": 9.69252679077375,
+          "p95_deg": 11.718254006139013,
+          "max_deg": 13.67808560544876
+        },
+        "end_error": {
+          "n": 600,
+          "mean_deg": 4.39574148917722,
+          "median_deg": 4.344036170621252,
+          "p95_deg": 5.537286354944392,
+          "max_deg": 6.348032456123211
+        }
+      }
+    },
+    {
+      "group": "空手原初始化/旧holding",
+      "label": "seed=50",
+      "jsonl": "reports/hold_comparison_20260917/pair1_seed50_hold1.jsonl",
+      "txt": "reports/hold_comparison_20260917/pair1_seed50_hold1.txt",
+      "policy_commands": 600,
+      "completed_steps": 600,
+      "qpos_age_ms_mean": 11.551385137123747,
+      "metrics": {
+        "within": {
+          "n": 300,
+          "mean_deg": 6.026618862730037,
+          "median_deg": 6.019766734423228,
+          "p95_deg": 6.809930828934494,
+          "max_deg": 7.803368183334507
+        },
+        "between": {
+          "n": 299,
+          "mean_deg": 6.086649156563791,
+          "median_deg": 6.030046169124097,
+          "p95_deg": 7.015522596536998,
+          "max_deg": 8.023671239258215
+        },
+        "new_action_qpos": {
+          "n": 299,
+          "mean_deg": 9.743024143428158,
+          "median_deg": 9.843197348769646,
+          "p95_deg": 11.540537265067709,
+          "max_deg": 13.529709991013988
+        },
+        "end_error": {
+          "n": 600,
+          "mean_deg": 4.752801667137397,
+          "median_deg": 4.723777613001036,
+          "p95_deg": 5.983330919541064,
+          "max_deg": 7.127992248014477
+        }
+      }
+    },
+    {
+      "group": "空手原初始化/不holding",
+      "label": "seed=51",
+      "jsonl": "reports/hold_comparison_20260917/pair2_seed51_hold0.jsonl",
+      "txt": "reports/hold_comparison_20260917/pair2_seed51_hold0.txt",
+      "policy_commands": 600,
+      "completed_steps": 600,
+      "qpos_age_ms_mean": 10.937417612040134,
+      "metrics": {
+        "within": {
+          "n": 300,
+          "mean_deg": 5.9614564078956205,
+          "median_deg": 5.992722173517739,
+          "p95_deg": 6.850734122904056,
+          "max_deg": 7.412903343957804
+        },
+        "between": {
+          "n": 299,
+          "mean_deg": 6.056602431467965,
+          "median_deg": 6.0554476426473745,
+          "p95_deg": 7.0240241329969155,
+          "max_deg": 7.755406594982678
+        },
+        "new_action_qpos": {
+          "n": 299,
+          "mean_deg": 9.700560408877173,
+          "median_deg": 9.787831835357522,
+          "p95_deg": 11.660004616104587,
+          "max_deg": 14.990550850696316
+        },
+        "end_error": {
+          "n": 600,
+          "mean_deg": 4.4230235722678675,
+          "median_deg": 4.387784812915653,
+          "p95_deg": 5.608173729377464,
+          "max_deg": 10.236879207245426
+        }
+      }
+    },
+    {
+      "group": "空手原初始化/旧holding",
+      "label": "seed=51",
+      "jsonl": "reports/hold_comparison_20260917/pair2_seed51_hold1.jsonl",
+      "txt": "reports/hold_comparison_20260917/pair2_seed51_hold1.txt",
+      "policy_commands": 600,
+      "completed_steps": 600,
+      "qpos_age_ms_mean": 11.57861181270903,
+      "metrics": {
+        "within": {
+          "n": 300,
+          "mean_deg": 5.855961925424638,
+          "median_deg": 5.963305829422964,
+          "p95_deg": 6.913360511602043,
+          "max_deg": 7.954062646992499
+        },
+        "between": {
+          "n": 299,
+          "mean_deg": 5.922790483072415,
+          "median_deg": 5.931969775284592,
+          "p95_deg": 6.916112949771509,
+          "max_deg": 8.961361870313054
+        },
+        "new_action_qpos": {
+          "n": 299,
+          "mean_deg": 9.483343103328263,
+          "median_deg": 9.646238598768573,
+          "p95_deg": 11.74105334834325,
+          "max_deg": 14.053243990895465
+        },
+        "end_error": {
+          "n": 600,
+          "mean_deg": 4.675831271556872,
+          "median_deg": 4.719179188142325,
+          "p95_deg": 5.993018347595623,
+          "max_deg": 6.7019182173999114
+        }
+      }
+    },
+    {
+      "group": "空手原初始化/不holding",
+      "label": "seed=52",
+      "jsonl": "reports/hold_comparison_20260917/pair3_seed52_hold0.jsonl",
+      "txt": "reports/hold_comparison_20260917/pair3_seed52_hold0.txt",
+      "policy_commands": 600,
+      "completed_steps": 600,
+      "qpos_age_ms_mean": 10.984678133779264,
+      "metrics": {
+        "within": {
+          "n": 300,
+          "mean_deg": 5.9903511950990485,
+          "median_deg": 5.935740893480085,
+          "p95_deg": 6.849698751603247,
+          "max_deg": 7.958673024682258
+        },
+        "between": {
+          "n": 299,
+          "mean_deg": 6.0738473827449235,
+          "median_deg": 6.052599453763479,
+          "p95_deg": 6.982982337359275,
+          "max_deg": 8.360493053554109
+        },
+        "new_action_qpos": {
+          "n": 299,
+          "mean_deg": 9.661853699813356,
+          "median_deg": 9.744917756802332,
+          "p95_deg": 11.467937647587076,
+          "max_deg": 13.227904422158634
+        },
+        "end_error": {
+          "n": 600,
+          "mean_deg": 4.407027134362141,
+          "median_deg": 4.327679575106364,
+          "p95_deg": 5.562476860999682,
+          "max_deg": 6.326616397980636
+        }
+      }
+    },
+    {
+      "group": "空手原初始化/旧holding",
+      "label": "seed=52",
+      "jsonl": "reports/hold_comparison_20260917/pair3_seed52_hold1.jsonl",
+      "txt": "reports/hold_comparison_20260917/pair3_seed52_hold1.txt",
+      "policy_commands": 600,
+      "completed_steps": 600,
+      "qpos_age_ms_mean": 11.574981842809365,
+      "metrics": {
+        "within": {
+          "n": 300,
+          "mean_deg": 5.9653636821769584,
+          "median_deg": 6.006140507029053,
+          "p95_deg": 6.753677305552904,
+          "max_deg": 7.5077166149213355
+        },
+        "between": {
+          "n": 299,
+          "mean_deg": 5.992929765260388,
+          "median_deg": 5.988927576546974,
+          "p95_deg": 6.874203250533771,
+          "max_deg": 8.416987255726577
+        },
+        "new_action_qpos": {
+          "n": 299,
+          "mean_deg": 9.589636299030257,
+          "median_deg": 9.683753412784869,
+          "p95_deg": 11.564221287524184,
+          "max_deg": 13.476332062650338
+        },
+        "end_error": {
+          "n": 600,
+          "mean_deg": 4.7108725093310415,
+          "median_deg": 4.710766102632162,
+          "p95_deg": 6.01062794131375,
+          "max_deg": 6.672386186976069
+        }
+      }
+    },
+    {
+      "group": "空手原初始化/新holding",
+      "label": "seed=50",
+      "jsonl": "reports/new_old_holding_20260917_seed50/new_holding_seed50.jsonl",
+      "txt": "reports/new_old_holding_20260917_seed50/new_holding_seed50.txt",
+      "policy_commands": 600,
+      "completed_steps": 600,
+      "qpos_age_ms_mean": 11.33718868561873,
+      "metrics": {
+        "within": {
+          "n": 300,
+          "mean_deg": 6.027988113554395,
+          "median_deg": 6.015597757708582,
+          "p95_deg": 6.817452660135334,
+          "max_deg": 7.436935364552494
+        },
+        "between": {
+          "n": 299,
+          "mean_deg": 6.093172875460735,
+          "median_deg": 6.041889717144899,
+          "p95_deg": 7.033957106352138,
+          "max_deg": 8.749492817353843
+        },
+        "new_action_qpos": {
+          "n": 299,
+          "mean_deg": 9.791809433819436,
+          "median_deg": 10.02537556940681,
+          "p95_deg": 11.737960980196526,
+          "max_deg": 13.400407679836476
+        },
+        "end_error": {
+          "n": 600,
+          "mean_deg": 4.746368620428359,
+          "median_deg": 4.763348313957505,
+          "p95_deg": 6.04402491965681,
+          "max_deg": 6.909637930438339
+        }
+      }
+    },
+    {
+      "group": "放灯泡/早期不holding",
+      "label": "16:07:15",
+      "jsonl": "reports/bulb_hold_comparison_20260917_160715/bulb_no_hold_160715.jsonl",
+      "txt": "reports/bulb_hold_comparison_20260917_160715/bulb_no_hold_160715.txt",
+      "policy_commands": 248,
+      "completed_steps": 247,
+      "qpos_age_ms_mean": 11.103022186991868,
+      "metrics": {
+        "within": {
+          "n": 124,
+          "mean_deg": 5.793767153989385,
+          "median_deg": 5.922115092972732,
+          "p95_deg": 6.622108908363511,
+          "max_deg": 7.023172749916876
+        },
+        "between": {
+          "n": 123,
+          "mean_deg": 5.884107162421398,
+          "median_deg": 5.98894209069896,
+          "p95_deg": 6.984974404719391,
+          "max_deg": 7.663260512890036
+        },
+        "new_action_qpos": {
+          "n": 123,
+          "mean_deg": 9.79737314478125,
+          "median_deg": 9.871166119647201,
+          "p95_deg": 11.925722026706534,
+          "max_deg": 18.161087951149444
+        },
+        "end_error": {
+          "n": 247,
+          "mean_deg": 5.285939851700769,
+          "median_deg": 4.8139520115793655,
+          "p95_deg": 9.064651320659207,
+          "max_deg": 14.226017894819169
+        }
+      }
+    },
+    {
+      "group": "放灯泡/近期不holding",
+      "label": "163706",
+      "jsonl": "reports/bulb_no_hold_20260917_1637/bulb_no_hold_163706.jsonl",
+      "txt": "reports/bulb_no_hold_20260917_1637/bulb_no_hold_163706.txt",
+      "policy_commands": 352,
+      "completed_steps": 351,
+      "qpos_age_ms_mean": 11.288718645714287,
+      "metrics": {
+        "within": {
+          "n": 176,
+          "mean_deg": 5.73502536040378,
+          "median_deg": 5.843955103866161,
+          "p95_deg": 6.7369346762838624,
+          "max_deg": 7.553343986124314
+        },
+        "between": {
+          "n": 175,
+          "mean_deg": 5.829038564701375,
+          "median_deg": 5.898585518168862,
+          "p95_deg": 7.090931022592093,
+          "max_deg": 8.180097512290317
+        },
+        "new_action_qpos": {
+          "n": 175,
+          "mean_deg": 10.115592122391915,
+          "median_deg": 9.925164741451676,
+          "p95_deg": 13.627367459469607,
+          "max_deg": 19.57678723683351
+        },
+        "end_error": {
+          "n": 351,
+          "mean_deg": 6.209645209650062,
+          "median_deg": 5.232881130713569,
+          "p95_deg": 13.225506252027593,
+          "max_deg": 16.928917556010912
+        }
+      }
+    },
+    {
+      "group": "放灯泡/近期不holding",
+      "label": "163749",
+      "jsonl": "reports/bulb_no_hold_20260917_1637/bulb_no_hold_163749.jsonl",
+      "txt": "reports/bulb_no_hold_20260917_1637/bulb_no_hold_163749.txt",
+      "policy_commands": 457,
+      "completed_steps": 456,
+      "qpos_age_ms_mean": 10.935707824561403,
+      "metrics": {
+        "within": {
+          "n": 228,
+          "mean_deg": 5.827946337443239,
+          "median_deg": 5.851461054877182,
+          "p95_deg": 6.83068384646339,
+          "max_deg": 7.7688313317963384
+        },
+        "between": {
+          "n": 228,
+          "mean_deg": 6.009353227536966,
+          "median_deg": 6.054282241620241,
+          "p95_deg": 7.305274418299846,
+          "max_deg": 8.127781678342604
+        },
+        "new_action_qpos": {
+          "n": 228,
+          "mean_deg": 10.48053356673572,
+          "median_deg": 10.191573762067938,
+          "p95_deg": 15.263630799681044,
+          "max_deg": 23.362194188070468
+        },
+        "end_error": {
+          "n": 456,
+          "mean_deg": 6.699100895216928,
+          "median_deg": 5.256356490890903,
+          "p95_deg": 14.68695321095748,
+          "max_deg": 25.405131089577964
+        }
+      }
+    },
+    {
+      "group": "放灯泡/新holding",
+      "label": "164011",
+      "jsonl": "reports/bulb_new_hold_comparison_20260917_1640/bulb_new_hold_164011.jsonl",
+      "txt": "reports/bulb_new_hold_comparison_20260917_1640/bulb_new_hold_164011.txt",
+      "policy_commands": 268,
+      "completed_steps": 268,
+      "qpos_age_ms_mean": 11.534905909774436,
+      "metrics": {
+        "within": {
+          "n": 134,
+          "mean_deg": 5.71456491493003,
+          "median_deg": 5.844233434074839,
+          "p95_deg": 6.772862026271,
+          "max_deg": 7.741148575090277
+        },
+        "between": {
+          "n": 133,
+          "mean_deg": 5.831866747084951,
+          "median_deg": 5.908863245322438,
+          "p95_deg": 6.962108468170753,
+          "max_deg": 8.086742486714583
+        },
+        "new_action_qpos": {
+          "n": 133,
+          "mean_deg": 11.135664426816518,
+          "median_deg": 10.222308706198495,
+          "p95_deg": 20.352433764263896,
+          "max_deg": 26.554791945769093
+        },
+        "end_error": {
+          "n": 268,
+          "mean_deg": 7.304000675976071,
+          "median_deg": 5.556715767189506,
+          "p95_deg": 17.013974328631893,
+          "max_deg": 25.55631391176161
+        }
+      }
+    },
+    {
+      "group": "放灯泡/新holding",
+      "label": "164056",
+      "jsonl": "reports/bulb_new_hold_comparison_20260917_1640/bulb_new_hold_164056.jsonl",
+      "txt": "reports/bulb_new_hold_comparison_20260917_1640/bulb_new_hold_164056.txt",
+      "policy_commands": 307,
+      "completed_steps": 306,
+      "qpos_age_ms_mean": 11.523341673202616,
+      "metrics": {
+        "within": {
+          "n": 153,
+          "mean_deg": 5.7232454640477215,
+          "median_deg": 5.803160945274613,
+          "p95_deg": 6.7073874913777995,
+          "max_deg": 7.055826176791415
+        },
+        "between": {
+          "n": 153,
+          "mean_deg": 5.889506921681665,
+          "median_deg": 5.978725835247914,
+          "p95_deg": 7.078093618014032,
+          "max_deg": 8.202449306349182
+        },
+        "new_action_qpos": {
+          "n": 153,
+          "mean_deg": 10.597153510315442,
+          "median_deg": 10.087444059715656,
+          "p95_deg": 15.344238536487088,
+          "max_deg": 32.25125509092435
+        },
+        "end_error": {
+          "n": 306,
+          "mean_deg": 6.729364015080968,
+          "median_deg": 5.259407877902606,
+          "p95_deg": 15.159806353423816,
+          "max_deg": 28.384401548929578
+        }
+      }
+    },
+    {
+      "group": "空手数据集初始化1/不holding",
+      "label": "seed=50",
+      "jsonl": "reports/dataset_initialization_no_hold_20260917/dataset_pose_1_seed50.jsonl",
+      "txt": "reports/dataset_initialization_no_hold_20260917/dataset_pose_1_seed50.txt",
+      "policy_commands": 600,
+      "completed_steps": 600,
+      "qpos_age_ms_mean": 11.004658628762542,
+      "metrics": {
+        "within": {
+          "n": 300,
+          "mean_deg": 5.97970137569242,
+          "median_deg": 5.938686412559653,
+          "p95_deg": 6.885300429633021,
+          "max_deg": 7.853969639800547
+        },
+        "between": {
+          "n": 299,
+          "mean_deg": 6.108416346719437,
+          "median_deg": 6.092351154732953,
+          "p95_deg": 7.093776073857838,
+          "max_deg": 8.002826782571805
+        },
+        "new_action_qpos": {
+          "n": 299,
+          "mean_deg": 9.683298703273962,
+          "median_deg": 9.793528213125313,
+          "p95_deg": 11.516218547282607,
+          "max_deg": 13.52305397166781
+        },
+        "end_error": {
+          "n": 600,
+          "mean_deg": 4.410286994711102,
+          "median_deg": 4.371811134881109,
+          "p95_deg": 5.61794841309867,
+          "max_deg": 6.421689216132628
+        }
+      }
+    },
+    {
+      "group": "空手数据集初始化2/不holding",
+      "label": "seed=50",
+      "jsonl": "reports/dataset_initialization_no_hold_20260917/dataset_pose_2_seed50.jsonl",
+      "txt": "reports/dataset_initialization_no_hold_20260917/dataset_pose_2_seed50.txt",
+      "policy_commands": 600,
+      "completed_steps": 600,
+      "qpos_age_ms_mean": 11.177387578595319,
+      "metrics": {
+        "within": {
+          "n": 300,
+          "mean_deg": 5.791231712797479,
+          "median_deg": 5.9049444242861435,
+          "p95_deg": 6.872776765525615,
+          "max_deg": 7.423374023955433
+        },
+        "between": {
+          "n": 299,
+          "mean_deg": 5.928776485703256,
+          "median_deg": 6.000618299085097,
+          "p95_deg": 7.16924522456352,
+          "max_deg": 8.60331310873723
+        },
+        "new_action_qpos": {
+          "n": 299,
+          "mean_deg": 9.452827245876389,
+          "median_deg": 9.637786239670682,
+          "p95_deg": 11.512962937614718,
+          "max_deg": 13.556115502345257
+        },
+        "end_error": {
+          "n": 600,
+          "mean_deg": 4.438213115592964,
+          "median_deg": 4.41174127454265,
+          "p95_deg": 5.582961452094197,
+          "max_deg": 6.369772948251361
+        }
+      }
+    },
+    {
+      "group": "空手数据集初始化3/不holding",
+      "label": "seed=50",
+      "jsonl": "reports/dataset_initialization_no_hold_20260917/dataset_pose_3_seed50.jsonl",
+      "txt": "reports/dataset_initialization_no_hold_20260917/dataset_pose_3_seed50.txt",
+      "policy_commands": 600,
+      "completed_steps": 600,
+      "qpos_age_ms_mean": 10.802384518394648,
+      "metrics": {
+        "within": {
+          "n": 300,
+          "mean_deg": 5.982195511582125,
+          "median_deg": 5.986858883002107,
+          "p95_deg": 6.792409515411389,
+          "max_deg": 7.942307891430907
+        },
+        "between": {
+          "n": 299,
+          "mean_deg": 6.086777770875646,
+          "median_deg": 6.046468505209747,
+          "p95_deg": 6.986824190701361,
+          "max_deg": 8.357515091075982
+        },
+        "new_action_qpos": {
+          "n": 299,
+          "mean_deg": 9.717864586417695,
+          "median_deg": 9.763854456276192,
+          "p95_deg": 11.475368039630403,
+          "max_deg": 12.888324492098526
+        },
+        "end_error": {
+          "n": 600,
+          "mean_deg": 4.452129570842849,
+          "median_deg": 4.4029175239086396,
+          "p95_deg": 5.5508667346937655,
+          "max_deg": 6.19762486041036
+        }
+      }
+    }
+  ],
+  "pooled": {
+    "空手原初始化/不holding": {
+      "within": {
+        "n": 900,
+        "mean_deg": 5.984492470849467,
+        "median_deg": 5.967298928766483,
+        "p95_deg": 6.884145956908559,
+        "max_deg": 8.088018024542082
+      },
+      "between": {
+        "n": 897,
+        "mean_deg": 6.071507966928364,
+        "median_deg": 6.027655602914593,
+        "p95_deg": 7.075874148043235,
+        "max_deg": 8.73890260904574
+      },
+      "new_action_qpos": {
+        "n": 897,
+        "mean_deg": 9.680708589745516,
+        "median_deg": 9.756793748221693,
+        "p95_deg": 11.657340842328283,
+        "max_deg": 14.990550850696316
+      },
+      "end_error": {
+        "n": 1800,
+        "mean_deg": 4.40859739860241,
+        "median_deg": 4.353794803397908,
+        "p95_deg": 5.577400653581431,
+        "max_deg": 10.236879207245426
+      }
+    },
+    "空手原初始化/旧holding": {
+      "within": {
+        "n": 900,
+        "mean_deg": 5.949314823443878,
+        "median_deg": 5.998745119705221,
+        "p95_deg": 6.8085151868516425,
+        "max_deg": 7.954062646992499
+      },
+      "between": {
+        "n": 897,
+        "mean_deg": 6.000789801632197,
+        "median_deg": 5.9867769207320665,
+        "p95_deg": 6.965463798600521,
+        "max_deg": 8.961361870313054
+      },
+      "new_action_qpos": {
+        "n": 897,
+        "mean_deg": 9.605334515262225,
+        "median_deg": 9.748725587264614,
+        "p95_deg": 11.604710307414562,
+        "max_deg": 14.053243990895465
+      },
+      "end_error": {
+        "n": 1800,
+        "mean_deg": 4.713168482675103,
+        "median_deg": 4.717034508742941,
+        "p95_deg": 6.0095644808599795,
+        "max_deg": 7.127992248014477
+      }
+    },
+    "空手原初始化/新holding": {
+      "within": {
+        "n": 300,
+        "mean_deg": 6.027988113554395,
+        "median_deg": 6.015597757708582,
+        "p95_deg": 6.817452660135334,
+        "max_deg": 7.436935364552494
+      },
+      "between": {
+        "n": 299,
+        "mean_deg": 6.093172875460735,
+        "median_deg": 6.041889717144899,
+        "p95_deg": 7.033957106352138,
+        "max_deg": 8.749492817353843
+      },
+      "new_action_qpos": {
+        "n": 299,
+        "mean_deg": 9.791809433819436,
+        "median_deg": 10.02537556940681,
+        "p95_deg": 11.737960980196526,
+        "max_deg": 13.400407679836476
+      },
+      "end_error": {
+        "n": 600,
+        "mean_deg": 4.746368620428359,
+        "median_deg": 4.763348313957505,
+        "p95_deg": 6.04402491965681,
+        "max_deg": 6.909637930438339
+      }
+    },
+    "放灯泡/早期不holding": {
+      "within": {
+        "n": 124,
+        "mean_deg": 5.793767153989385,
+        "median_deg": 5.922115092972732,
+        "p95_deg": 6.622108908363511,
+        "max_deg": 7.023172749916876
+      },
+      "between": {
+        "n": 123,
+        "mean_deg": 5.884107162421398,
+        "median_deg": 5.98894209069896,
+        "p95_deg": 6.984974404719391,
+        "max_deg": 7.663260512890036
+      },
+      "new_action_qpos": {
+        "n": 123,
+        "mean_deg": 9.79737314478125,
+        "median_deg": 9.871166119647201,
+        "p95_deg": 11.925722026706534,
+        "max_deg": 18.161087951149444
+      },
+      "end_error": {
+        "n": 247,
+        "mean_deg": 5.285939851700769,
+        "median_deg": 4.8139520115793655,
+        "p95_deg": 9.064651320659207,
+        "max_deg": 14.226017894819169
+      }
+    },
+    "放灯泡/近期不holding": {
+      "within": {
+        "n": 404,
+        "mean_deg": 5.787465911802287,
+        "median_deg": 5.843955103866161,
+        "p95_deg": 6.78493831298777,
+        "max_deg": 7.7688313317963384
+      },
+      "between": {
+        "n": 403,
+        "mean_deg": 5.931052815635655,
+        "median_deg": 5.9927880741710595,
+        "p95_deg": 7.213489140950111,
+        "max_deg": 8.180097512290317
+      },
+      "new_action_qpos": {
+        "n": 403,
+        "mean_deg": 10.322060234824637,
+        "median_deg": 10.031827963738357,
+        "p95_deg": 15.07464243221022,
+        "max_deg": 23.362194188070468
+      },
+      "end_error": {
+        "n": 807,
+        "mean_deg": 6.48621496506331,
+        "median_deg": 5.253228264251037,
+        "p95_deg": 14.11179271397027,
+        "max_deg": 25.405131089577964
+      }
+    },
+    "放灯泡/新holding": {
+      "within": {
+        "n": 287,
+        "mean_deg": 5.719192524738416,
+        "median_deg": 5.818181385033118,
+        "p95_deg": 6.741565757984543,
+        "max_deg": 7.741148575090277
+      },
+      "between": {
+        "n": 286,
+        "mean_deg": 5.862702225103472,
+        "median_deg": 5.951876361620593,
+        "p95_deg": 7.053001039795968,
+        "max_deg": 8.202449306349182
+      },
+      "new_action_qpos": {
+        "n": 286,
+        "mean_deg": 10.847579915541466,
+        "median_deg": 10.171191997336944,
+        "p95_deg": 18.457144608477336,
+        "max_deg": 32.25125509092435
+      },
+      "end_error": {
+        "n": 574,
+        "mean_deg": 6.9976612713873925,
+        "median_deg": 5.437708258638496,
+        "p95_deg": 16.162288388397073,
+        "max_deg": 28.384401548929578
+      }
+    },
+    "空手数据集初始化1/不holding": {
+      "within": {
+        "n": 300,
+        "mean_deg": 5.97970137569242,
+        "median_deg": 5.938686412559653,
+        "p95_deg": 6.885300429633021,
+        "max_deg": 7.853969639800547
+      },
+      "between": {
+        "n": 299,
+        "mean_deg": 6.108416346719437,
+        "median_deg": 6.092351154732953,
+        "p95_deg": 7.093776073857838,
+        "max_deg": 8.002826782571805
+      },
+      "new_action_qpos": {
+        "n": 299,
+        "mean_deg": 9.683298703273962,
+        "median_deg": 9.793528213125313,
+        "p95_deg": 11.516218547282607,
+        "max_deg": 13.52305397166781
+      },
+      "end_error": {
+        "n": 600,
+        "mean_deg": 4.410286994711102,
+        "median_deg": 4.371811134881109,
+        "p95_deg": 5.61794841309867,
+        "max_deg": 6.421689216132628
+      }
+    },
+    "空手数据集初始化2/不holding": {
+      "within": {
+        "n": 300,
+        "mean_deg": 5.791231712797479,
+        "median_deg": 5.9049444242861435,
+        "p95_deg": 6.872776765525615,
+        "max_deg": 7.423374023955433
+      },
+      "between": {
+        "n": 299,
+        "mean_deg": 5.928776485703256,
+        "median_deg": 6.000618299085097,
+        "p95_deg": 7.16924522456352,
+        "max_deg": 8.60331310873723
+      },
+      "new_action_qpos": {
+        "n": 299,
+        "mean_deg": 9.452827245876389,
+        "median_deg": 9.637786239670682,
+        "p95_deg": 11.512962937614718,
+        "max_deg": 13.556115502345257
+      },
+      "end_error": {
+        "n": 600,
+        "mean_deg": 4.438213115592964,
+        "median_deg": 4.41174127454265,
+        "p95_deg": 5.582961452094197,
+        "max_deg": 6.369772948251361
+      }
+    },
+    "空手数据集初始化3/不holding": {
+      "within": {
+        "n": 300,
+        "mean_deg": 5.982195511582125,
+        "median_deg": 5.986858883002107,
+        "p95_deg": 6.792409515411389,
+        "max_deg": 7.942307891430907
+      },
+      "between": {
+        "n": 299,
+        "mean_deg": 6.086777770875646,
+        "median_deg": 6.046468505209747,
+        "p95_deg": 6.986824190701361,
+        "max_deg": 8.357515091075982
+      },
+      "new_action_qpos": {
+        "n": 299,
+        "mean_deg": 9.717864586417695,
+        "median_deg": 9.763854456276192,
+        "p95_deg": 11.475368039630403,
+        "max_deg": 12.888324492098526
+      },
+      "end_error": {
+        "n": 600,
+        "mean_deg": 4.452129570842849,
+        "median_deg": 4.4029175239086396,
+        "p95_deg": 5.5508667346937655,
+        "max_deg": 6.19762486041036
+      }
+    }
+  }
+}

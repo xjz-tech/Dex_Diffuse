@@ -1,0 +1,44 @@
+WARNING:torch_tensorrt.dynamo.conversion.aten_ops_converters:Unable to import quantization op. Please install modelopt library (https://github.com/NVIDIA/TensorRT-Model-Optimizer?tab=readme-ov-file#installation) to add support for compiling quantized models
+INFO:torch_tensorrt.dynamo._compiler:Compilation Settings: CompilationSettings(enabled_precisions={<dtype.f32: 7>}, debug=False, workspace_size=0, min_block_size=1, torch_executed_ops=set(), pass_through_build_failures=False, max_aux_streams=None, version_compatible=False, optimization_level=None, use_python_runtime=False, truncate_double=False, use_fast_partitioner=True, enable_experimental_decompositions=False, device=Device(type=DeviceType.GPU, gpu_id=0), require_full_compilation=False, disable_tf32=True, assume_dynamic_shape_support=False, sparse_weights=False, refit=False, engine_capability=<EngineCapability.STANDARD: 1>, num_avg_timing_iters=1, dla_sram_size=1048576, dla_local_dram_size=1073741824, dla_global_dram_size=536870912, dryrun=False, hardware_compatible=False, timing_cache_path='/tmp/timing_cache.bin')
+
+INFO:torch_tensorrt.dynamo._compiler:Partitioning the graph via the fast partitioner
+INFO:torch_tensorrt [TensorRT Conversion Context]:[MemUsageChange] Init CUDA: CPU +2, GPU +0, now: CPU 473, GPU 7336 (MiB)
+INFO:torch_tensorrt [TensorRT Conversion Context]:[MemUsageChange] Init builder kernel library: CPU +1632, GPU +260, now: CPU 2252, GPU 7592 (MiB)
+INFO:torch_tensorrt.dynamo.conversion._TRTInterpreter:TRT INetwork construction elapsed time: 0:00:00.889361
+INFO:torch_tensorrt [TensorRT Conversion Context]:Global timing cache in use. Profiling results in this builder pass will be stored.
+INFO:torch_tensorrt [TensorRT Conversion Context]:Detected 3 inputs and 18 output network tensors.
+INFO:torch_tensorrt [TensorRT Conversion Context]:Total Host Persistent Memory: 210288
+INFO:torch_tensorrt [TensorRT Conversion Context]:Total Device Persistent Memory: 0
+INFO:torch_tensorrt [TensorRT Conversion Context]:Total Scratch Memory: 49152
+INFO:torch_tensorrt [TensorRT Conversion Context]:[BlockAssignment] Started assigning block shifts. This will take 208 steps to complete.
+INFO:torch_tensorrt [TensorRT Conversion Context]:[BlockAssignment] Algorithm ShiftNTopDown took 4.11221ms to assign 7 blocks to 208 nodes requiring 119808 bytes.
+INFO:torch_tensorrt [TensorRT Conversion Context]:Total Activation Memory: 119808
+INFO:torch_tensorrt [TensorRT Conversion Context]:Total Weights Memory: 281255768
+INFO:torch_tensorrt [TensorRT Conversion Context]:Engine generation completed in 2.31754 seconds.
+INFO:torch_tensorrt [TensorRT Conversion Context]:[MemUsageStats] Peak memory usage of TRT CPU/GPU memory allocators: CPU 20 MiB, GPU 268 MiB
+INFO:torch_tensorrt [TensorRT Conversion Context]:[MemUsageStats] Peak memory usage during Engine building and serialization: CPU: 4563 MiB
+INFO:torch_tensorrt.dynamo.conversion._TRTInterpreter:Build TRT engine elapsed time: 0:00:02.527010
+INFO:torch_tensorrt.dynamo.conversion._TRTInterpreter:TRT Engine uses: 285391404 bytes of Memory
+INFO:torch_tensorrt [TensorRT Conversion Context]:Serialized 1076 bytes of code generator cache.
+INFO:torch_tensorrt [TensorRT Conversion Context]:Serialized 3085794 bytes of compilation cache.
+INFO:torch_tensorrt [TensorRT Conversion Context]:Serialized 2327 timing cache entries
+WARNING: [Torch-TensorRT] - Using default stream in enqueueV3() may lead to performance issues due to additional calls to cudaStreamSynchronize() by TensorRT to ensure correct synchronization. Please use non-default stream instead.
+stage 0 (1, 256) max 1.1920928955078125e-07 mean 1.7167621990665793e-08
+stage 1 (1, 256, 12) max 0.09213793277740479 mean 0.011408871971070766
+stage 2 (1, 256, 12) max 0.18336057662963867 mean 0.019680580124258995
+stage 3 (1, 256, 6) max 0.07202392816543579 mean 0.016717586666345596
+stage 4 (1, 512, 6) max 0.10589098930358887 mean 0.017027493566274643
+stage 5 (1, 512, 6) max 0.24075651168823242 mean 0.03296666592359543
+stage 6 (1, 512, 3) max 0.08964717388153076 mean 0.020800255239009857
+stage 7 (1, 1024, 3) max 0.5274207592010498 mean 0.013058441691100597
+stage 8 (1, 1024, 3) max 0.48909711837768555 mean 0.023247001692652702
+stage 9 (1, 1024, 3) max 0.48909711837768555 mean 0.023247001692652702
+stage 10 (1, 1024, 3) max 0.48307061195373535 mean 0.03790491074323654
+stage 11 (1, 1024, 3) max 0.6005949974060059 mean 0.05228404328227043
+stage 12 (1, 512, 3) max 0.1639639139175415 mean 0.03727950155735016
+stage 13 (1, 512, 3) max 0.19078755378723145 mean 0.03996701538562775
+stage 14 (1, 512, 6) max 0.09102511405944824 mean 0.01946026086807251
+stage 15 (1, 256, 6) max 0.12115001678466797 mean 0.029312919825315475
+stage 16 (1, 256, 6) max 0.16870975494384766 mean 0.032167430967092514
+stage 17 (1, 256, 12) max 0.09718969464302063 mean 0.015358197502791882
+stage 18 (1, 12, 22) max 0.16909027099609375 mean 0.041934724897146225

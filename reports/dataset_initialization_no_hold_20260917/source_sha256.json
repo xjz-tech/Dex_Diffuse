@@ -1,0 +1,6 @@
+{
+  "eval/real/robot_init.py": "8d7cebb689de2a5decb73690ea5a00780144acde3cca2e15ca0ac0dbbab69f84",
+  "eval/real/inference_real.py": "140f490d1d521167422e82d5396eb7578a7ad3eb00fb5f3f68929b1962701cf4",
+  "eval/real/debug_recording.py": "a9fe05068e25a6350fb9109caf31a5ad771e3da08c710b8446110f702f511a7c",
+  "eval/eval_para_obs66_real.sh": "cb8e56598a0df94774680334f67f1886fe72cf4cd9dc24237b7b298ed90d8bbf"
+}

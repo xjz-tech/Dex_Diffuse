@@ -1,0 +1,22 @@
+[
+  {
+    "condition": "放灯泡，新holding",
+    "condition_source": "用户本次确认",
+    "started": "2026-09-17T16:40:11+08:00",
+    "source": "eval/real/latest_run.1.txt",
+    "txt": "reports/bulb_new_hold_comparison_20260917_1640/bulb_new_hold_164011.txt",
+    "jsonl": "reports/bulb_new_hold_comparison_20260917_1640/bulb_new_hold_164011.jsonl",
+    "txt_sha256": "73ca28f1a39d6bbaa043bf143ddece1248a7264bbfd5e35753931ea8cd489808",
+    "jsonl_sha256": "ca1b1f10e13b3a1822fbd63366d7aa7b9b76c1b3bfb50b96798bab1c79e1ac86"
+  },
+  {
+    "condition": "放灯泡，新holding",
+    "condition_source": "用户本次确认",
+    "started": "2026-09-17T16:40:56+08:00",
+    "source": "eval/real/latest_run.txt",
+    "txt": "reports/bulb_new_hold_comparison_20260917_1640/bulb_new_hold_164056.txt",
+    "jsonl": "reports/bulb_new_hold_comparison_20260917_1640/bulb_new_hold_164056.jsonl",
+    "txt_sha256": "bfec9b62a2280cbb78df584554382518fddf9a569cdca0ef0a29a28711fc72d0",
+    "jsonl_sha256": "19c1d0c6b5e507cd44fa13aa7dc0ba34c4b26cc355fb68ba78f69e15f4dc8d7b"
+  }
+]
