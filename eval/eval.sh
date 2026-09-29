@@ -67,6 +67,12 @@ PRINT_EVERY="${PRINT_EVERY:-25}"
 HEADLESS="${HEADLESS:-0}"
 RANDOMIZE_DEMO_ON_FAILURE="${RANDOMIZE_DEMO_ON_FAILURE:-1}"
 
+# 注意（给后续维护者/模型）：下面的严格默认值用于 RL 训练，请保留。
+# 当前 diffusion policy / guidance 的 hold 评估不用这套默认值。
+# 新评估入口必须显式传入 eval/xjz_test.sh 的评估配置：
+# FAILURE_OBJ_POS_THRES_M=0.05, FAILURE_TIP_POS_THRES_M=0.1,
+# FAILURE_TOLERANCE_SCALE=10000.0, FIXED_TOLERANCE_STEPS=20000。
+# 同时对齐轨迹范围等其他评估参数；不要因漏传参数而回退到 RL 阈值。
 # Episode reset conditions (all pose errors are relative to the current target).
 # Position/tip/rotation failures accumulate bad frames; regular targets allow
 # FAILURE_TOLERANCE_SCALE * abs(skipSteps), while cross targets use the fixed
@@ -110,6 +116,7 @@ FIRST_EPISODE_ONLY="${FIRST_EPISODE_ONLY:-0}"
 CENSOR_UNFINISHED_AT_CAP="${CENSOR_UNFINISHED_AT_CAP:-0}"
 EPISODE_LOG="${EPISODE_LOG:-}"
 RUN_NAME="${RUN_NAME:-}"
+INITIAL_STATE_DUMP="${INITIAL_STATE_DUMP:-}"
 
 die() {
     echo "eval: $*" >&2
@@ -228,7 +235,7 @@ done
 [[ "${READY}" == "1" ]] || die "Diffusion Policy startup timed out after ${STARTUP_TIMEOUT}s"
 
 SIM_ARGS=(
-    "${SCRIPT_DIR}/sim_eval.py"
+    "${SIM_EVAL_SCRIPT:-${SCRIPT_DIR}/sim_eval.py}"
     --controller-root "${CONTROLLER_ROOT}"
     --sim-config "${SIM_CONFIG}"
     --socket "${SOCKET_PATH}"
@@ -267,6 +274,9 @@ fi
 if [[ -n "${RUN_NAME}" ]]; then
     SIM_ARGS+=(--run-name "${RUN_NAME}")
 fi
+if [[ -n "${INITIAL_STATE_DUMP}" ]]; then
+    SIM_ARGS+=(--initial-state-dump "${INITIAL_STATE_DUMP}")
+fi
 if [[ -n "${CROSS_TRAJECTORY_GOAL_PROB:-}" ]]; then
     SIM_ARGS+=(--cross-trajectory-goal-prob "${CROSS_TRAJECTORY_GOAL_PROB}")
 fi
@@ -275,6 +285,20 @@ if [[ "${HEADLESS}" != "0" ]]; then
 fi
 if [[ "${RANDOMIZE_DEMO_ON_FAILURE}" == "0" ]]; then
     SIM_ARGS+=(--no-randomize-demo-on-failure)
+fi
+if [[ -n "${OBJECT_MASS_KG:-}" ]]; then
+    SIM_ARGS+=(--object-mass-kg "${OBJECT_MASS_KG}")
+fi
+if [[ -n "${OBJECT_FRICTION_MIN:-}" || -n "${OBJECT_FRICTION_MAX:-}" ]]; then
+    [[ -n "${OBJECT_FRICTION_MIN:-}" && -n "${OBJECT_FRICTION_MAX:-}" ]] || die "OBJECT_FRICTION_MIN and OBJECT_FRICTION_MAX must be set together"
+    SIM_ARGS+=(--object-friction-min "${OBJECT_FRICTION_MIN}" --object-friction-max "${OBJECT_FRICTION_MAX}")
+fi
+if [[ -n "${ROTATION_PREVIEW_RAW:-}" ]]; then
+    SIM_ARGS+=(
+        --rotation-preview-raw "${ROTATION_PREVIEW_RAW}"
+        --rotation-preview-stride "${ROTATION_PREVIEW_STRIDE:-3}"
+        --rotation-preview-frames "${ROTATION_PREVIEW_FRAMES:-300}"
+    )
 fi
 if [[ "${RECORDING}" != "0" ]]; then
     SIM_ARGS+=(

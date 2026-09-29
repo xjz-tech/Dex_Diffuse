@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+OUT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "$#" -eq 0 ]]; then set -- 42 123 2026; fi
+for RUN_SEED in "$@"; do
+    RUN_OUTPUT="${OUT}/seed${RUN_SEED}"
+    mkdir -p "${RUN_OUTPUT}"
+    env CKPT_PATH=/home/carus/data_usb/10B_obs_4-66.ckpt \
+      NUM_ENV=32 MAX_STEPS=12000 MAX_FAILURE_EPISODES=0 DATA_INDICES=000-149 \
+      SEED="${RUN_SEED}" HEADLESS=1 RECORDING=0 \
+      SAMPLER=ddim INFERENCE_STEPS=4 EXECUTION_STEPS=2 \
+      GUIDE_CKPT_PATH= ALLOW_SALVAGE=0 PRINT_EVERY=300 \
+      FAILURE_OBJ_POS_THRES_M=0.05 FAILURE_TIP_POS_THRES_M=0.1 FAILURE_OBJ_ROT_THRES_DEG=180 \
+      INVALID_OBJ_POS_THRES_M=0.15 FAILURE_TOLERANCE_SCALE=10000 FIXED_TOLERANCE_STEPS=20000 \
+      TRAJ_STEPS_LIMIT=12000 RESET_ON_REACH_GOAL=0 CROSS_TRAJECTORY_GOAL_PROB=0.3 \
+      FIRST_EPISODE_ONLY=0 CENSOR_UNFINISHED_AT_CAP=0 \
+      ROTATION_RUN_DIR="${RUN_OUTPUT}" RUN_DIR="${RUN_OUTPUT}" RUN_NAME="prior10b_free_seed${RUN_SEED}" \
+      EPISODE_LOG="${RUN_OUTPUT}/episodes.jsonl" INITIAL_STATE_DUMP="${RUN_OUTPUT}/initial_state.npz" \
+      bash "${OUT}/source/eval/xjz_test.sh" > "${RUN_OUTPUT}/run.log" 2>&1
+    touch "${RUN_OUTPUT}/RUN_COMPLETE"
+done

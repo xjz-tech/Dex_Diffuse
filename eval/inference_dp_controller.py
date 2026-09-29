@@ -100,6 +100,7 @@ class GuidedDDIMController:
         self.inference_steps = int(inference_steps)
         self.execution_steps = int(execution_steps)
         self.max_execution_steps = max_execution_steps
+        self.guidance_loss_fn = None
         self.guidance_scale = float(guidance_scale)
         self.eta = float(eta)
         self.fixed_noise = bool(fixed_noise)
@@ -281,6 +282,7 @@ class GuidedDDIMController:
             guidance_scale=self.guidance_scale,
             guidance_slice=self.reference_slice,
             eta=self.eta,
+            guidance_loss_fn=self.guidance_loss_fn,
         )
         if not sample.steps:
             raise RuntimeError("guided DDIM produced no reverse steps")

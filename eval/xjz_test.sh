@@ -38,6 +38,7 @@ RUN_DIR="${RUN_DIR:-${SCRIPT_DIR}/hold_runs/${STAMP}_obs66_para_pred9_exec${EXEC
 mkdir -p "${RUN_DIR}"
 RUN_NAME="${RUN_NAME:-obs66_${SAMPLER}${INFERENCE_STEPS}_pred9_exec${EXECUTION_STEPS}_para}"
 EPISODE_LOG="${EPISODE_LOG:-${RUN_DIR}/${RUN_NAME}.jsonl}"
+INITIAL_STATE_DUMP="${INITIAL_STATE_DUMP:-}"
 
 echo "[xjz_test] run_dir=${RUN_DIR}"
 echo "[xjz_test] pred=9 exec=${EXECUTION_STEPS} sampler=${SAMPLER} inference_steps=${INFERENCE_STEPS} ckpt=${CKPT_PATH}"
@@ -68,6 +69,7 @@ FIRST_EPISODE_ONLY="${FIRST_EPISODE_ONLY}" \
 CENSOR_UNFINISHED_AT_CAP="${CENSOR_UNFINISHED_AT_CAP}" \
 RUN_NAME="${RUN_NAME}" \
 EPISODE_LOG="${EPISODE_LOG}" \
+INITIAL_STATE_DUMP="${INITIAL_STATE_DUMP}" \
     bash "${SCRIPT_DIR}/eval.sh"
 
 MODEL_PYTHON="${MODEL_PYTHON:-/home/carus/miniforge3/envs/dp/bin/python}"

@@ -156,6 +156,8 @@ def parse_guided_server_args(
     parser.add_argument("--inference-steps", type=int, default=8)
     parser.add_argument("--guide-inference-steps", type=int, default=8)
     parser.add_argument("--n-action-steps", type=int, default=5)
+    parser.add_argument("--guidance-metric", choices=("joint", "fingertip"),
+                        default=os.environ.get("GUIDANCE_METRIC", "joint"))
     parser.add_argument("--guidance-scale", type=float, default=100.0)
     parser.add_argument(
         "--guidance-steps",
@@ -194,6 +196,11 @@ def run_guided_pair_server(
         allow_salvage=allow_salvage,
     )
     controller.set_guidance_horizon(args.guidance_steps)
+    if getattr(args, "guidance_metric", "joint") == "fingertip":
+        from diffusion_policy.guidance.fingertip_fk import FingertipGuidanceLoss
+        controller.guidance_loss_fn = FingertipGuidanceLoss(
+            controller.policy.normalizer["action"], device=device)
+        print("[guidance] metric=fingertip; wrist-frame Cartesian MSE in m^2", flush=True)
     print(f"[{guide_label}] loading {args.guide_checkpoint}", flush=True)
     guide_loaded = load_checkpoint(
         args.guide_checkpoint.expanduser().resolve(),
