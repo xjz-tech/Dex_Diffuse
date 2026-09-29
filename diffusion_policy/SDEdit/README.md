@@ -18,3 +18,8 @@ The editor supports the project's 8-step and 12-step horizons with four
 observation steps. `noise_ratio=0` returns the reference exactly without a
 model call. A positive ratio chooses the nearest training timestep by
 `sqrt((1 - alpha_bar) / alpha_bar)` and takes deterministic DDIM steps to zero.
+
+For online visual DP on the real Franka + SharpA setup, use
+`eval/eval_dp_edit_obs66.sh`. It takes the hand portion of each live visual DP
+proposal as the editable reference and keeps the visual DP arm action. The
+launcher starts in hardware-free `CHECK_ONLY=1` mode; see `eval/real/README.md`.

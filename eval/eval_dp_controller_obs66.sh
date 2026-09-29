@@ -41,6 +41,7 @@ CONTROLLER_ACTION_CHUNK_SIZE="${CONTROLLER_ACTION_CHUNK_SIZE:-${EXECUTION_STEPS:
 GUIDANCE_STEPS="${GUIDANCE_STEPS:-9}"
 CONTROLLER_CALLS_PER_DP="${CONTROLLER_CALLS_PER_DP:-4}"
 GUIDANCE_SCALE="${GUIDANCE_SCALE:-100}"
+EDIT_NOISE_RATIO="${EDIT_NOISE_RATIO:-0.15}"
 ETA="${ETA:-0.0}"
 FIXED_NOISE="${FIXED_NOISE:-1}"
 SEED="${SEED:-42}"
@@ -119,6 +120,7 @@ ARGS=(
     --guidance-steps "${GUIDANCE_STEPS}"
     --controller-calls-per-dp "${CONTROLLER_CALLS_PER_DP}"
     --guidance-scale "${GUIDANCE_SCALE}"
+    --edit-noise-ratio "${EDIT_NOISE_RATIO}"
     --eta "${ETA}"
     --fixed-noise "${FIXED_NOISE}"
     --seed "${SEED}"
@@ -154,10 +156,18 @@ else
     fi
 fi
 
-echo "[pipeline] Real DP -> ${CONTROLLER_CALLS_PER_DP} x (guided Sim-Hand DDIM, ${GUIDANCE_STEPS}-step guide -> execute ${CONTROLLER_ACTION_CHUNK_SIZE} -> observe) -> replan DP"
+if [[ "${EDIT_MODE:-0}" == "1" ]]; then
+    echo "[pipeline] Real DP -> ${CONTROLLER_CALLS_PER_DP} x (SDEdit Sim-Hand DDIM -> execute ${CONTROLLER_ACTION_CHUNK_SIZE} -> observe) -> replan DP"
+else
+    echo "[pipeline] Real DP -> ${CONTROLLER_CALLS_PER_DP} x (guided Sim-Hand DDIM, ${GUIDANCE_STEPS}-step guide -> execute ${CONTROLLER_ACTION_CHUNK_SIZE} -> observe) -> replan DP"
+fi
 echo "[dp] ${DP_CKPT_PATH} (steps=${DP_INFERENCE_STEPS})"
 echo "[controller] ${CONTROLLER_CKPT_PATH} (DDIM steps=${DDIM_INFERENCE_STEPS})"
-echo "[guidance] scale=${GUIDANCE_SCALE} eta=${ETA} ddim_steps=${DDIM_INFERENCE_STEPS} guide_steps=${GUIDANCE_STEPS} exec=${CONTROLLER_ACTION_CHUNK_SIZE} fixed_noise=${FIXED_NOISE}"
+if [[ "${EDIT_MODE:-0}" == "1" ]]; then
+    echo "[edit] noise_ratio=${EDIT_NOISE_RATIO} ddim_steps=${DDIM_INFERENCE_STEPS} exec=${CONTROLLER_ACTION_CHUNK_SIZE} fixed_noise=${FIXED_NOISE}"
+else
+    echo "[guidance] scale=${GUIDANCE_SCALE} eta=${ETA} ddim_steps=${DDIM_INFERENCE_STEPS} guide_steps=${GUIDANCE_STEPS} exec=${CONTROLLER_ACTION_CHUNK_SIZE} fixed_noise=${FIXED_NOISE}"
+fi
 
 if [[ "${CHECK_ONLY}" == "0" ]]; then
     [[ -f "${FRANKA_URDF}" ]] || die "Franka URDF not found: ${FRANKA_URDF}"

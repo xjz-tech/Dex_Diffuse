@@ -79,3 +79,14 @@ def test_zero_edit_returns_exact_reference_without_running_model(horizon):
     np.testing.assert_array_equal(short, future[:, :2])
     np.testing.assert_array_equal(full, future)
     assert stats["zero_edit_exact"]
+
+
+def test_zero_edit_accepts_one_unbatched_online_dp_window():
+    editor = object.__new__(ReferenceActionEditor)
+    editor.noise_ratio = 0.0
+    editor.spec = {"n_obs_steps": 4, "obs_dim": 66}
+    editor.future_steps = 9
+    editor.execution_steps = 2
+    future = np.arange(9 * 22, dtype=np.float32).reshape(9, 22)
+    action, _ = editor.predict(np.zeros((4, 66), dtype=np.float32), future, [42])
+    np.testing.assert_array_equal(action, future[None, :2])

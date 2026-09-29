@@ -74,3 +74,22 @@ action。需要临时跳过初始 pose 移动或 Enter 门控时，可分别设�
 
 启动脚本默认使用 `/home/frankagvl/anaconda3/envs/dexIL/bin/python`，无需依赖
 当前 shell 是否已经执行 `conda activate dexIL`；仍可通过 `MODEL_PYTHON` 覆盖。
+
+## 在线视觉 DP → SDEdit
+
+`eval/eval_dp_edit_obs66.sh` 使用在线视觉 DP 的 31 维动作窗口：机械臂的 9 维
+动作仍由视觉 DP 给出，22 维手部参考动作交给
+`diffusion_policy/SDEdit/reference_action_editor.py` 编辑。每个 edit 调用执行两步，
+读取新的手部状态后继续闭环。这个入口复用
+`eval/inference_dp_controller.py` 的相机、Franka、SharpA 执行和安全限制。
+
+先设置 `DP_CKPT_PATH` 和 `CONTROLLER_CKPT_PATH`，然后只做离线模型检查：
+
+```bash
+CHECK_ONLY=1 ./eval/eval_dp_edit_obs66.sh
+```
+
+脚本默认就是 `CHECK_ONLY=1`，不会连接硬件。确认模型、动作窗口长度和参数后，
+可显式设置 `CHECK_ONLY=0 LIVE=1` 运行；默认 `MAX_CHUNKS=1`，即先执行一个
+两步 chunk。`EDIT_NOISE_RATIO` 默认 `0.15`、`DDIM_INFERENCE_STEPS` 默认 `4`、
+`FIXED_NOISE` 默认 `1`。脚本不读取离线 reference 文件，也不更改视觉 DP 的机械臂动作。

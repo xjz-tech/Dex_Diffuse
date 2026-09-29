@@ -98,6 +98,10 @@ class ReferenceActionEditor:
     ) -> tuple[np.ndarray, dict]:
         history = np.asarray(history, dtype=np.float32)
         future = np.asarray(future, dtype=np.float32)
+        if history.ndim == 2:
+            history = history[None]
+        if future.ndim == 2:
+            future = future[None]
         expected_history = (len(history), self.spec["n_obs_steps"], 66)
         expected_future = (len(history), self.future_steps, 22)
         if history.shape != expected_history or future.shape != expected_future:
