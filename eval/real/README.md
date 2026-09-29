@@ -86,6 +86,14 @@ edit 执行路径不对手部目标做绝对关节角或单步变化截断，也
 末端位置目标、IK 关节增量和 IK 关节角做软件限幅。Franka/SharpA 的外部
 控制器及硬件自身行为不由此脚本控制。
 
+可选设置 `EDIT_INTERPOLATE_LARGE_ACTIONS=1`：若相邻下发目标中任一手指关节
+变化超过 `EDIT_INTERPOLATION_THRESHOLD_RAD`（默认 `0.12 rad`），按
+`ceil(最大关节变化/阈值)` 个等分目标插入手部线性插值。中间命令保持上一个
+机械臂目标，最后一条命令使用原始的机械臂和手部目标；每条命令后读取观察并
+更新历史。默认关闭（`EDIT_INTERPOLATE_LARGE_ACTIONS=0`）。插值会增加
+实际控制步数和耗时，不修改 SDEdit 的原始输出终点；它与 SharpA server 的
+`interpolate` 参数是两种不同机制。
+
 先设置 `DP_CKPT_PATH` 和 `CONTROLLER_CKPT_PATH`，然后只做离线模型检查：
 
 ```bash

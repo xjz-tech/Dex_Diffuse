@@ -36,6 +36,39 @@ def test_edit_requires_full_future_window_from_visual_dp():
         _replace_hand_actions(np.zeros((13, 31)), slice(0, 2), np.zeros((1, 1, 22)))
 
 
+def test_large_hand_action_interpolation_preserves_original_endpoint():
+    previous = np.zeros(31, dtype=np.float64)
+    previous[3] = 1.0
+    previous[7] = 1.0
+    target = previous.copy()
+    target[:3] = [0.2, 0.1, 0.3]
+    target[9] = 0.25
+    target[10] = -0.13
+
+    commands = pipeline._interpolate_large_hand_action(previous, target, 0.12)
+
+    assert commands.shape == (3, 31)
+    np.testing.assert_array_equal(commands[-1], target)
+    np.testing.assert_array_equal(commands[:-1, :9], np.repeat(previous[None, :9], 2, axis=0))
+    assert np.max(np.abs(np.diff(np.vstack((previous[None, 9:], commands[:, 9:])), axis=0))) <= 0.12
+    small = target.copy()
+    small[9:] = previous[9:] + 0.12
+    np.testing.assert_array_equal(
+        pipeline._interpolate_large_hand_action(previous, small, 0.12), small[None]
+    )
+
+
+def test_large_action_interpolation_is_optional(monkeypatch):
+    argv = ["inference_dp_edit.py", "--dp-checkpoint", "dp.ckpt",
+            "--controller-checkpoint", "hand.ckpt"]
+    monkeypatch.setattr(sys, "argv", argv)
+    assert not pipeline.parse_args().edit_interpolate_large_actions
+    monkeypatch.setattr(sys, "argv", argv + ["--edit-interpolate-large-actions"])
+    enabled = pipeline.parse_args()
+    assert enabled.edit_interpolate_large_actions
+    assert enabled.edit_interpolation_threshold_rad == 0.12
+
+
 def test_edit_execution_sends_unclipped_hand_target():
     env = DirectRobotEnv.__new__(DirectRobotEnv)
     env.disable_clamp = True
@@ -84,6 +117,7 @@ def test_edit_check_only_uses_online_dp_and_never_creates_hardware(monkeypatch):
         controller_checkpoint=Path("hand.ckpt"), dp_inference_steps=16,
         ddim_inference_steps=4, execution_steps=2, edit_noise_ratio=0.15,
         fixed_noise=1, seed=42, no_salvage=False,
+        edit_interpolate_large_actions=False, edit_interpolation_threshold_rad=0.12,
         controller_calls_per_dp=1, validate_only=False, check_only=True,
     )
     capture = {}

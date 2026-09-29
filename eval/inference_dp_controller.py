@@ -336,6 +336,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--guidance-scale", type=float, default=100.0)
     parser.add_argument("--edit-noise-ratio", type=float, default=0.15)
+    parser.add_argument("--edit-interpolate-large-actions", action="store_true")
+    parser.add_argument("--edit-interpolation-threshold-rad", type=float, default=0.12)
     parser.add_argument("--eta", type=float, default=0.0, help="DDIM eta (must be 0.0)")
     parser.add_argument("--fixed-noise", type=int, choices=(0, 1), default=1)
     parser.add_argument("--seed", type=int, default=42)
@@ -400,6 +402,10 @@ def _validate_args(args: argparse.Namespace) -> torch.device:
         raise ValueError("edit mode requires guidance_scale=0")
     if not np.isfinite(args.edit_noise_ratio) or args.edit_noise_ratio < 0.0:
         raise ValueError("edit_noise_ratio must be finite and non-negative")
+    if not np.isfinite(args.edit_interpolation_threshold_rad) or args.edit_interpolation_threshold_rad <= 0.0:
+        raise ValueError("edit_interpolation_threshold_rad must be finite and positive")
+    if args.edit_interpolate_large_actions and args.method != "edit":
+        raise ValueError("large-action interpolation is only available in edit mode")
     if args.eta != 0.0:
         raise ValueError("eta must be 0.0")
     if args.execution_steps <= 0:
@@ -534,6 +540,31 @@ def _replace_hand_actions(
     if not np.isfinite(actions).all() or not np.isfinite(hand_actions).all():
         raise ValueError("DP or edited hand action contains NaN or Inf")
     actions[:, ARM_DIM:] = hand_actions[0]
+    return actions
+
+
+def _interpolate_large_hand_action(
+    previous_action: np.ndarray,
+    target_action: np.ndarray,
+    threshold_rad: float,
+) -> np.ndarray:
+    """Insert hand targets when a commanded joint change exceeds the threshold."""
+    previous = np.asarray(previous_action, dtype=np.float64)
+    target = np.asarray(target_action, dtype=np.float64)
+    if previous.shape != (ACTION_DIM,) or target.shape != (ACTION_DIM,):
+        raise ValueError("previous and target actions must each have 31 dimensions")
+    if not np.isfinite(previous).all() or not np.isfinite(target).all():
+        raise ValueError("interpolated actions must be finite")
+    if not np.isfinite(threshold_rad) or threshold_rad <= 0.0:
+        raise ValueError("hand interpolation threshold must be finite and positive")
+    hand_delta = target[ARM_DIM:] - previous[ARM_DIM:]
+    steps = max(1, int(np.ceil(np.max(np.abs(hand_delta)) / threshold_rad)))
+    if steps == 1:
+        return target[None].copy()
+    actions = np.repeat(previous[None], steps, axis=0)
+    fractions = np.arange(1, steps + 1, dtype=np.float64) / steps
+    actions[:, ARM_DIM:] = previous[ARM_DIM:] + fractions[:, None] * hand_delta
+    actions[-1] = target
     return actions
 
 
@@ -686,6 +717,11 @@ def main(method: str | None = None) -> int:
                editor.timesteps, controller.fixed_noise),
             flush=True,
         )
+        print(
+            "[edit] interpolate_large_actions=%s threshold_rad=%.4f"
+            % (args.edit_interpolate_large_actions, args.edit_interpolation_threshold_rad),
+            flush=True,
+        )
 
     if args.validate_only:
         print("[check] model and schedule validation passed; hardware was not connected", flush=True)
@@ -824,19 +860,39 @@ def main(method: str | None = None) -> int:
                 )
 
                 next_deadline = time.monotonic()
+                execution_step_idx = 0
                 for step_idx, action in enumerate(guided_actions):
-                    raw_obs = env.step_single(action, step_idx)
-                    captured = real_dp.capture_obs(raw_obs, rgb_shapes)
-                    real_history.append(captured)
-                    actual_qpos = captured["hand_joint"]
-                    target_before = np.asarray(env.previous_action[ARM_DIM:], dtype=np.float32)
-                    controller_history.append(
-                        controller.compose_observation(actual_qpos, target_before)
+                    commands = (
+                        _interpolate_large_hand_action(
+                            env.previous_action, action, args.edit_interpolation_threshold_rad,
+                        )
+                        if args.method == "edit" and args.edit_interpolate_large_actions
+                        else np.asarray(action)[None]
                     )
-                    next_deadline += 1.0 / args.hz
-                    remaining = next_deadline - time.monotonic()
-                    if remaining > 0.0:
-                        time.sleep(remaining)
+                    if len(commands) > 1:
+                        print(
+                            "[edit chunk %04d step %02d] hand interpolation: %d commands, "
+                            "max_joint_delta_rad=%.4f"
+                            % (
+                                env.chunk_idx, step_idx, len(commands),
+                                np.max(np.abs(action[ARM_DIM:] - env.previous_action[ARM_DIM:])),
+                            ),
+                            flush=True,
+                        )
+                    for command in commands:
+                        raw_obs = env.step_single(command, execution_step_idx)
+                        execution_step_idx += 1
+                        captured = real_dp.capture_obs(raw_obs, rgb_shapes)
+                        real_history.append(captured)
+                        actual_qpos = captured["hand_joint"]
+                        target_before = np.asarray(env.previous_action[ARM_DIM:], dtype=np.float32)
+                        controller_history.append(
+                            controller.compose_observation(actual_qpos, target_before)
+                        )
+                        next_deadline += 1.0 / args.hz
+                        remaining = next_deadline - time.monotonic()
+                        if remaining > 0.0:
+                            time.sleep(remaining)
                 env.chunk_idx += 1
             dp_idx += 1
     finally:
