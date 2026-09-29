@@ -47,10 +47,13 @@ def test_large_hand_action_interpolation_preserves_original_endpoint():
 
     commands = pipeline._interpolate_large_hand_action(previous, target, 0.12)
 
-    assert commands.shape == (3, 31)
+    assert commands.shape == (2, 31)
     np.testing.assert_array_equal(commands[-1], target)
-    np.testing.assert_array_equal(commands[:-1, :9], np.repeat(previous[None, :9], 2, axis=0))
-    assert np.max(np.abs(np.diff(np.vstack((previous[None, 9:], commands[:, 9:])), axis=0))) <= 0.12
+    np.testing.assert_array_equal(commands[0, :9], previous[:9])
+    np.testing.assert_allclose(commands[0, 9:], (previous[9:] + target[9:]) / 2)
+    large = target.copy()
+    large[9] = 1.0
+    assert pipeline._interpolate_large_hand_action(previous, large, 0.12).shape == (2, 31)
     small = target.copy()
     small[9:] = previous[9:] + 0.12
     np.testing.assert_array_equal(

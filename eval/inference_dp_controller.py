@@ -548,7 +548,7 @@ def _interpolate_large_hand_action(
     target_action: np.ndarray,
     threshold_rad: float,
 ) -> np.ndarray:
-    """Insert hand targets when a commanded joint change exceeds the threshold."""
+    """Insert exactly one hand midpoint when a joint change exceeds threshold."""
     previous = np.asarray(previous_action, dtype=np.float64)
     target = np.asarray(target_action, dtype=np.float64)
     if previous.shape != (ACTION_DIM,) or target.shape != (ACTION_DIM,):
@@ -558,14 +558,11 @@ def _interpolate_large_hand_action(
     if not np.isfinite(threshold_rad) or threshold_rad <= 0.0:
         raise ValueError("hand interpolation threshold must be finite and positive")
     hand_delta = target[ARM_DIM:] - previous[ARM_DIM:]
-    steps = max(1, int(np.ceil(np.max(np.abs(hand_delta)) / threshold_rad)))
-    if steps == 1:
+    if np.max(np.abs(hand_delta)) <= threshold_rad:
         return target[None].copy()
-    actions = np.repeat(previous[None], steps, axis=0)
-    fractions = np.arange(1, steps + 1, dtype=np.float64) / steps
-    actions[:, ARM_DIM:] = previous[ARM_DIM:] + fractions[:, None] * hand_delta
-    actions[-1] = target
-    return actions
+    midpoint = previous.copy()
+    midpoint[ARM_DIM:] += 0.5 * hand_delta
+    return np.stack((midpoint, target))
 
 
 def _synthetic_real_observation(
