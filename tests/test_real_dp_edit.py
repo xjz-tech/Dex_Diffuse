@@ -3,6 +3,7 @@
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
@@ -11,6 +12,10 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "eval"))
 import inference_dp_controller as pipeline  # noqa: E402
 from inference_dp_controller import _controller_windows, _replace_hand_actions  # noqa: E402
+from direct_robot_env import (  # noqa: E402
+    DirectRobotEnv, POLICY2REAL_DOF_INDICES, POLICY_LOWER_LIMITS,
+    POLICY_UPPER_LIMITS,
+)
 
 
 def test_edit_window_preserves_dp_arm_and_replaces_only_hand():
@@ -30,6 +35,30 @@ def test_edit_requires_full_future_window_from_visual_dp():
         _controller_windows(10, 2, 2, 9)
     with pytest.raises(ValueError, match="does not match"):
         _replace_hand_actions(np.zeros((13, 31)), slice(0, 2), np.zeros((1, 1, 22)))
+
+
+@pytest.mark.parametrize("disable_clamp", [False, True])
+def test_real_execution_limits_hand_target_before_send(disable_clamp):
+    env = DirectRobotEnv.__new__(DirectRobotEnv)
+    env.disable_clamp = disable_clamp
+    env.max_arm_xyz_step = 0.03
+    env.max_hand_step = 0.03
+    env.live = True
+    env.franka_control_mode = "cartesian"
+    env.franka = Mock()
+    env.hand = Mock()
+    env.hand_interpolate = False
+    env.log_action_steps = False
+    arm = np.array([0, 0, 0, 1, 0, 0, 0, 1, 0], dtype=np.float64)
+    env.previous_action = np.concatenate((arm, POLICY_UPPER_LIMITS - 0.01))
+    raw = np.concatenate((arm, POLICY_UPPER_LIMITS + 0.5))
+
+    executed = env._execute_action_step(raw, 0)
+
+    np.testing.assert_array_equal(executed[9:], POLICY_UPPER_LIMITS)
+    assert np.all(executed[9:] >= POLICY_LOWER_LIMITS)
+    sent_in_real_order = env.hand.set_action.call_args.args[0]
+    np.testing.assert_array_equal(sent_in_real_order, POLICY_UPPER_LIMITS[POLICY2REAL_DOF_INDICES])
 
 
 def test_edit_check_only_uses_online_dp_and_never_creates_hardware(monkeypatch):

@@ -83,6 +83,12 @@ action。需要临时跳过初始 pose 移动或 Enter 门控时，可分别设�
 读取新的手部状态后继续闭环。这个入口复用
 `eval/inference_dp_controller.py` 的相机、Franka、SharpA 执行和安全限制。
 
+执行前，手部目标按 `hardware.py` 中的 22 维 SharpA URDF 关节范围截断；
+默认还按每步 `0.03 rad` 限制手部目标变化。Franka 的关节模式通过 IK
+限制每步关节变化为 `0.05 rad`，并按 FR3 URDF 的绝对关节范围截断。
+机械臂末端位置目标每轴每步最多变化 `0.03 m`。这些是软件命令限幅；
+此入口尚未实现实测关节跟踪误差、接触力或碰撞监控。
+
 先设置 `DP_CKPT_PATH` 和 `CONTROLLER_CKPT_PATH`，然后只做离线模型检查：
 
 ```bash
