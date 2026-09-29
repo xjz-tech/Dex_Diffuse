@@ -23,6 +23,7 @@ for import_path in (PROJECT_ROOT, EVAL_DIR):
 
 from diffusion_policy.SDEdit.reference_edit import (  # noqa: E402
     ddim_transition,
+    fused_edit_coeffs,
     sample_reference_edit,
     select_edit_timesteps,
 )
@@ -71,6 +72,7 @@ class ReferenceActionEditor:
         self.timesteps, self.actual_noise_ratio = select_edit_timesteps(
             self.controller.scheduler.alphas_cumprod, self.noise_ratio, self.steps
         )
+        self._fused_coeffs = None
         self.metadata = dict(
             algorithm="reference_initialized_ddim",
             requested_noise_ratio=self.noise_ratio,
@@ -87,6 +89,15 @@ class ReferenceActionEditor:
             history_source="target_before from observation frames 1:4; equals actually issued previous three commands",
             weight_source=self.controller.checkpoint_info.weight_source,
         )
+
+    def enable_fused_sampling(self) -> None:
+        self._fused_coeffs = fused_edit_coeffs(
+            self.controller.scheduler.alphas_cumprod,
+            self.timesteps,
+            self.controller.device,
+            self.policy.dtype,
+        ) if self.timesteps else None
+        self.metadata["fused_ddim"] = True
 
     @torch.no_grad()
     def predict(
@@ -145,6 +156,7 @@ class ReferenceActionEditor:
             timesteps=self.timesteps,
             known_history_steps=self.history_steps,
             clip_sample=bool(controller.scheduler.config.clip_sample),
+            fused_coeffs=self._fused_coeffs,
         )
         initial_rad = self.policy.normalizer["action"].unnormalize(
             sample.initial_sample

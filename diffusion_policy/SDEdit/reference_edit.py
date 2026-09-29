@@ -22,6 +22,34 @@ class ReferenceEditSampleOutput:
     predicted_x0_clip_fraction: float
 
 
+@dataclass(frozen=True)
+class FusedEditCoeffs:
+    timesteps: tuple[int, ...]
+    model_timesteps: torch.Tensor
+    sqrt_alpha_t: torch.Tensor
+    sqrt_one_minus_alpha_t: torch.Tensor
+    sqrt_alpha_next: torch.Tensor
+    sqrt_one_minus_alpha_next: torch.Tensor
+
+
+def fused_edit_coeffs(alphas_cumprod: torch.Tensor, timesteps: tuple[int, ...], device, dtype) -> FusedEditCoeffs:
+    """Cache the nonuniform SDEdit DDIM coefficients on the inference device."""
+    times = tuple(int(t) for t in timesteps)
+    alphas = alphas_cumprod.to(device=device, dtype=dtype)
+    indices = torch.as_tensor(times, device=device, dtype=torch.long)
+    current = alphas[indices]
+    following = torch.cat((current[1:], torch.ones_like(current[:1])))
+    shape = (-1, 1, 1)
+    return FusedEditCoeffs(
+        times,
+        indices.reshape(-1, 1),
+        current.sqrt().reshape(shape),
+        (1 - current).sqrt().reshape(shape),
+        following.sqrt().reshape(shape),
+        (1 - following).sqrt().reshape(shape),
+    )
+
+
 def select_edit_timesteps(
     alphas_cumprod: torch.Tensor,
     noise_ratio: float,
@@ -81,6 +109,7 @@ def sample_reference_edit(
     timesteps: tuple[int, ...] | list[int],
     known_history_steps: int,
     clip_sample: bool = True,
+    fused_coeffs: FusedEditCoeffs | None = None,
 ) -> ReferenceEditSampleOutput:
     """Edit a normalized full horizon while keeping the history prefix known."""
     if clean_reference.ndim != 3 or clean_reference.shape != noise.shape:
@@ -101,6 +130,43 @@ def sample_reference_edit(
     if not times:
         return ReferenceEditSampleOutput(
             clean_reference.clone(), clean_reference.clone(), (), 0.0, 0.0
+        )
+
+    if fused_coeffs is not None and fused_coeffs.timesteps != times:
+        raise ValueError("fused edit coefficients do not match timesteps")
+
+    if fused_coeffs is not None:
+        coeffs = fused_coeffs
+        if coeffs.sqrt_alpha_t.device != noise.device or coeffs.sqrt_alpha_t.dtype != noise.dtype:
+            raise ValueError("fused edit coefficients must match the sample device and dtype")
+        sample = coeffs.sqrt_alpha_t[0] * clean_reference + coeffs.sqrt_one_minus_alpha_t[0] * noise
+        initial_sample = sample.clone()
+        clipped = torch.zeros((), device=noise.device, dtype=torch.long)
+        for index in range(len(times)):
+            a_t = coeffs.sqrt_alpha_t[index]
+            b_t = coeffs.sqrt_one_minus_alpha_t[index]
+            sample[:, :known_history_steps] = (
+                a_t * clean_reference[:, :known_history_steps]
+                + b_t * noise[:, :known_history_steps]
+            )
+            epsilon = model(sample, coeffs.model_timesteps[index], global_cond=global_cond)
+            if epsilon.shape != sample.shape:
+                raise ValueError("model must return an epsilon matching the sample")
+            predicted_x0 = (sample - b_t * epsilon) / a_t
+            future_x0 = predicted_x0[:, known_history_steps:]
+            clipped += (future_x0.abs() > 1).sum()
+            clean = predicted_x0.clamp(-1, 1) if clip_sample else predicted_x0
+            corrected_epsilon = (sample - a_t * clean) / b_t
+            sample = (
+                coeffs.sqrt_alpha_next[index] * clean
+                + coeffs.sqrt_one_minus_alpha_next[index] * corrected_epsilon
+            )
+        sample[:, :known_history_steps] = clean_reference[:, :known_history_steps]
+        if not torch.isfinite(sample).all():
+            raise ValueError("reference editor produced a non-finite action")
+        future_count = len(times) * clean_reference[:, known_history_steps:].numel()
+        return ReferenceEditSampleOutput(
+            sample, initial_sample, times, 0.0, float(clipped.item() / future_count)
         )
 
     alphas = alphas_cumprod.to(device=noise.device, dtype=noise.dtype)

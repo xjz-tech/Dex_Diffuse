@@ -42,6 +42,7 @@ GUIDANCE_STEPS="${GUIDANCE_STEPS:-9}"
 CONTROLLER_CALLS_PER_DP="${CONTROLLER_CALLS_PER_DP:-4}"
 GUIDANCE_SCALE="${GUIDANCE_SCALE:-100}"
 EDIT_NOISE_RATIO="${EDIT_NOISE_RATIO:-0.15}"
+TRT_FUSED="${TRT_FUSED:-0}"
 EDIT_INTERPOLATE_LARGE_ACTIONS="${EDIT_INTERPOLATE_LARGE_ACTIONS:-0}"
 EDIT_INTERPOLATION_THRESHOLD_RAD="${EDIT_INTERPOLATION_THRESHOLD_RAD:-0.12}"
 ETA="${ETA:-0.0}"
@@ -83,6 +84,7 @@ ROBOT_INIT_SCRIPT="${ROBOT_INIT_SCRIPT:-${SCRIPT_DIR}/real/robot_init.py}"
 [[ "${CHECK_ONLY}" =~ ^[01]$ ]] || die "CHECK_ONLY must be 0 or 1"
 [[ "${LIVE}" =~ ^[01]$ ]] || die "LIVE must be 0 or 1"
 [[ "${FIXED_NOISE}" =~ ^[01]$ ]] || die "FIXED_NOISE must be 0 or 1"
+[[ "${TRT_FUSED}" =~ ^[01]$ ]] || die "TRT_FUSED must be 0 or 1"
 [[ "${EDIT_INTERPOLATE_LARGE_ACTIONS}" =~ ^[01]$ ]] || die "EDIT_INTERPOLATE_LARGE_ACTIONS must be 0 or 1"
 [[ "${ALLOW_SALVAGE}" =~ ^[01]$ ]] || die "ALLOW_SALVAGE must be 0 or 1"
 [[ "${SHOW_CAMERA_INPUT}" =~ ^[01]$ ]] || die "SHOW_CAMERA_INPUT must be 0 or 1"
@@ -106,6 +108,11 @@ fi
 env LD_LIBRARY_PATH="${RUNTIME_LD_LIBRARY_PATH}" \
     "${MODEL_PYTHON}" -c 'import diffusers, dill, hydra, torch' >/dev/null 2>&1 || \
     die "MODEL_PYTHON is missing a required package (torch, diffusers, hydra, or dill)"
+if [[ "${TRT_FUSED}" == "1" ]]; then
+    env LD_LIBRARY_PATH="${RUNTIME_LD_LIBRARY_PATH}" \
+        "${MODEL_PYTHON}" -c 'import torch_tensorrt' >/dev/null 2>&1 || \
+        die "TRT_FUSED=1 requires torch_tensorrt in MODEL_PYTHON"
+fi
 if [[ "${CHECK_ONLY}" == "0" ]]; then
     env LD_LIBRARY_PATH="${RUNTIME_LD_LIBRARY_PATH}" \
         "${MODEL_PYTHON}" -c 'import cv2, pyrealsense2' >/dev/null 2>&1 || \
@@ -131,6 +138,9 @@ ARGS=(
     --max-chunks "${MAX_CHUNKS}"
     --hz "${HZ}"
 )
+if [[ "${TRT_FUSED}" == "1" ]]; then
+    ARGS+=(--trt-fused)
+fi
 if [[ "${EDIT_INTERPOLATE_LARGE_ACTIONS}" == "1" ]]; then
     ARGS+=(--edit-interpolate-large-actions)
 fi
@@ -171,7 +181,7 @@ fi
 echo "[dp] ${DP_CKPT_PATH} (steps=${DP_INFERENCE_STEPS})"
 echo "[controller] ${CONTROLLER_CKPT_PATH} (DDIM steps=${DDIM_INFERENCE_STEPS})"
 if [[ "${EDIT_MODE:-0}" == "1" ]]; then
-    echo "[edit] noise_ratio=${EDIT_NOISE_RATIO} ddim_steps=${DDIM_INFERENCE_STEPS} exec=${CONTROLLER_ACTION_CHUNK_SIZE} fixed_noise=${FIXED_NOISE} interpolate_large_actions=${EDIT_INTERPOLATE_LARGE_ACTIONS} threshold_rad=${EDIT_INTERPOLATION_THRESHOLD_RAD}"
+    echo "[edit] noise_ratio=${EDIT_NOISE_RATIO} ddim_steps=${DDIM_INFERENCE_STEPS} exec=${CONTROLLER_ACTION_CHUNK_SIZE} fixed_noise=${FIXED_NOISE} trt_fused=${TRT_FUSED} interpolate_large_actions=${EDIT_INTERPOLATE_LARGE_ACTIONS} threshold_rad=${EDIT_INTERPOLATION_THRESHOLD_RAD}"
 else
     echo "[guidance] scale=${GUIDANCE_SCALE} eta=${ETA} ddim_steps=${DDIM_INFERENCE_STEPS} guide_steps=${GUIDANCE_STEPS} exec=${CONTROLLER_ACTION_CHUNK_SIZE} fixed_noise=${FIXED_NOISE}"
 fi

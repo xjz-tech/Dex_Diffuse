@@ -104,3 +104,10 @@ CHECK_ONLY=1 ./eval/eval_dp_edit_obs66.sh
 可显式设置 `CHECK_ONLY=0 LIVE=1` 运行；默认 `MAX_CHUNKS=1`，即先执行一个
 两步 chunk。`EDIT_NOISE_RATIO` 默认 `0.15`、`DDIM_INFERENCE_STEPS` 默认 `4`、
 `FIXED_NOISE` 默认 `1`。脚本不读取离线 reference 文件，也不更改视觉 DP 的机械臂动作。
+
+`TRT_FUSED=1` 默认开启：视觉 DP 和 SDEdit 手部 UNet 均编译为 TensorRT FP16
+（batch 1），视觉 DP 使用预计算系数的 PyTorch DDIM 更新，SDEdit 使用针对
+非均匀编辑时间步预计算的 PyTorch DDIM 更新。这里的 fused 指预计算系数的
+PyTorch 循环，不是单个融合 CUDA kernel。首次启动需要编译；`MODEL_PYTHON`
+必须安装 `torch_tensorrt` 并使用 CUDA。设置 `TRT_FUSED=0` 可回到原 PyTorch
+推理路径。checkpoint 换了以后需要重新编译；当前脚本不缓存 TRT engine。

@@ -336,6 +336,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--guidance-scale", type=float, default=100.0)
     parser.add_argument("--edit-noise-ratio", type=float, default=0.15)
+    parser.add_argument("--trt-fused", action="store_true", help="TensorRT FP16 UNets and precomputed DDIM updates")
     parser.add_argument("--edit-interpolate-large-actions", action="store_true")
     parser.add_argument("--edit-interpolation-threshold-rad", type=float, default=0.12)
     parser.add_argument("--eta", type=float, default=0.0, help="DDIM eta (must be 0.0)")
@@ -406,6 +407,8 @@ def _validate_args(args: argparse.Namespace) -> torch.device:
         raise ValueError("edit_interpolation_threshold_rad must be finite and positive")
     if args.edit_interpolate_large_actions and args.method != "edit":
         raise ValueError("large-action interpolation is only available in edit mode")
+    if args.trt_fused and args.method != "edit":
+        raise ValueError("TRT/fused mode is only available in edit mode")
     if args.eta != 0.0:
         raise ValueError("eta must be 0.0")
     if args.execution_steps <= 0:
@@ -419,6 +422,8 @@ def _validate_args(args: argparse.Namespace) -> torch.device:
     if args.hz <= 0.0:
         raise ValueError("hz must be positive")
     device = torch.device(args.device)
+    if args.trt_fused and device.type != "cuda":
+        raise ValueError("TRT/fused mode requires a CUDA device")
     if device.type == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA was requested but is unavailable")
     torch.manual_seed(args.seed)
@@ -723,6 +728,26 @@ def main(method: str | None = None) -> int:
     if args.validate_only:
         print("[check] model and schedule validation passed; hardware was not connected", flush=True)
         return 0
+
+    if args.trt_fused:
+        from trt_unet import accelerate_policy_unet
+
+        if not isinstance(real_policy.noise_scheduler, DDIMScheduler):
+            raise ValueError("TRT/fused visual DP requires a DDIM scheduler")
+        if real_policy.noise_scheduler.config.prediction_type != "epsilon":
+            raise ValueError("TRT/fused visual DP requires epsilon prediction")
+        if bool(getattr(real_policy.noise_scheduler.config, "thresholding", False)):
+            raise ValueError("TRT/fused visual DP does not support dynamic thresholding")
+        assert editor is not None
+        editor.enable_fused_sampling()
+        for name, policy in (("visual DP", real_policy), ("SDEdit hand", controller.policy)):
+            started = time.perf_counter()
+            accelerate_policy_unet(policy, fp16=True, max_batch=1)
+            print(
+                "[trt] %s UNet FP16 ready in %.1fs; DDIM coefficients precomputed"
+                % (name, time.perf_counter() - started),
+                flush=True,
+            )
 
     if args.check_only:
         _run_check(

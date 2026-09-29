@@ -72,6 +72,28 @@ def test_large_action_interpolation_is_optional(monkeypatch):
     assert enabled.edit_interpolation_threshold_rad == 0.12
 
 
+def test_trt_adapter_uses_visual_encoder_feature_dimension(monkeypatch):
+    from diffusers import DDIMScheduler
+    import trt_unet
+
+    seen = {}
+
+    def fake_compile(model, **kwargs):
+        seen.update(kwargs)
+        return Mock()
+
+    monkeypatch.setattr(trt_unet, "compile_unet", fake_compile)
+    policy = SimpleNamespace(
+        model=torch.nn.Linear(1, 1), n_obs_steps=2, obs_feature_dim=128,
+        horizon=16, action_dim=31, obs_as_global_cond=True,
+        noise_scheduler=DDIMScheduler(num_train_timesteps=100),
+        num_inference_steps=16,
+    )
+    trt_unet.accelerate_policy_unet(policy, max_batch=1)
+    assert seen["global_cond_dim"] == 256
+    assert seen["max_batch"] == 1
+
+
 def test_edit_execution_sends_unclipped_hand_target():
     env = DirectRobotEnv.__new__(DirectRobotEnv)
     env.disable_clamp = True
@@ -120,6 +142,7 @@ def test_edit_check_only_uses_online_dp_and_never_creates_hardware(monkeypatch):
         controller_checkpoint=Path("hand.ckpt"), dp_inference_steps=16,
         ddim_inference_steps=4, execution_steps=2, edit_noise_ratio=0.15,
         fixed_noise=1, seed=42, no_salvage=False,
+        trt_fused=False,
         edit_interpolate_large_actions=False, edit_interpolation_threshold_rad=0.12,
         controller_calls_per_dp=1, validate_only=False, check_only=True,
     )
@@ -149,3 +172,47 @@ def test_edit_check_only_uses_online_dp_and_never_creates_hardware(monkeypatch):
     assert capture["editor_args"][1] == 0.15
     assert capture["windows"] == ((slice(0, 2), slice(0, 9)),)
     assert isinstance(capture["editor"], FakeEditor)
+
+
+def test_trt_fused_check_compiles_visual_and_hand_unets(monkeypatch):
+    from diffusers import DDIMScheduler
+    import diffusion_policy.SDEdit.reference_action_editor as edit_module
+    import trt_unet
+
+    args = SimpleNamespace(
+        method="edit", dp_checkpoint=Path("dp.ckpt"),
+        controller_checkpoint=Path("hand.ckpt"), dp_inference_steps=16,
+        ddim_inference_steps=4, execution_steps=2, edit_noise_ratio=0.15,
+        fixed_noise=1, seed=42, no_salvage=False, trt_fused=True,
+        controller_calls_per_dp=1, validate_only=False, check_only=True,
+        edit_interpolate_large_actions=False, edit_interpolation_threshold_rad=0.12,
+    )
+    visual = SimpleNamespace(noise_scheduler=DDIMScheduler(num_train_timesteps=100))
+    hand = object()
+    compiled = []
+
+    class FakeEditor:
+        def __init__(self, *args, **kwargs):
+            self.controller = SimpleNamespace(execution_steps=2, policy=hand, fixed_noise=True)
+            self.future_steps = 9
+            self.actual_noise_ratio = 0.15
+            self.timesteps = (9, 6, 3, 0)
+            self.fused = False
+
+        def enable_fused_sampling(self):
+            self.fused = True
+
+    monkeypatch.setattr(edit_module, "ReferenceActionEditor", FakeEditor)
+    monkeypatch.setattr(pipeline, "parse_args", lambda: args)
+    monkeypatch.setattr(pipeline, "_validate_args", lambda _: torch.device("cuda"))
+    monkeypatch.setattr(pipeline, "_load_real_policy", lambda *a: (object(), visual))
+    monkeypatch.setattr(pipeline, "_real_policy_metadata", lambda *a: (4, 13, False, {}))
+    monkeypatch.setattr(trt_unet, "accelerate_policy_unet", lambda policy, **kw: compiled.append((policy, kw)))
+    monkeypatch.setattr(pipeline, "_run_check", lambda *a, **kw: compiled.append(kw["editor"].fused))
+
+    assert pipeline.main() == 0
+    assert compiled == [
+        (visual, {"fp16": True, "max_batch": 1}),
+        (hand, {"fp16": True, "max_batch": 1}),
+        True,
+    ]

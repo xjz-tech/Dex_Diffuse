@@ -7,6 +7,7 @@ from diffusers import DDIMScheduler
 
 from diffusion_policy.SDEdit.reference_edit import (
     ddim_transition,
+    fused_edit_coeffs,
     sample_reference_edit,
     select_edit_timesteps,
 )
@@ -58,6 +59,32 @@ def test_oracle_epsilon_recovers_reference_on_nonuniform_schedule():
     torch.testing.assert_close(output.trajectory, clean, rtol=1e-5, atol=1e-6)
     assert output.history_mask_max_error == 0.0
     assert output.predicted_x0_clip_fraction == 0.0
+
+
+@pytest.mark.parametrize("clip_sample", [False, True])
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_fused_edit_matches_original_nonuniform_ddim(clip_sample, device):
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA unavailable")
+    scheduler = DDIMScheduler(num_train_timesteps=100, clip_sample=clip_sample)
+    times, _ = select_edit_timesteps(scheduler.alphas_cumprod, 0.15, 4)
+    generator = torch.Generator(device=device).manual_seed(29)
+    clean = torch.randn((1, 12, 22), generator=generator, device=device) * 0.8
+    noise = torch.randn((1, 12, 22), generator=generator, device=device)
+
+    def epsilon(sample, timestep, global_cond):
+        return sample * 0.2 + global_cond[:, None, :22] * 0.05
+
+    cond = torch.randn((1, 22), generator=generator, device=device)
+    args = (epsilon, scheduler.alphas_cumprod, clean, noise, cond, times)
+    original = sample_reference_edit(*args, known_history_steps=3, clip_sample=clip_sample)
+    fused = sample_reference_edit(
+        *args, known_history_steps=3, clip_sample=clip_sample,
+        fused_coeffs=fused_edit_coeffs(scheduler.alphas_cumprod, times, clean.device, clean.dtype),
+    )
+    torch.testing.assert_close(fused.trajectory, original.trajectory, rtol=1e-5, atol=1e-6)
+    torch.testing.assert_close(fused.initial_sample, original.initial_sample, rtol=1e-5, atol=1e-6)
+    assert fused.predicted_x0_clip_fraction == original.predicted_x0_clip_fraction
 
 
 @pytest.mark.parametrize("horizon", [8, 12])
