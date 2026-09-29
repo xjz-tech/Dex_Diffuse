@@ -81,13 +81,10 @@ action。需要临时跳过初始 pose 移动或 Enter 门控时，可分别设�
 动作仍由视觉 DP 给出，22 维手部参考动作交给
 `diffusion_policy/SDEdit/reference_action_editor.py` 编辑。每个 edit 调用执行两步，
 读取新的手部状态后继续闭环。这个入口复用
-`eval/inference_dp_controller.py` 的相机、Franka、SharpA 执行和安全限制。
-
-执行前，手部目标按 `hardware.py` 中的 22 维 SharpA URDF 关节范围截断；
-默认还按每步 `0.03 rad` 限制手部目标变化。Franka 的关节模式通过 IK
-限制每步关节变化为 `0.05 rad`，并按 FR3 URDF 的绝对关节范围截断。
-机械臂末端位置目标每轴每步最多变化 `0.03 m`。这些是软件命令限幅；
-此入口尚未实现实测关节跟踪误差、接触力或碰撞监控。
+`eval/inference_dp_controller.py` 的相机、Franka、SharpA 执行。
+edit 执行路径不对手部目标做绝对关节角或单步变化截断，也不对 Franka 的
+末端位置目标、IK 关节增量和 IK 关节角做软件限幅。Franka/SharpA 的外部
+控制器及硬件自身行为不由此脚本控制。
 
 先设置 `DP_CKPT_PATH` 和 `CONTROLLER_CKPT_PATH`，然后只做离线模型检查：
 

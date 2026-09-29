@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import os
 from pathlib import Path
 import sys
@@ -14,19 +13,6 @@ from typing import Any, Dict, Iterable, Mapping, Optional, Tuple
 
 import cv2
 import numpy as np
-
-# `eval` can resolve to an installed module in the model environment, so load
-# the real-hand limit table by file path instead of relying on package lookup.
-_hand_limits_path = Path(__file__).resolve().parent / "eval" / "real" / "hardware.py"
-_hand_limits_spec = importlib.util.spec_from_file_location("_dex_real_hand_hardware", _hand_limits_path)
-if _hand_limits_spec is None or _hand_limits_spec.loader is None:
-    raise RuntimeError(f"Cannot load SharpA joint limits from {_hand_limits_path}")
-_hand_limits_module = importlib.util.module_from_spec(_hand_limits_spec)
-_hand_limits_spec.loader.exec_module(_hand_limits_module)
-POLICY_LOWER_LIMITS = _hand_limits_module.POLICY_LOWER_LIMITS
-POLICY_UPPER_LIMITS = _hand_limits_module.POLICY_UPPER_LIMITS
-LIMIT_DOF_NAMES = _hand_limits_module.POLICY_SHARPA_DOF_NAMES
-
 
 DEFAULT_FRANKA_HOST = "172.16.0.10"
 DEFAULT_FRANKA_PORT = 9090
@@ -114,8 +100,6 @@ POLICY_SHARPA_DOF_NAMES = (
     "right_thumb_MCP_FE", "right_thumb_MCP_AA",
     "right_thumb_IP",
 )
-if POLICY_SHARPA_DOF_NAMES != LIMIT_DOF_NAMES:
-    raise RuntimeError("SharpA policy joint order differs from the URDF limit table")
 REAL2POLICY_DOF_INDICES = np.array(
     [REAL_SHARPA_DOF_NAMES.index(dof_name) for dof_name in POLICY_SHARPA_DOF_NAMES],
     dtype=np.int64,
@@ -906,6 +890,7 @@ class FrankaJointIkSolver:
         w_rot: np.ndarray = IK_W_ROT_DIAG,
         tcp_pose_at_initial_q: Optional[np.ndarray] = None,
         sync_qpos_fn: Optional[Any] = None,
+        apply_joint_limits: bool = True,
     ) -> None:
         if max_joint_step <= 0:
             raise ValueError("max_joint_step must be positive")
@@ -920,6 +905,7 @@ class FrankaJointIkSolver:
             raise ValueError(f"Expected initial joint positions shape ({self.model.nq},), got {self.q_current.shape}")
         self.max_joint_step = float(max_joint_step)
         self.ik_dq_max = float(ik_dq_max)
+        self.apply_joint_limits = bool(apply_joint_limits)
         self.damping = float(damping)
         self.w_pos = np.asarray(w_pos, dtype=np.float64)
         self.w_rot = np.asarray(w_rot, dtype=np.float64)
@@ -962,7 +948,7 @@ class FrankaJointIkSolver:
         dq_rot = null_pos @ (jacobian_rot_null_bar @ rot_residual)
         dq = dq_pos + dq_rot
         dq_norm = float(np.max(np.abs(dq)))
-        if dq_norm > self.ik_dq_max:
+        if self.apply_joint_limits and dq_norm > self.ik_dq_max:
             dq *= self.ik_dq_max / dq_norm
         return dq, pos_err, rot_err
 
@@ -977,9 +963,11 @@ class FrankaJointIkSolver:
             self.q_current = synced
         target_ee_pose = tcp_target_to_ee_target(target_pose, self.ee_to_tcp_pose)
         dq, pos_err, rot_err = self._ik_step(target_ee_pose)
-        dq = np.clip(dq, -self.max_joint_step, self.max_joint_step)
+        if self.apply_joint_limits:
+            dq = np.clip(dq, -self.max_joint_step, self.max_joint_step)
         self.q_current = self.q_current + dq
-        self.q_current = np.clip(self.q_current, self.model.lowerPositionLimit, self.model.upperPositionLimit)
+        if self.apply_joint_limits:
+            self.q_current = np.clip(self.q_current, self.model.lowerPositionLimit, self.model.upperPositionLimit)
         return IkStepResult(self.q_current.copy(), np.asarray(pos_err, dtype=np.float64), np.asarray(rot_err, dtype=np.float64))
 
 
@@ -1052,6 +1040,7 @@ class DirectRobotEnv:
         max_arm_xyz_step: float = 0.03,
         max_hand_step: float = DEFAULT_MAX_HAND_STEP,
         disable_clamp: bool = False,
+        disable_ik_limits: bool = False,
         hand_interpolate: bool = False,
         action_chunk_steps: Optional[int] = 40,
         hz: float = 30.0,
@@ -1131,8 +1120,10 @@ class DirectRobotEnv:
                 damping=ik_damping,
                 tcp_pose_at_initial_q=self.franka.get_current_tcp_pose(),
                 sync_qpos_fn=sync_fn,
+                apply_joint_limits=not disable_ik_limits,
             )
-            print(f"[franka] control_mode=joints urdf={urdf_path} max_joint_step={max_joint_step} sync_qpos_each_step={self.sync_qpos_each_step}")
+            limit_text = "software_joint_limits=off" if disable_ik_limits else f"max_joint_step={max_joint_step}"
+            print(f"[franka] control_mode=joints urdf={urdf_path} {limit_text} sync_qpos_each_step={self.sync_qpos_each_step}")
         else:
             print(f"[franka] control_mode={self.franka_control_mode}")
 
@@ -1283,12 +1274,6 @@ class DirectRobotEnv:
         if not self.disable_clamp:
             target = clamp_action_step(raw_action, self.previous_action, self.max_arm_xyz_step, self.max_hand_step)
         arm9, hand22 = split_action(target)
-        # The per-step clamp limits movement, but cannot stop an accumulated
-        # target from leaving the hand's URDF range.
-        hand22_limited = np.clip(hand22, POLICY_LOWER_LIMITS, POLICY_UPPER_LIMITS)
-        hand_limit_clips = int(np.count_nonzero(hand22_limited != hand22))
-        hand22 = hand22_limited
-        target = np.concatenate((arm9, hand22))
         pose = arm9_to_pose_matrix(arm9)
         hand22_real = hand22[POLICY2REAL_DOF_INDICES]
         franka_response = None
@@ -1318,7 +1303,6 @@ class DirectRobotEnv:
                 f"raw_shape={tuple(np.asarray(raw_action).shape)} target_shape={tuple(np.asarray(target).shape)} "
                 f"xyz={np.round(arm9[:3], 4).tolist()} "
                 f"hand_min={float(hand22.min()):.4f} hand_max={float(hand22.max()):.4f} "
-                f"hand_limit_clips={hand_limit_clips} "
                 f"franka_response={franka_response}{ik_summary}"
             )
         return np.asarray(target, dtype=np.float64)

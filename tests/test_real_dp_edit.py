@@ -13,8 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "eval"))
 import inference_dp_controller as pipeline  # noqa: E402
 from inference_dp_controller import _controller_windows, _replace_hand_actions  # noqa: E402
 from direct_robot_env import (  # noqa: E402
-    DirectRobotEnv, POLICY2REAL_DOF_INDICES, POLICY_LOWER_LIMITS,
-    POLICY_UPPER_LIMITS,
+    DirectRobotEnv, FrankaJointIkSolver, POLICY2REAL_DOF_INDICES,
 )
 
 
@@ -37,10 +36,9 @@ def test_edit_requires_full_future_window_from_visual_dp():
         _replace_hand_actions(np.zeros((13, 31)), slice(0, 2), np.zeros((1, 1, 22)))
 
 
-@pytest.mark.parametrize("disable_clamp", [False, True])
-def test_real_execution_limits_hand_target_before_send(disable_clamp):
+def test_edit_execution_sends_unclipped_hand_target():
     env = DirectRobotEnv.__new__(DirectRobotEnv)
-    env.disable_clamp = disable_clamp
+    env.disable_clamp = True
     env.max_arm_xyz_step = 0.03
     env.max_hand_step = 0.03
     env.live = True
@@ -50,15 +48,32 @@ def test_real_execution_limits_hand_target_before_send(disable_clamp):
     env.hand_interpolate = False
     env.log_action_steps = False
     arm = np.array([0, 0, 0, 1, 0, 0, 0, 1, 0], dtype=np.float64)
-    env.previous_action = np.concatenate((arm, POLICY_UPPER_LIMITS - 0.01))
-    raw = np.concatenate((arm, POLICY_UPPER_LIMITS + 0.5))
+    env.previous_action = np.concatenate((arm, np.zeros(22)))
+    raw = np.concatenate((arm, np.full(22, 2.0)))
 
     executed = env._execute_action_step(raw, 0)
 
-    np.testing.assert_array_equal(executed[9:], POLICY_UPPER_LIMITS)
-    assert np.all(executed[9:] >= POLICY_LOWER_LIMITS)
+    np.testing.assert_array_equal(executed, raw)
     sent_in_real_order = env.hand.set_action.call_args.args[0]
-    np.testing.assert_array_equal(sent_in_real_order, POLICY_UPPER_LIMITS[POLICY2REAL_DOF_INDICES])
+    np.testing.assert_array_equal(sent_in_real_order, raw[9:][POLICY2REAL_DOF_INDICES])
+
+
+def test_edit_ik_skips_software_joint_limits():
+    solver = FrankaJointIkSolver.__new__(FrankaJointIkSolver)
+    solver.sync_qpos_fn = None
+    solver.ee_to_tcp_pose = np.eye(4)
+    solver.q_current = np.zeros(7)
+    solver.max_joint_step = 0.05
+    solver.apply_joint_limits = False
+    solver.model = SimpleNamespace(
+        lowerPositionLimit=np.full(7, -1.0),
+        upperPositionLimit=np.full(7, 1.0),
+    )
+    solver._ik_step = Mock(return_value=(np.full(7, 2.0), np.zeros(3), np.zeros(3)))
+
+    result = solver.solve(np.eye(4))
+
+    np.testing.assert_array_equal(result.joint_positions, np.full(7, 2.0))
 
 
 def test_edit_check_only_uses_online_dp_and_never_creates_hardware(monkeypatch):
