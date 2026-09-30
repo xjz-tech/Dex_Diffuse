@@ -1,0 +1,1 @@
+PASS: native nonterminal path unchanged; continuation preserves failure_buf and suppresses reset_buf; confirmed visual separation terminates. CPU tensor integration exercised normal, continue, deferred review, and confirmed-drop branches.

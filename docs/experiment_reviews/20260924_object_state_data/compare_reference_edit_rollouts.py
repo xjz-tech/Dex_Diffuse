@@ -35,6 +35,8 @@ def main():
     parser.add_argument('--reference-id', type=int, default=1)
     parser.add_argument('--source-episode', type=int, default=53)
     parser.add_argument('--no-video', action='store_true')
+    parser.add_argument('--video-label', default=None,
+                        help='Display-only label for the inference method in recorded video')
     parser.add_argument('--stop-on-native-failure', action='store_true')
     parser.add_argument('--socket')
     parser.add_argument('--guidance-steps', type=int, default=2)
@@ -282,7 +284,7 @@ def main():
         if args.mode == 'guided':
             sock = connect_unix(args.socket)
             sock.settimeout(600)
-            send_message(sock, {'type': 'hello'})
+            send_message(sock, {'type': 'hello', 'output_dir': str(out)})
             info, _ = recv_message(sock)
             assert info['ok']
             assert info['guidance_steps'] == args.guidance_steps
@@ -305,7 +307,7 @@ def main():
             for k, cam in enumerate(cameras):
                 rgba = g.get_camera_image(sim, e, cam, gymapi.IMAGE_COLOR).reshape(480, 640, 4)
                 panel[64:, k * 640:(k + 1) * 640] = cv2.cvtColor(rgba[:, :, :3], cv2.COLOR_RGB2BGR)
-            label = 'raw recorded action' if args.mode == 'direct' else '10B prior + reference'
+            label = args.video_label or ('raw recorded action' if args.mode == 'direct' else '10B prior + reference')
             cv2.putText(panel, f'episode {args.source_episode} | {label} | {args.object_mass_kg * 1000:g}g, mu {args.friction:g}',
                         (12, 24), cv2.FONT_HERSHEY_SIMPLEX, .66, (255, 255, 255), 1, cv2.LINE_AA)
             cv2.putText(panel, f'{phase} {index / 30:.2f}s | vertical {vertical:.1f}deg | failure {failure}',

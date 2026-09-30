@@ -1,0 +1,1 @@
+Interrupted pilot: arms used different environment slots and showed different static contact responses. Preserve for provenance only; exclude from final effect comparison. Final arms will reuse slots 32..47 in separate fresh simulator processes.

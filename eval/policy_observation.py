@@ -34,22 +34,26 @@ def observation_mode_from_dim(obs_dim):
     raise ValueError("unsupported checkpoint obs_dim=%s" % (obs_dim,))
 
 
-def expected_policy_spec(obs_dim, n_action_steps=N_ACTION_STEPS):
+def expected_policy_spec(obs_dim, n_action_steps=N_ACTION_STEPS, horizon=HORIZON):
     obs_dim = int(obs_dim)
     observation_mode_from_dim(obs_dim)
     n_action_steps = int(n_action_steps)
-    if not 1 <= n_action_steps <= N_PRED_ACTION_STEPS:
+    horizon = int(horizon)
+    if horizon not in (8, 12):
+        raise ValueError("unsupported horizon: %d" % horizon)
+    n_pred_action_steps = horizon - N_OBS_STEPS + 1
+    if not 1 <= n_action_steps <= n_pred_action_steps:
         raise ValueError(
             "n_action_steps must be in [1, %d], got %s"
-            % (N_PRED_ACTION_STEPS, n_action_steps)
+            % (n_pred_action_steps, n_action_steps)
         )
     return {
         "obs_dim": obs_dim,
         "action_dim": ACTION_DIM,
         "n_obs_steps": N_OBS_STEPS,
-        "n_pred_action_steps": N_PRED_ACTION_STEPS,
+        "n_pred_action_steps": n_pred_action_steps,
         "n_action_steps": n_action_steps,
-        "horizon": HORIZON,
+        "horizon": horizon,
     }
 
 
@@ -60,6 +64,7 @@ def validate_policy_spec(spec):
         expected = expected_policy_spec(
             spec.get("obs_dim"),
             spec.get("n_action_steps", N_ACTION_STEPS),
+            spec.get("horizon", HORIZON),
         )
     except (TypeError, ValueError) as exc:
         raise ValueError("unsupported checkpoint spec: %r" % (spec,)) from exc

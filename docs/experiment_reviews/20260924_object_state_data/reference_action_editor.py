@@ -22,7 +22,9 @@ class ReferenceActionEditor:
         self.controller=GuidedDDIMController(Path(checkpoint),torch.device('cuda:0'),inference_steps=steps,execution_steps=execution_steps,guidance_scale=0.,eta=0.,fixed_noise=True,seed=42,allow_salvage=True)
         self.steps=steps;self.execution_steps=execution_steps;self.noise_ratio=float(noise_ratio)
         self.policy=self.controller.policy;self.spec=self.controller.spec
-        assert self.spec['horizon']==12 and self.spec['n_obs_steps']==4 and self.spec['obs_dim']==66
+        assert self.spec['horizon'] in (8,12) and self.spec['n_obs_steps']==4 and self.spec['obs_dim']==66
+        self.future_steps=int(self.spec['n_pred_action_steps'])
+        assert self.future_steps==self.spec['horizon']-3
         alphas=self.controller.scheduler.alphas_cumprod
         if self.noise_ratio==0:
             self.timesteps=[];self.actual_noise_ratio=0.
@@ -33,15 +35,15 @@ class ReferenceActionEditor:
             self.timesteps=np.rint(np.linspace(t0,0,steps)).astype(int).tolist()
             assert len(set(self.timesteps))==steps and all(a>b for a,b in zip(self.timesteps,self.timesteps[1:]))
             self.actual_noise_ratio=float(ratios[t0])
-        self.metadata=dict(algorithm='reference_initialized_ddim',requested_noise_ratio=noise_ratio,actual_noise_ratio=self.actual_noise_ratio,timesteps=self.timesteps,num_train_timesteps=len(alphas),inference_steps=steps,execution_steps=execution_steps,future_reference_steps=9,known_history_steps=3,eta=0.,guidance_scale=0.,clip_sample=bool(self.controller.scheduler.config.clip_sample),history_source='target_before from observation frames 1:4; equals actually issued previous three commands',weight_source=self.controller.checkpoint_info.weight_source)
+        self.metadata=dict(algorithm='reference_initialized_ddim',requested_noise_ratio=noise_ratio,actual_noise_ratio=self.actual_noise_ratio,timesteps=self.timesteps,num_train_timesteps=len(alphas),inference_steps=steps,execution_steps=execution_steps,future_reference_steps=self.future_steps,known_history_steps=3,eta=0.,guidance_scale=0.,clip_sample=bool(self.controller.scheduler.config.clip_sample),history_source='target_before from observation frames 1:4; equals actually issued previous three commands',weight_source=self.controller.checkpoint_info.weight_source)
 
     @torch.no_grad()
-    def predict(self,history,future,seeds,return_full_plan=False):
+    def predict(self,history,future,seeds,return_full_plan=False,initial_noise=None):
         future=np.asarray(future,dtype=np.float32)
-        assert future.shape==(len(history),9,22)
+        assert future.shape==(len(history),self.future_steps,22)
         # Explicit identity baseline, without normalization/rounding/clipping.
         if self.noise_ratio==0:
-            return future[:,:9 if return_full_plan else self.execution_steps].copy(),dict(edit_rmse_rad=0.,edit_max_abs_rad=0.,history_mask_max_error=0.,zero_edit_exact=True)
+            return future[:,:self.future_steps if return_full_plan else self.execution_steps].copy(),dict(edit_rmse_rad=0.,edit_max_abs_rad=0.,history_mask_max_error=0.,zero_edit_exact=True)
         c=self.controller;device=c.device
         h=torch.as_tensor(history,device=device,dtype=self.policy.dtype)
         assert h.shape[1:]==(4,66)
@@ -49,7 +51,16 @@ class ReferenceActionEditor:
         clean_rad=torch.cat([known,torch.as_tensor(future,device=device,dtype=self.policy.dtype)],dim=1)
         clean=self.policy.normalizer['action'].normalize(clean_rad)
         cond=self.policy.normalizer['obs'].normalize(h).reshape(h.shape[0],-1)
-        c.set_fixed_noise_from_seeds(seeds);noise=c._noise(len(h),h.dtype)
+        if initial_noise is None:
+            # Preserve the historical fixed-slot noise path for existing callers.
+            c.set_fixed_noise_from_seeds(seeds);noise=c._noise(len(h),h.dtype)
+        else:
+            # Raw Gaussian epsilon only. Rebuild x_tau from THIS call's clean
+            # reference below; never accept a previous noisy/denoised sample.
+            noise=torch.as_tensor(initial_noise,device=device,dtype=h.dtype)
+            if noise.shape != clean.shape or not torch.isfinite(noise).all():
+                raise ValueError('initial_noise must be finite [batch,horizon,22]')
+            noise=noise.clone()
         alphas=c.scheduler.alphas_cumprod.to(device=device,dtype=h.dtype)
         a=alphas[self.timesteps[0]];sample=a.sqrt()*clean+(1-a).sqrt()*noise
         noisy_rad=self.policy.normalizer['action'].unnormalize(sample)
@@ -70,4 +81,4 @@ class ReferenceActionEditor:
         assert torch.isfinite(edited).all()
         delta=edited-clean_rad[:,3:]
         stats=dict(edit_rmse_rad=float(delta.square().mean().sqrt()),edit_max_abs_rad=float(delta.abs().max()),executed_prefix_edit_rmse_rad=float(delta[:,:self.execution_steps].square().mean().sqrt()),injected_rmse_rad=injected_rmse,history_mask_max_error=mask_error,predicted_x0_clip_fraction=clipped/evaluated)
-        return edited[:,:9 if return_full_plan else self.execution_steps].cpu().numpy(),stats
+        return edited[:,:self.future_steps if return_full_plan else self.execution_steps].cpu().numpy(),stats

@@ -1,0 +1,11 @@
+# Exact 40-Hz add-on
+
+User requested 40 Hz after the original 30/45/60/90-Hz sweep. Queued behind `20260916_10k_obs466_frequency_3k`; waits for that pipeline to complete and for GPU compute to be idle. No shared evaluator or existing result edited.
+
+Same confirmed obs_4-66 prior and original 10k guide, original normalization, TensorRT FP16/fused updates, DDIM4/4, guide2/execute2, scale25, seeds8/100008, WAIT=1, 3000 first episodes, 400 simulated seconds. No 0.03-rad action clamp. 40 Hz cap = 16000 steps; bridge 30 Hz = 12000 steps.
+
+40 Hz cannot be represented with integer decimation at the preceding 180-Hz outer physics clock. This add-on uses 360-Hz outer physics and one substep, retaining the preceding sweep's physical integration step of 1/360 second (180 Hz with two substeps). Decimation = 12 at 30 Hz and 9 at 40 Hz. A fresh 30-Hz bridge is included because outer simulate-call grouping, contact aggregation, and related solver behavior may differ despite the equal integration timestep. Compare 40 Hz primarily with this new bridge, then use the original sweep for context; do not present all arms as an identical outer-physics setup.
+
+Fixed 30-Hz force updates, six loaded and six unloaded ticks per 12-tick pulse cycle, preserve the original 1/60-second loaded duration. Stable dwell/failure counters use 360-Hz ticks and 12x old 30-Hz thresholds. History4/execute2 stay in policy steps, intentionally changing their physical horizons at 40 Hz. Integer clock/force sequence checks pass; after the predecessor finishes, short 4-environment checks gate full runs. Initial states must equal both the new bridge and original sweep's 30-Hz arrays. Each full run validates 3000 unique first episodes, complete timing, zero WAIT holds, force-step count, physical duration and numerical optimization gates. No automatic retry or overwrite; teardown139 accepted only after complete valid artifacts.
+
+`pipeline.py`, `state.json`, `pipeline.log`, and per-arm output folders describe progress. `comparison.md/json` provide the add-on results. Monitoring is shared with the existing 45-minute frequency-test heartbeat; keep it active until this add-on also finishes. Report completed original sweep when useful, clearly indicate 40 Hz remains queued/running, and deliver the full result once finished.
