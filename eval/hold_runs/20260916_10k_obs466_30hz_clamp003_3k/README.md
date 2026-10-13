@@ -1,0 +1,13 @@
+# 30 Hz with real-runner 0.03-rad step clamp
+
+User asks about 30 Hz plus 0.03-rad limiting. This experiment isolates the step clamp, keeping the prior 30-Hz baseline's physics, policies, history and replanning cadence. Queued after `20260916_10k_obs466_20_25hz_3k` and waits for GPU compute to be idle. Existing jobs are not interrupted; this does not command hardware.
+
+Same obs_4-66.ckpt plus original10k guide, normalizers, TensorRTFP16/fused/microbatch256, DDIM4/4, guide2/execute2, scale25, seed8/100008, WAIT1, 3000 first episodes,12000steps/400seconds. Same180Hz physics/2substeps/decimation6 and fixed-clock force schedule. Reuse `../20260916_10k_obs466_frequency_3k/hz30` as unclamped baseline (1514/3000 survived400s,50.47%). No new physics grouping/bridge is needed.
+
+For every joint and every action: clip the raw target to URDF bounds, then clip its difference from the previous applied command to +/-0.03rad, then enforce URDF bounds again. Previous target is not measured qpos. The next obs66 uses the applied clipped target and its residual, exactly as normal simulator observation construction does. Both actions of each chunk are clamped independently; future actions are not accumulated as a backlog. On reset the previous target is the new environment target, avoiding cross-episode jumps. The experiment does not imitate the real runner's possibly inconsistent startup target or its inference delay.
+
+`validate_clamp.py` checked1000 randomized inputs against the actual real runner's `safe_target` function with exact output/clip-count equality, plus a three-step0.03/0.06/0.09 example. No hardware connection or model inference is involved in this CPU check. Queued smoke test gates full run and exact matching initial state versus prior30Hz baseline. Verify3000 unique episode0 records, cap, timing, zero WAIT holds, optimization gates, clamp bound and telemetry denominators. Legacy teardown139 accepted only if complete valid output exists; no automatic retry/overwrite.
+
+`clamp_statistics.json` covers only first-episode actions including terminal actions: joint and environment-action clip fractions, per-joint counts, raw-to-sent error, maximum sent-target step and measured tracking residual. Baseline has no matching residual trace, so do not claim a residual reduction from this single-arm telemetry. `comparison.md/json` report baseline versus clamp. 0.03*30=0.9rad/s bounds command increments at nominal update intervals, not instantaneous measured joint velocity.
+
+Service: `frequency-10k-obs466-clamp003-20260916.service`. Monitor through the existing90-minute heartbeat; keep it active until this test and earlier queues finish.

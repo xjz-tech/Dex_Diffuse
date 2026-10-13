@@ -59,6 +59,12 @@ SHARPA_URDF_NAME = "v3right_sharpa_wave-forhammer5.urdf"
 
 
 def _add_reset_arguments(parser):
+    # 注意（给后续维护者/模型）：严格默认值用于 RL 训练，请保留。
+    # 当前 diffusion policy / guidance 的 hold 评估不用这套默认值。
+    # 调用方应显式传入 eval/xjz_test.sh 对应的评估配置：
+    # --failure-obj-pos-thres-m 0.05 --failure-tip-pos-thres-m 0.1
+    # --failure-tolerance-scale 10000.0 --fixed-tolerance-steps 20000
+    # 并对齐轨迹范围等其他评估参数，避免直接调用时误用 RL 阈值。
     group = parser.add_argument_group("episode reset conditions")
     group.add_argument("--failure-obj-pos-thres-m", type=float, default=0.012)
     group.add_argument("--failure-tip-pos-thres-m", type=float, default=0.036)
@@ -115,6 +121,25 @@ def _validate_reset_args(args):
         raise ValueError(
             "--invalid-obj-pos-thres-m must be >= --failure-obj-pos-thres-m"
         )
+    mass = args.object_mass_kg
+    friction_min = args.object_friction_min
+    friction_max = args.object_friction_max
+    if mass is not None and (not np.isfinite(mass) or mass <= 0.0):
+        raise ValueError("--object-mass-kg must be finite and positive")
+    if (friction_min is None) != (friction_max is None):
+        raise ValueError(
+            "--object-friction-min and --object-friction-max must be set together"
+        )
+    if friction_min is not None and not (
+        np.isfinite(friction_min)
+        and np.isfinite(friction_max)
+        and 0.0 <= friction_min < friction_max
+    ):
+        raise ValueError("--object-friction range must be finite and increasing")
+    if args.rotation_preview_raw and not args.recording:
+        raise ValueError("--rotation-preview-raw requires --recording")
+    if args.rotation_preview_stride <= 0 or args.rotation_preview_frames <= 0:
+        raise ValueError("rotation preview stride and frame count must be positive")
 
 
 def _reset_overrides_from_args(args):
@@ -191,6 +216,11 @@ def _parse_args():
         help="Label stored in --episode-log records.",
     )
     parser.add_argument(
+        "--initial-state-dump",
+        default="",
+        help="Optional compressed NPZ snapshot written after the initial reset.",
+    )
+    parser.add_argument(
         "--first-episode-only",
         action="store_true",
         help="Count only the first episode of each env (ignore post-reset trials).",
@@ -218,6 +248,21 @@ def _parse_args():
     parser.add_argument("--record-camera-fov", type=float, default=60.0)
     parser.add_argument("--record-axis-length", type=float, default=0.20)
     parser.add_argument("--record-axis-thickness", type=float, default=0.008)
+    parser.add_argument(
+        "--object-mass-kg",
+        type=float,
+        default=None,
+        help="Fix the manipulated object mass. Disables object mass scaling.",
+    )
+    parser.add_argument("--object-friction-min", type=float, default=None)
+    parser.add_argument("--object-friction-max", type=float, default=None)
+    parser.add_argument(
+        "--rotation-preview-raw",
+        default="",
+        help="Optional raw RGB file of sim-time frames from the recorded env.",
+    )
+    parser.add_argument("--rotation-preview-stride", type=int, default=3)
+    parser.add_argument("--rotation-preview-frames", type=int, default=300)
     _add_reset_arguments(parser)
     parser.set_defaults(randomize_demo_on_failure=True)
     parser.add_argument(
@@ -288,9 +333,11 @@ def _validate_inputs(args, data_indices):
         raise ValueError("--max-failure-episodes cannot be negative")
     if args.print_every < 0:
         raise ValueError("--print-every cannot be negative")
-    if args.recording:
-        if args.headless:
-            raise ValueError("recording requires a non-headless viewer")
+    if args.recording and args.headless:
+        print(
+            "[sim] headless camera recording; no viewer window",
+            flush=True,
+        )
 
     for full_index in data_indices:
         index = full_index.rsplit("@", 1)[1]
@@ -411,6 +458,134 @@ def _make_task_config(
         for key, value in reset_overrides.items():
             env_cfg[key] = value
     return task_cfg
+
+
+def _apply_sim2real_randomization(task_cfg, args):
+    """Eval-only object mass/friction. Does not write the training config."""
+    if args.object_mass_kg is None and args.object_friction_min is None:
+        return
+    obj = task_cfg.task.randomization_params.actor_params.manip_obj
+    if args.object_friction_min is not None:
+        obj.rigid_shape_properties.friction.range = [
+            float(args.object_friction_min),
+            float(args.object_friction_max),
+        ]
+    if args.object_mass_kg is not None:
+        # Scaling by 1 keeps the mass written into the randomization baseline.
+        obj.rigid_body_properties.mass.operation = "scaling"
+        obj.rigid_body_properties.mass.range = [1.0, 1.0]
+    print(
+        "[sim] sim2real domain | object_mass_kg=%s object_friction=[%s, %s]"
+        % (args.object_mass_kg, args.object_friction_min, args.object_friction_max),
+        flush=True,
+    )
+
+
+def _scale_inertia(inertia, ratio):
+    for row in "xyz":
+        axis = getattr(inertia, row)
+        for column in "xyz":
+            setattr(axis, column, float(getattr(axis, column)) * ratio)
+
+
+def _lock_object_mass(env, mass_kg):
+    """Set every bulb to mass_kg and make later mass randomization keep it."""
+    originals = env.original_props.get("rigid_body_properties", {})
+    for index, env_ptr in enumerate(env.envs):
+        actor = env.gym.find_actor_handle(env_ptr, "manip_obj")
+        props = env.gym.get_actor_rigid_body_properties(env_ptr, actor)
+        body = props[0]
+        old_mass = float(body.mass)
+        if old_mass <= 0.0:
+            raise RuntimeError("object mass must be positive before the sim2real lock")
+        _scale_inertia(body.inertia, float(mass_kg) / old_mass)
+        body.mass = float(mass_kg)
+        env.gym.set_actor_rigid_body_properties(env_ptr, actor, props)
+        cached = originals.get("%d_%d" % (index, actor))
+        if cached is None:
+            raise RuntimeError(
+                "missing randomization baseline for env %d actor %d" % (index, actor)
+            )
+        for record in cached:
+            if "mass" in record:
+                record["mass"] = float(mass_kg)
+    env._update_object_mass()
+
+
+def _read_object_domain(env):
+    masses = []
+    frictions = []
+    for env_ptr in env.envs:
+        actor = env.gym.find_actor_handle(env_ptr, "manip_obj")
+        masses.append(float(env.gym.get_actor_rigid_body_properties(env_ptr, actor)[0].mass))
+        frictions.append(
+            [
+                float(shape.friction)
+                for shape in env.gym.get_actor_rigid_shape_properties(env_ptr, actor)
+            ]
+        )
+    return np.asarray(masses), np.asarray(frictions)
+
+
+class _RotationPreview:
+    def __init__(self, args):
+        self.path = Path(args.rotation_preview_raw) if args.rotation_preview_raw else None
+        self.stride = int(args.rotation_preview_stride)
+        self.limit = int(args.rotation_preview_frames)
+        self.count = 0
+        self._handle = None
+        if self.path is not None:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self._handle = self.path.open("wb")
+
+    def write(self, rgb):
+        if self._handle is None or self.count >= self.limit:
+            return
+        frame = np.ascontiguousarray(rgb)
+        self._handle.write(frame.tobytes())
+        self.count += 1
+        if self.count == self.limit:
+            self._handle.flush()
+            print(
+                "[sim] rotation preview raw ready | frames=%d path=%s"
+                % (self.count, self.path),
+                flush=True,
+            )
+
+    def close(self):
+        if self._handle is not None:
+            self._handle.flush()
+            self._handle.close()
+            self._handle = None
+
+
+def _write_rotation_preview(preview, recording_runtime, step):
+    if preview.path is None or preview.count >= preview.limit:
+        return
+    if step % preview.stride != 0:
+        return
+    rgb = getattr(recording_runtime, "last_rgb", None)
+    if rgb is not None:
+        preview.write(rgb)
+
+
+def _check_sim2real_domain(env, args):
+    masses, frictions = _read_object_domain(env)
+    print(
+        "[sim] sim2real actual | mass min/max=%.6f/%.6f kg | "
+        "friction min/max=%.4f/%.4f | envs=%d"
+        % (masses.min(), masses.max(), frictions.min(), frictions.max(), masses.size),
+        flush=True,
+    )
+    if args.object_mass_kg is not None and not np.allclose(
+        masses, args.object_mass_kg, atol=1e-5
+    ):
+        raise RuntimeError("object mass was not locked to the sim2real value")
+    if args.object_friction_min is not None and (
+        frictions.min() < args.object_friction_min - 1e-4
+        or frictions.max() > args.object_friction_max + 1e-4
+    ):
+        raise RuntimeError("object friction left the sim2real interval")
 
 
 def _make_recording_config(args):
@@ -552,6 +727,132 @@ def _current_policy_observation(env, mode):
     return compose_policy_observation(qpos, target_before, mode)
 
 
+def _tensor_numpy(value):
+    if isinstance(value, torch.Tensor):
+        return value.detach().cpu().numpy().copy()
+    return np.asarray(value).copy()
+
+
+def _inertia_matrix(body_property):
+    inertia = body_property.inertia
+    return [
+        [float(getattr(getattr(inertia, row), column)) for column in "xyz"]
+        for row in "xyz"
+    ]
+
+
+def _dump_initial_state(env, observation, destination):
+    """Archive the post-reset state and actual Isaac Gym actor properties."""
+    destination = Path(destination).expanduser().resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+
+    object_mass = []
+    object_scale = []
+    object_inertia = []
+    object_com = []
+    object_friction = []
+    object_rolling_friction = []
+    object_torsion_friction = []
+    object_restitution = []
+    hand_mass = []
+    hand_friction = []
+    hand_rolling_friction = []
+    hand_torsion_friction = []
+    hand_restitution = []
+    hand_dof_stiffness = []
+    hand_dof_damping = []
+
+    for env_ptr in env.envs:
+        hand_handle = env.gym.find_actor_handle(env_ptr, "dexhand")
+        object_handle = env.gym.find_actor_handle(env_ptr, "manip_obj")
+        object_body = env.gym.get_actor_rigid_body_properties(
+            env_ptr, object_handle
+        )[0]
+        object_shapes = env.gym.get_actor_rigid_shape_properties(
+            env_ptr, object_handle
+        )
+        hand_bodies = env.gym.get_actor_rigid_body_properties(
+            env_ptr, hand_handle
+        )
+        hand_shapes = env.gym.get_actor_rigid_shape_properties(
+            env_ptr, hand_handle
+        )
+        hand_dofs = env.gym.get_actor_dof_properties(env_ptr, hand_handle)
+
+        object_mass.append(float(object_body.mass))
+        object_scale.append(float(env.gym.get_actor_scale(env_ptr, object_handle)))
+        object_inertia.append(_inertia_matrix(object_body))
+        object_com.append(
+            [
+                float(object_body.com.x),
+                float(object_body.com.y),
+                float(object_body.com.z),
+            ]
+        )
+        object_friction.append([float(item.friction) for item in object_shapes])
+        object_rolling_friction.append(
+            [float(item.rolling_friction) for item in object_shapes]
+        )
+        object_torsion_friction.append(
+            [float(item.torsion_friction) for item in object_shapes]
+        )
+        object_restitution.append(
+            [float(item.restitution) for item in object_shapes]
+        )
+        hand_mass.append([float(item.mass) for item in hand_bodies])
+        hand_friction.append([float(item.friction) for item in hand_shapes])
+        hand_rolling_friction.append(
+            [float(item.rolling_friction) for item in hand_shapes]
+        )
+        hand_torsion_friction.append(
+            [float(item.torsion_friction) for item in hand_shapes]
+        )
+        hand_restitution.append(
+            [float(item.restitution) for item in hand_shapes]
+        )
+        hand_dof_stiffness.append(np.asarray(hand_dofs["stiffness"]).copy())
+        hand_dof_damping.append(np.asarray(hand_dofs["damping"]).copy())
+
+    arrays = {
+        "observation": np.asarray(observation).copy(),
+        "q": _tensor_numpy(env._q),
+        "qd": _tensor_numpy(env._qd),
+        "wrist": _tensor_numpy(env._base_state),
+        "object": _tensor_numpy(env._manip_obj_root_state),
+        "target": _tensor_numpy(env.curr_targets),
+        "demo": _tensor_numpy(env.envidx_to_demoidx),
+        "frame": _tensor_numpy(env.global_cur_idx),
+        "progress": _tensor_numpy(env.progress_buf),
+        "torch_cuda_rng": _tensor_numpy(torch.cuda.get_rng_state()),
+        "random_force_probability": _tensor_numpy(env.random_force_prob),
+        "cached_object_mass": _tensor_numpy(env.manip_obj_mass),
+        "object_mass": np.asarray(object_mass),
+        "object_scale": np.asarray(object_scale),
+        "object_inertia": np.asarray(object_inertia),
+        "object_com": np.asarray(object_com),
+        "object_friction": np.asarray(object_friction),
+        "object_rolling_friction": np.asarray(object_rolling_friction),
+        "object_torsion_friction": np.asarray(object_torsion_friction),
+        "object_restitution": np.asarray(object_restitution),
+        "hand_mass": np.asarray(hand_mass),
+        "hand_friction": np.asarray(hand_friction),
+        "hand_rolling_friction": np.asarray(hand_rolling_friction),
+        "hand_torsion_friction": np.asarray(hand_torsion_friction),
+        "hand_restitution": np.asarray(hand_restitution),
+        "hand_dof_stiffness": np.asarray(hand_dof_stiffness),
+        "hand_dof_damping": np.asarray(hand_dof_damping),
+    }
+    temporary = destination.with_name(destination.name + ".tmp")
+    with temporary.open("wb") as stream:
+        np.savez_compressed(stream, **arrays)
+    os.replace(str(temporary), str(destination))
+    print(
+        "[sim] initial state archived | path=%s fields=%d envs=%d"
+        % (destination, len(arrays), len(env.envs)),
+        flush=True,
+    )
+
+
 def _print_policy_info(client):
     checkpoint = client.info["checkpoint"]
     print(
@@ -610,6 +911,7 @@ def run(args):
         retarget_root,
         _reset_overrides_from_args(args),
     )
+    _apply_sim2real_randomization(task_cfg, args)
     print(
         "[sim] creating bulb2 Isaac Gym task | envs=%d trajectories=%d "
         "headless=%s record_env=%d"
@@ -619,6 +921,7 @@ def run(args):
     env = None
     client = None
     recording_runtime = None
+    preview = None
     try:
         construction_hooks = None
         sharpa_asset_override = _install_sharpa_asset_override(sharpa_urdf)
@@ -642,8 +945,12 @@ def run(args):
             if construction_hooks is not None:
                 construction_hooks.restore()
             _restore_sharpa_asset_override(sharpa_asset_override)
+        if args.object_mass_kg is not None:
+            _lock_object_mass(env, args.object_mass_kg)
         env.compute_observations()
         env.reset()
+        if args.object_mass_kg is not None or args.object_friction_min is not None:
+            _check_sim2real_domain(env, args)
         lower, upper = _validate_environment(env, manifest)
         if recording_config is not None:
             recording_runtime = RecordingRuntime(env, recording_config)
@@ -662,6 +969,8 @@ def run(args):
             )
 
         observation = _current_policy_observation(env, client.observation_mode)
+        if args.initial_state_dump:
+            _dump_initial_state(env, observation, args.initial_state_dump)
         action_steps = client.n_action_steps
         history = np.repeat(observation[:, None, :], OBS_STEPS, axis=1)
         action_plan = np.zeros(
@@ -693,6 +1002,7 @@ def run(args):
             flush=True,
         )
         step = 0
+        preview = _RotationPreview(args)
         with torch.no_grad():
             while args.max_steps == 0 or step < args.max_steps:
                 if (
@@ -749,6 +1059,7 @@ def run(args):
                     # Capture the terminal pose before reset_done replaces it.
                     recording_runtime.update_axes()
                     recording_runtime.capture_if_active()
+                    _write_rotation_preview(preview, recording_runtime, step)
 
                 reset_ids_np = np.empty(0, dtype=np.int64)
                 if torch.any(done_mask):
@@ -901,6 +1212,8 @@ def run(args):
             )
         _print_hold_summary(recorder)
     finally:
+        if preview is not None:
+            preview.close()
         if recording_runtime is not None:
             recording_runtime.close()
         if client is not None:

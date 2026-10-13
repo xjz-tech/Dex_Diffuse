@@ -14,7 +14,6 @@ from typing import Any, Dict, Iterable, Mapping, Optional, Tuple
 import cv2
 import numpy as np
 
-
 DEFAULT_FRANKA_HOST = "172.16.0.10"
 DEFAULT_FRANKA_PORT = 9090
 DEFAULT_HAND_HOST = "localhost"
@@ -891,6 +890,7 @@ class FrankaJointIkSolver:
         w_rot: np.ndarray = IK_W_ROT_DIAG,
         tcp_pose_at_initial_q: Optional[np.ndarray] = None,
         sync_qpos_fn: Optional[Any] = None,
+        apply_joint_limits: bool = True,
     ) -> None:
         if max_joint_step <= 0:
             raise ValueError("max_joint_step must be positive")
@@ -905,6 +905,7 @@ class FrankaJointIkSolver:
             raise ValueError(f"Expected initial joint positions shape ({self.model.nq},), got {self.q_current.shape}")
         self.max_joint_step = float(max_joint_step)
         self.ik_dq_max = float(ik_dq_max)
+        self.apply_joint_limits = bool(apply_joint_limits)
         self.damping = float(damping)
         self.w_pos = np.asarray(w_pos, dtype=np.float64)
         self.w_rot = np.asarray(w_rot, dtype=np.float64)
@@ -947,7 +948,7 @@ class FrankaJointIkSolver:
         dq_rot = null_pos @ (jacobian_rot_null_bar @ rot_residual)
         dq = dq_pos + dq_rot
         dq_norm = float(np.max(np.abs(dq)))
-        if dq_norm > self.ik_dq_max:
+        if self.apply_joint_limits and dq_norm > self.ik_dq_max:
             dq *= self.ik_dq_max / dq_norm
         return dq, pos_err, rot_err
 
@@ -962,9 +963,11 @@ class FrankaJointIkSolver:
             self.q_current = synced
         target_ee_pose = tcp_target_to_ee_target(target_pose, self.ee_to_tcp_pose)
         dq, pos_err, rot_err = self._ik_step(target_ee_pose)
-        dq = np.clip(dq, -self.max_joint_step, self.max_joint_step)
+        if self.apply_joint_limits:
+            dq = np.clip(dq, -self.max_joint_step, self.max_joint_step)
         self.q_current = self.q_current + dq
-        self.q_current = np.clip(self.q_current, self.model.lowerPositionLimit, self.model.upperPositionLimit)
+        if self.apply_joint_limits:
+            self.q_current = np.clip(self.q_current, self.model.lowerPositionLimit, self.model.upperPositionLimit)
         return IkStepResult(self.q_current.copy(), np.asarray(pos_err, dtype=np.float64), np.asarray(rot_err, dtype=np.float64))
 
 
@@ -1037,6 +1040,7 @@ class DirectRobotEnv:
         max_arm_xyz_step: float = 0.03,
         max_hand_step: float = DEFAULT_MAX_HAND_STEP,
         disable_clamp: bool = False,
+        disable_ik_limits: bool = False,
         hand_interpolate: bool = False,
         action_chunk_steps: Optional[int] = 40,
         hz: float = 30.0,
@@ -1116,8 +1120,10 @@ class DirectRobotEnv:
                 damping=ik_damping,
                 tcp_pose_at_initial_q=self.franka.get_current_tcp_pose(),
                 sync_qpos_fn=sync_fn,
+                apply_joint_limits=not disable_ik_limits,
             )
-            print(f"[franka] control_mode=joints urdf={urdf_path} max_joint_step={max_joint_step} sync_qpos_each_step={self.sync_qpos_each_step}")
+            limit_text = "software_joint_limits=off" if disable_ik_limits else f"max_joint_step={max_joint_step}"
+            print(f"[franka] control_mode=joints urdf={urdf_path} {limit_text} sync_qpos_each_step={self.sync_qpos_each_step}")
         else:
             print(f"[franka] control_mode={self.franka_control_mode}")
 

@@ -139,6 +139,8 @@ def fused_conditional_sample(
     generator=None,
     **kwargs
 ):
+    if kwargs.get("eta", 0.0) != 0.0:
+        raise ValueError("fused DDIM requires eta=0")
     coeffs = _cached_fused_coeffs(policy, condition_data)
     trajectory = torch.randn(
         size=condition_data.shape,
@@ -222,7 +224,14 @@ def compile_unet(
 def accelerate_policy_unet(policy, fp16=True, max_batch=1024):
     """Replace the UNet with TensorRT and swap in the fused DDIM loop."""
     device = next(policy.model.parameters()).device
-    global_cond_dim = int(policy.n_obs_steps) * int(policy.obs_dim)
+    if not policy.obs_as_global_cond:
+        raise ValueError("TensorRT UNet requires global observation conditioning")
+    obs_dim = getattr(policy, "obs_dim", None)
+    if obs_dim is None:
+        obs_dim = getattr(policy, "obs_feature_dim", None)
+    if obs_dim is None:
+        raise ValueError("policy has no observation feature dimension")
+    global_cond_dim = int(policy.n_obs_steps) * int(obs_dim)
     compiled = compile_unet(
         policy.model,
         horizon=policy.horizon,

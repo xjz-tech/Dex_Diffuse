@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+METRIC="$1"; SCALE="$2"; SEED_VALUE="$3"; OUT="$(realpath -m "$4")"
+ROOT=/home/carus/Program/Dexterous_Manipulation/Dex_diffuse
+mkdir -p "$OUT"
+export PYTHONDONTWRITEBYTECODE=1
+export NUM_ENV="${NUM_ENV:-1024}" MAX_FAILURE_EPISODES="${NUM_ENV:-1024}" MAX_STEPS="${MAX_STEPS:-12000}"
+export DATA_INDICES=000-149 HEADLESS=1 RECORDING=0 RECORD_ENV=0 RECORD_WIDTH=640 RECORD_HEIGHT=480 RECORD_FPS=30
+export FK_RECORD=1 SIM_EVAL_SCRIPT="$ROOT/docs/experiment_reviews/20260923_fk_guidance_scale/code/sim_record.py"
+export RECORD_DIR="$OUT/video" PRINT_EVERY=300 SEED="$SEED_VALUE" SAMPLER=ddim
+export INFERENCE_STEPS=4 GUIDE_INFERENCE_STEPS=4 EXECUTION_STEPS=2 GUIDANCE_STEPS=2
+export FIRST_EPISODE_ONLY=1 CENSOR_UNFINISHED_AT_CAP=1
+export FAILURE_OBJ_POS_THRES_M=0.05 FAILURE_TIP_POS_THRES_M=0.1 FAILURE_OBJ_ROT_THRES_DEG=180
+export INVALID_OBJ_POS_THRES_M=0.15 FAILURE_TOLERANCE_SCALE=10000 FIXED_TOLERANCE_STEPS=20000
+export TRAJ_STEPS_LIMIT=12000 RESET_ON_REACH_GOAL=0 CROSS_TRAJECTORY_GOAL_PROB=0.3
+export FIXED_NOISE=0 GUIDE_SEED="$((SEED_VALUE+100000))" GUIDANCE_SCALE="$SCALE" GUIDANCE_METRIC="$METRIC"
+export CKPT_PATH=/home/carus/data_usb/obs_4-66.ckpt
+export GUIDE_CKPT_PATH="$ROOT/runs/sim_hand_10k_seed42/checkpoints/latest.ckpt"
+export MODEL_SERVER="$ROOT/eval/xjz_eval_strong_prior.py" MODEL_PYTHON=/home/carus/miniforge3/envs/dp/bin/python
+export RUN_DIR="$OUT" RUN_NAME="${METRIC}_scale${SCALE}_seed${SEED_VALUE}"
+export EPISODE_LOG="$OUT/episodes.jsonl" INITIAL_STATE_DUMP="$OUT/initial_state.npz"
+bash "$ROOT/eval/xjz_test.sh"

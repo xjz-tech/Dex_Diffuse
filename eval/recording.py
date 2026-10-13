@@ -9,6 +9,7 @@ matching the native rendering path used by the original serial recording.
 from __future__ import annotations
 
 import queue
+import shutil
 import subprocess
 import threading
 import time
@@ -204,6 +205,19 @@ class RecordingConstructionHooks:
         self._camera_call_index = 0
 
 
+def _ffmpeg_executable() -> str:
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    bundled = Path(
+        "/home/carus/miniforge3/envs/dp/lib/python3.10/site-packages/"
+        "imageio_ffmpeg/binaries/ffmpeg-linux-x86_64-v7.0.2"
+    )
+    if bundled.is_file():
+        return str(bundled)
+    raise RuntimeError("ffmpeg was not found")
+
+
 class Mp4Recorder:
     """Stream RGB frames to FFmpeg without encoding on the sim thread."""
 
@@ -240,7 +254,7 @@ class Mp4Recorder:
         self.config.output_dir.mkdir(parents=True, exist_ok=True)
         self.path = self._next_path()
         command = [
-            "ffmpeg",
+            _ffmpeg_executable(),
             "-hide_banner",
             "-loglevel",
             "error",
@@ -469,6 +483,7 @@ class RecordingRuntime:
         self.env = env
         self.config = config
         self.recorder = Mp4Recorder(config)
+        self.last_rgb = None
 
         self.environment_index = config.environment_index
         if self.environment_index >= env.num_envs:
@@ -489,26 +504,26 @@ class RecordingRuntime:
         env.camera_obs = None
         env.multiview_camera_obs = None
 
-        if env.viewer is None:
-            raise ValueError("recording requires a non-headless viewer")
-        env.gym.subscribe_viewer_keyboard_event(
-            env.viewer,
-            gymapi.KEY_Q,
-            "QUIT",
-        )
-        env.gym.viewer_camera_look_at(
-            env.viewer,
-            self.camera_env,
-            gymapi.Vec3(*config.camera_position),
-            gymapi.Vec3(*config.camera_target),
-        )
+        if env.viewer is not None:
+            env.gym.subscribe_viewer_keyboard_event(
+                env.viewer,
+                gymapi.KEY_Q,
+                "QUIT",
+            )
+            env.gym.viewer_camera_look_at(
+                env.viewer,
+                self.camera_env,
+                gymapi.Vec3(*config.camera_position),
+                gymapi.Vec3(*config.camera_target),
+            )
 
         self.local_cuboids = _local_axis_cuboids(
             config.axis_length,
             config.axis_thickness,
         )
 
-        self._install_viewer_render_override()
+        if env.viewer is not None:
+            self._install_viewer_render_override()
         self.update_axes()
         self.recorder.start()
         # Seed the wall-clock video timeline before the first serial inference
@@ -643,6 +658,7 @@ class RecordingRuntime:
         finally:
             self.env.gym.end_access_image_tensors(self.env.sim)
         _draw_step_number(rgb, self.env.control_steps)
+        self.last_rgb = rgb
         self.recorder.write(rgb, captured_at=time.monotonic())
 
     def close(self) -> None:

@@ -480,13 +480,19 @@ def build_policy(loaded: LoadedCheckpoint):
             "unsupported Sim-Hand checkpoint: obs_dim=%d, expected 22 or 66"
             % obs_dim
         )
+    horizon = int(cfg["horizon"])
+    if horizon not in (8, 12):
+        raise ValueError(
+            "unsupported Sim-Hand checkpoint: horizon=%d, expected 8 or 12"
+            % horizon
+        )
     expected = {
         "obs_dim": obs_dim,
         "action_dim": 22,
         "n_obs_steps": 4,
-        "n_pred_action_steps": 9,
+        "n_pred_action_steps": horizon - 3,
         "n_action_steps": 5,
-        "horizon": 12,
+        "horizon": horizon,
     }
     for key, value in expected.items():
         actual = int(cfg[key])
@@ -542,18 +548,20 @@ def configure_policy_execution_steps(policy, spec, n_action_steps):
     The checkpoint still generates the full horizon. ``n_action_steps`` only
     changes how many of those predicted steps the closed loop applies.
     """
-    from policy_observation import expected_policy_spec
-
-    updated = expected_policy_spec(spec["obs_dim"], n_action_steps)
-    layout_keys = ("obs_dim", "action_dim", "n_obs_steps", "n_pred_action_steps", "horizon")
-    for key in layout_keys:
-        if int(spec[key]) != int(updated[key]):
-            raise ValueError(
-                "cannot override n_action_steps: %s=%s, expected %s"
-                % (key, spec[key], updated[key])
-            )
-    policy.n_action_steps = updated["n_action_steps"]
-    spec["n_action_steps"] = updated["n_action_steps"]
+    predicted = int(spec["n_pred_action_steps"])
+    if (int(spec["obs_dim"]) not in (22, 66)
+            or int(spec["action_dim"]) != 22
+            or int(spec["n_obs_steps"]) != 4
+            or int(spec["horizon"]) != predicted + 3):
+        raise ValueError("unsupported Sim-Hand action window")
+    requested = int(n_action_steps)
+    if not 1 <= requested <= predicted:
+        raise ValueError(
+            "n_action_steps must be in [1, %d], got %d"
+            % (predicted, requested)
+        )
+    policy.n_action_steps = requested
+    spec["n_action_steps"] = requested
     return spec
 
 

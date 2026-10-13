@@ -1,0 +1,9 @@
+# 2026-09-23 FK fingertip guidance sweep
+
+User-approved design: original 10k checkpoint guides 1B; fingertip scales 25, 50, 100, 200, 500, 1000; joint-loss scale25 concurrent control. Seeds 42, 8, 19. Each arm/seed: 1024 native random initial states; first episodes only, 12000 control steps / 400s cap. Total: 21 runs / 21504 first episodes.
+
+Native `eval/xjz_test.sh` protocol; prior DDIM4, guide DDIM4, execute2, guide first2 predicted actions. All threshold overrides are explicit in `code/run_arm.sh`; no RL defaults modified. Fresh policy noise for all arms, guide seed offset +100000. Same model checkpoint weights and normalization; only loss metric and requested scales change.
+
+The new loss unnormalizes both normalized actions into radians before using differentiable FK from the simulator's SharpA URDF, in the palm frame. Loss is mean over 2 time steps, 5 fingers and 3 Cartesian coordinates, in square metres. The common fixed wrist/palm transform does not change Euclidean loss. Guide reference is detached; score gradient passes through FK and action unnormalization, with denoiser epsilon frozen. Existing DDIM clipping and update rules remain unchanged. No extra loss normalization or angle clamp.
+
+`code/run_queue.py` runs serially, writes status and per-run validation, verifies exact initial/physical pairing, validates recorded MP4 streams, and updates `report.md` and `results.json` after each arm. The native viewer recording path segfaulted during smoke testing before inference. For this experiment only, `code/sim_record.py` delegates to native `sim_eval.main` and wraps camera rendering after each unmodified native `env.step`. Actual env0 first episodes are recorded headlessly at 30fps, one frame per control step; frame count must equal the env0 episode length. Statistics use simulation control steps / 30. Native failure is an evaluation failure proxy, not independent physical drop detection.

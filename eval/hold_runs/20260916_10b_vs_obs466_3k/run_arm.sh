@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DEX=/home/carus/Program/Dexterous_Manipulation/Dex_diffuse
+ROOT="$DEX/eval/hold_runs/20260916_10b_vs_obs466_3k"
+ARM_DIR="${ARM_DIR:?ARM_DIR is required}"
+SEED_VALUE="${SEED_VALUE:?SEED_VALUE is required}"
+SCALE_VALUE="${SCALE_VALUE:?SCALE_VALUE is required}"
+NUM_ENV_VALUE="${NUM_ENV_VALUE:-3000}"
+MAX_STEPS_VALUE="${MAX_STEPS_VALUE:-12000}"
+TAG="seed${SEED_VALUE}_10B_fresh"
+
+export PYTHONDONTWRITEBYTECODE=1
+export NUM_ENV="$NUM_ENV_VALUE" MAX_FAILURE_EPISODES="$NUM_ENV_VALUE"
+export MAX_STEPS="$MAX_STEPS_VALUE"
+export SAMPLER=ddim INFERENCE_STEPS=4 EXECUTION_STEPS=2
+export GUIDE_INFERENCE_STEPS=4 GUIDANCE_STEPS=2 FIXED_NOISE=0
+export FIRST_EPISODE_ONLY=1 CENSOR_UNFINISHED_AT_CAP=1
+export DATA_INDICES=000-149 HEADLESS=1 RECORDING=0 PRINT_EVERY=100
+export FAILURE_OBJ_POS_THRES_M=0.05 FAILURE_TIP_POS_THRES_M=0.1
+export FAILURE_OBJ_ROT_THRES_DEG=180 INVALID_OBJ_POS_THRES_M=0.15
+export FAILURE_TOLERANCE_SCALE=10000 FIXED_TOLERANCE_STEPS=20000
+export TRAJ_STEPS_LIMIT=12000 RESET_ON_REACH_GOAL=0
+export CROSS_TRAJECTORY_GOAL_PROB=0.3
+export SEED="$SEED_VALUE" GUIDE_SEED="$((SEED_VALUE + 100000))"
+export PRIOR_CKPT_PATH=/home/carus/data_usb/10B_obs_4-66.ckpt
+export GUIDE_CKPT_PATH="$DEX/runs/sim_hand_10k_seed42/checkpoints/latest.ckpt"
+export GUIDANCE_SCALES="$SCALE_VALUE"
+export MODEL_SERVER="$DEX/eval/xjz_eval_strong_prior.py"
+export XJZ_TEST_SCRIPT="$DEX/eval/xjz_test.sh"
+export MODEL_PYTHON=/home/carus/miniforge3/envs/dp/bin/python
+export RUN_DIR="$ARM_DIR" RUN_TAG="$TAG"
+
+cd "$DEX"
+exec bash "$DEX/eval/xjz_eval_strong_prior.sh"

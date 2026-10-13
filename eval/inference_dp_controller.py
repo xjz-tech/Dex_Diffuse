@@ -100,6 +100,7 @@ class GuidedDDIMController:
         self.inference_steps = int(inference_steps)
         self.execution_steps = int(execution_steps)
         self.max_execution_steps = max_execution_steps
+        self.guidance_loss_fn = None
         self.guidance_scale = float(guidance_scale)
         self.eta = float(eta)
         self.fixed_noise = bool(fixed_noise)
@@ -281,6 +282,7 @@ class GuidedDDIMController:
             guidance_scale=self.guidance_scale,
             guidance_slice=self.reference_slice,
             eta=self.eta,
+            guidance_loss_fn=self.guidance_loss_fn,
         )
         if not sample.steps:
             raise RuntimeError("guided DDIM produced no reverse steps")
@@ -311,6 +313,7 @@ class GuidedDDIMController:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--method", choices=("guidance", "edit"), default="guidance")
     parser.add_argument("--dp-checkpoint", required=True, type=Path)
     parser.add_argument("--controller-checkpoint", required=True, type=Path)
     parser.add_argument("--device", default="cuda:0")
@@ -332,6 +335,10 @@ def parse_args() -> argparse.Namespace:
         help="Controller calls reusing one DP proposal (default: 4)",
     )
     parser.add_argument("--guidance-scale", type=float, default=100.0)
+    parser.add_argument("--edit-noise-ratio", type=float, default=0.15)
+    parser.add_argument("--trt-fused", action="store_true", help="TensorRT FP16 UNets and precomputed DDIM updates")
+    parser.add_argument("--edit-interpolate-large-actions", action="store_true")
+    parser.add_argument("--edit-interpolation-threshold-rad", type=float, default=0.12)
     parser.add_argument("--eta", type=float, default=0.0, help="DDIM eta (must be 0.0)")
     parser.add_argument("--fixed-noise", type=int, choices=(0, 1), default=1)
     parser.add_argument("--seed", type=int, default=42)
@@ -390,8 +397,18 @@ def _validate_args(args: argparse.Namespace) -> torch.device:
         setattr(args, name, path)
     if args.dp_inference_steps <= 0 or args.ddim_inference_steps <= 0:
         raise ValueError("inference step counts must be positive")
-    if args.guidance_scale < 0.0:
+    if not np.isfinite(args.guidance_scale) or args.guidance_scale < 0.0:
         raise ValueError("guidance_scale must be non-negative")
+    if args.method == "edit" and args.guidance_scale != 0.0:
+        raise ValueError("edit mode requires guidance_scale=0")
+    if not np.isfinite(args.edit_noise_ratio) or args.edit_noise_ratio < 0.0:
+        raise ValueError("edit_noise_ratio must be finite and non-negative")
+    if not np.isfinite(args.edit_interpolation_threshold_rad) or args.edit_interpolation_threshold_rad <= 0.0:
+        raise ValueError("edit_interpolation_threshold_rad must be finite and positive")
+    if args.edit_interpolate_large_actions and args.method != "edit":
+        raise ValueError("large-action interpolation is only available in edit mode")
+    if args.trt_fused and args.method != "edit":
+        raise ValueError("TRT/fused mode is only available in edit mode")
     if args.eta != 0.0:
         raise ValueError("eta must be 0.0")
     if args.execution_steps <= 0:
@@ -405,6 +422,8 @@ def _validate_args(args: argparse.Namespace) -> torch.device:
     if args.hz <= 0.0:
         raise ValueError("hz must be positive")
     device = torch.device(args.device)
+    if args.trt_fused and device.type != "cuda":
+        raise ValueError("TRT/fused mode requires a CUDA device")
     if device.type == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA was requested but is unavailable")
     torch.manual_seed(args.seed)
@@ -511,6 +530,46 @@ def _controller_windows(
     )
 
 
+def _replace_hand_actions(
+    dp_actions: np.ndarray,
+    execute_slice: slice,
+    hand_actions: np.ndarray,
+) -> np.ndarray:
+    """Preserve the visual DP arm actions and replace only the SharpA targets."""
+    actions = np.asarray(dp_actions[execute_slice]).copy()
+    hand_actions = np.asarray(hand_actions)
+    if actions.ndim != 2 or actions.shape[1] != ACTION_DIM:
+        raise ValueError("DP execution window must have 31 action dimensions")
+    if hand_actions.shape != (1, len(actions), HAND_DIM):
+        raise ValueError("edited hand output does not match the execution window")
+    if not np.isfinite(actions).all() or not np.isfinite(hand_actions).all():
+        raise ValueError("DP or edited hand action contains NaN or Inf")
+    actions[:, ARM_DIM:] = hand_actions[0]
+    return actions
+
+
+def _interpolate_large_hand_action(
+    previous_action: np.ndarray,
+    target_action: np.ndarray,
+    threshold_rad: float,
+) -> np.ndarray:
+    """Insert exactly one hand midpoint when a joint change exceeds threshold."""
+    previous = np.asarray(previous_action, dtype=np.float64)
+    target = np.asarray(target_action, dtype=np.float64)
+    if previous.shape != (ACTION_DIM,) or target.shape != (ACTION_DIM,):
+        raise ValueError("previous and target actions must each have 31 dimensions")
+    if not np.isfinite(previous).all() or not np.isfinite(target).all():
+        raise ValueError("interpolated actions must be finite")
+    if not np.isfinite(threshold_rad) or threshold_rad <= 0.0:
+        raise ValueError("hand interpolation threshold must be finite and positive")
+    hand_delta = target[ARM_DIM:] - previous[ARM_DIM:]
+    if np.max(np.abs(hand_delta)) <= threshold_rad:
+        return target[None].copy()
+    midpoint = previous.copy()
+    midpoint[ARM_DIM:] += 0.5 * hand_delta
+    return np.stack((midpoint, target))
+
+
 def _synthetic_real_observation(
     n_obs_steps: int,
     rgb_shapes: dict[str, tuple[int, ...]],
@@ -532,6 +591,8 @@ def _run_check(
     rgb_shapes: dict[str, tuple[int, ...]],
     device: torch.device,
     controller_windows: tuple[tuple[slice, slice], ...],
+    editor=None,
+    seed: int = 42,
 ) -> None:
     with torch.inference_mode():
         proposal = real_policy.predict_action(
@@ -553,30 +614,43 @@ def _run_check(
         observation_mean[None, :], controller.spec["n_obs_steps"], axis=0
     )
     hand_reference = proposal[0, :, ARM_DIM:].detach().cpu().numpy()
-    expected_guided = (1, controller.execution_steps, HAND_DIM)
+    expected_hand = (1, controller.execution_steps, HAND_DIM)
     # Synthetic shape/inference check only: no robot feedback is available here.
     for controller_idx, (execute_slice, guide_slice) in enumerate(controller_windows):
         hand_guide = hand_reference[guide_slice]
-        guided, stats = controller.predict(history, hand_guide)
-        if guided.shape != expected_guided:
-            raise RuntimeError(
-                "controller returned shape %s, expected %s" % (guided.shape, expected_guided)
+        if editor is None:
+            hand_action, stats = controller.predict(history, hand_guide)
+        else:
+            hand_action, stats = editor.predict(
+                history, hand_guide,
+                [seed] if controller.fixed_noise else None,
             )
+        if hand_action.shape != expected_hand:
+            raise RuntimeError(
+                "controller returned shape %s, expected %s" % (hand_action.shape, expected_hand)
+            )
+        metric = (
+            "edit_rmse_rad=%.6f" % stats["edit_rmse_rad"]
+            if editor is not None else
+            "final_mse %.6f -> %.6f" % (stats.mse_before, stats.mse_after)
+        )
         print(
-            "[check] passed: controller=%d/%d DP %s guide=[%d:%d] %s "
-            "execute=[%d:%d] %s | final_mse %.6f -> %.6f"
+            "[check] passed: controller=%d/%d DP %s reference=[%d:%d] %s "
+            "execute=[%d:%d] %s | %s"
             % (
                 controller_idx + 1, len(controller_windows), expected,
                 guide_slice.start, guide_slice.stop, hand_guide.shape,
-                execute_slice.start, execute_slice.stop, guided.shape,
-                stats.mse_before, stats.mse_after,
+                execute_slice.start, execute_slice.stop, hand_action.shape,
+                metric,
             ),
             flush=True,
         )
 
 
-def main() -> int:
+def main(method: str | None = None) -> int:
     args = parse_args()
+    if method is not None:
+        args.method = method
     device = _validate_args(args)
 
     print("[dp] loading %s" % args.dp_checkpoint, flush=True)
@@ -588,45 +662,92 @@ def main() -> int:
     n_obs_steps, action_steps, relative_ee, rgb_shapes = _real_policy_metadata(
         real_cfg, real_policy
     )
-    controller = GuidedDDIMController(
-        args.controller_checkpoint,
-        device,
-        inference_steps=args.ddim_inference_steps,
-        execution_steps=args.execution_steps,
-        guidance_scale=args.guidance_scale,
-        eta=args.eta,
-        fixed_noise=bool(args.fixed_noise),
-        seed=args.seed,
-        allow_salvage=not args.no_salvage,
-    )
-    controller.set_guidance_horizon(args.guidance_steps)
+    editor = None
+    if args.method == "edit":
+        from diffusion_policy.SDEdit.reference_action_editor import ReferenceActionEditor
+
+        editor = ReferenceActionEditor(
+            args.controller_checkpoint,
+            args.edit_noise_ratio,
+            steps=args.ddim_inference_steps,
+            execution_steps=args.execution_steps,
+            device=device,
+            fixed_noise=bool(args.fixed_noise),
+            seed=args.seed,
+            allow_salvage=not args.no_salvage,
+        )
+        controller = editor.controller
+        reference_steps = editor.future_steps
+    else:
+        controller = GuidedDDIMController(
+            args.controller_checkpoint,
+            device,
+            inference_steps=args.ddim_inference_steps,
+            execution_steps=args.execution_steps,
+            guidance_scale=args.guidance_scale,
+            eta=args.eta,
+            fixed_noise=bool(args.fixed_noise),
+            seed=args.seed,
+            allow_salvage=not args.no_salvage,
+        )
+        controller.set_guidance_horizon(args.guidance_steps)
+        reference_steps = controller.reference_steps
     controller_windows = _controller_windows(
         action_steps, controller.execution_steps,
-        args.controller_calls_per_dp, controller.reference_steps,
+        args.controller_calls_per_dp, reference_steps,
     )
     print(
         "[pipeline] Real DP (%d-step task proposal) -> %d x "
-        "(guided Sim-Hand DDIM, %d-step guide -> execute %d -> observe) -> replan DP"
+        "(%s Sim-Hand DDIM, %d-step reference -> execute %d -> observe) -> replan DP"
         % (
             action_steps, args.controller_calls_per_dp,
-            controller.reference_steps, controller.execution_steps,
+            args.method, reference_steps, controller.execution_steps,
         ),
         flush=True,
     )
-    print(
-        "[guidance] scale=%.4f eta=%.4f ddim_steps=%d fixed_noise=%s"
-        % (
-            controller.guidance_scale,
-            controller.eta,
-            controller.inference_steps,
-            controller.fixed_noise,
-        ),
-        flush=True,
-    )
+    if editor is None:
+        print(
+            "[guidance] scale=%.4f eta=%.4f ddim_steps=%d fixed_noise=%s"
+            % (controller.guidance_scale, controller.eta,
+               controller.inference_steps, controller.fixed_noise),
+            flush=True,
+        )
+    else:
+        print(
+            "[edit] noise_ratio=%.4f actual=%.4f timesteps=%s fixed_noise=%s"
+            % (args.edit_noise_ratio, editor.actual_noise_ratio,
+               editor.timesteps, controller.fixed_noise),
+            flush=True,
+        )
+        print(
+            "[edit] interpolate_large_actions=%s threshold_rad=%.4f"
+            % (args.edit_interpolate_large_actions, args.edit_interpolation_threshold_rad),
+            flush=True,
+        )
 
     if args.validate_only:
         print("[check] model and schedule validation passed; hardware was not connected", flush=True)
         return 0
+
+    if args.trt_fused:
+        from trt_unet import accelerate_policy_unet
+
+        if not isinstance(real_policy.noise_scheduler, DDIMScheduler):
+            raise ValueError("TRT/fused visual DP requires a DDIM scheduler")
+        if real_policy.noise_scheduler.config.prediction_type != "epsilon":
+            raise ValueError("TRT/fused visual DP requires epsilon prediction")
+        if bool(getattr(real_policy.noise_scheduler.config, "thresholding", False)):
+            raise ValueError("TRT/fused visual DP does not support dynamic thresholding")
+        assert editor is not None
+        editor.enable_fused_sampling()
+        for name, policy in (("visual DP", real_policy), ("SDEdit hand", controller.policy)):
+            started = time.perf_counter()
+            accelerate_policy_unet(policy, fp16=True, max_batch=1)
+            print(
+                "[trt] %s UNet FP16 ready in %.1fs; DDIM coefficients precomputed"
+                % (name, time.perf_counter() - started),
+                flush=True,
+            )
 
     if args.check_only:
         _run_check(
@@ -637,6 +758,8 @@ def main() -> int:
             rgb_shapes,
             device,
             controller_windows,
+            editor=editor,
+            seed=args.seed,
         )
         return 0
 
@@ -660,7 +783,8 @@ def main() -> int:
         ik_damping=args.ik_damping,
         max_arm_xyz_step=args.max_arm_xyz_step,
         max_hand_step=args.max_hand_step,
-        disable_clamp=args.disable_clamp,
+        disable_clamp=args.disable_clamp or args.method == "edit",
+        disable_ik_limits=args.method == "edit",
         hand_interpolate=args.hand_interpolate,
         action_chunk_steps=1,
         hz=args.hz,
@@ -718,51 +842,79 @@ def main() -> int:
                 # advancing BOTH the arm actions and hand guide in the cached DP.
                 hand_reference = absolute_dp_actions[guide_slice, ARM_DIM:]
                 started = time.perf_counter()
-                guided_hand, stats = controller.predict(
-                    np.stack(controller_history),
-                    hand_reference,
-                )
+                if editor is None:
+                    guided_hand, stats = controller.predict(
+                        np.stack(controller_history), hand_reference,
+                    )
+                else:
+                    guided_hand, stats = editor.predict(
+                        np.stack(controller_history), hand_reference,
+                        [args.seed] if controller.fixed_noise else None,
+                    )
                 inference_seconds = time.perf_counter() - started
-                guided_actions = absolute_dp_actions[execute_slice].copy()
                 expected_hand = (1, controller.execution_steps, HAND_DIM)
                 if guided_hand.shape != expected_hand:
                     raise RuntimeError(
                         "controller returned shape %s, expected %s"
                         % (guided_hand.shape, expected_hand)
                     )
-                guided_actions[:, ARM_DIM:] = guided_hand[0]
-                if not np.isfinite(guided_actions).all():
-                    raise RuntimeError("combined guided action contains NaN or Inf")
+                guided_actions = _replace_hand_actions(
+                    absolute_dp_actions, execute_slice, guided_hand
+                )
 
+                metric = (
+                    "edit_rmse_rad=%.6f" % stats["edit_rmse_rad"]
+                    if editor is not None else
+                    "mse=%.6f->%.6f" % (stats.mse_before, stats.mse_after)
+                )
                 print(
-                    "[guided chunk %04d] dp=%04d controller=%d/%d proposal=%s "
-                    "guide=[%d:%d] execute=[%d:%d] %s "
-                    "mse=%.6f->%.6f controller_s=%.3f"
+                    "[%s chunk %04d] dp=%04d controller=%d/%d proposal=%s "
+                    "reference=[%d:%d] execute=[%d:%d] %s %s controller_s=%.3f"
                     % (
-                        env.chunk_idx, dp_idx, controller_idx + 1, len(controller_windows),
+                        args.method, env.chunk_idx, dp_idx,
+                        controller_idx + 1, len(controller_windows),
                         tuple(absolute_dp_actions.shape),
                         guide_slice.start, guide_slice.stop,
                         execute_slice.start, execute_slice.stop,
-                        tuple(guided_actions.shape),
-                        stats.mse_before, stats.mse_after, inference_seconds,
+                        tuple(guided_actions.shape), metric, inference_seconds,
                     ),
                     flush=True,
                 )
 
                 next_deadline = time.monotonic()
+                execution_step_idx = 0
                 for step_idx, action in enumerate(guided_actions):
-                    raw_obs = env.step_single(action, step_idx)
-                    captured = real_dp.capture_obs(raw_obs, rgb_shapes)
-                    real_history.append(captured)
-                    actual_qpos = captured["hand_joint"]
-                    target_before = np.asarray(env.previous_action[ARM_DIM:], dtype=np.float32)
-                    controller_history.append(
-                        controller.compose_observation(actual_qpos, target_before)
+                    commands = (
+                        _interpolate_large_hand_action(
+                            env.previous_action, action, args.edit_interpolation_threshold_rad,
+                        )
+                        if args.method == "edit" and args.edit_interpolate_large_actions
+                        else np.asarray(action)[None]
                     )
-                    next_deadline += 1.0 / args.hz
-                    remaining = next_deadline - time.monotonic()
-                    if remaining > 0.0:
-                        time.sleep(remaining)
+                    if len(commands) > 1:
+                        print(
+                            "[edit chunk %04d step %02d] hand interpolation: %d commands, "
+                            "max_joint_delta_rad=%.4f"
+                            % (
+                                env.chunk_idx, step_idx, len(commands),
+                                np.max(np.abs(action[ARM_DIM:] - env.previous_action[ARM_DIM:])),
+                            ),
+                            flush=True,
+                        )
+                    for command in commands:
+                        raw_obs = env.step_single(command, execution_step_idx)
+                        execution_step_idx += 1
+                        captured = real_dp.capture_obs(raw_obs, rgb_shapes)
+                        real_history.append(captured)
+                        actual_qpos = captured["hand_joint"]
+                        target_before = np.asarray(env.previous_action[ARM_DIM:], dtype=np.float32)
+                        controller_history.append(
+                            controller.compose_observation(actual_qpos, target_before)
+                        )
+                        next_deadline += 1.0 / args.hz
+                        remaining = next_deadline - time.monotonic()
+                        if remaining > 0.0:
+                            time.sleep(remaining)
                 env.chunk_idx += 1
             dp_idx += 1
     finally:

@@ -88,6 +88,7 @@ def test_controller_predict_uses_segmentwise_sample_guided_trajectory(monkeypatc
     controller.reference_slice = slice(3, 12)
     controller.execution_steps = 5
     controller.inference_steps = 8
+    controller.guidance_loss_fn = None
     controller.guidance_scale = 100.0
     controller.eta = 0.0
     controller.scheduler = object()

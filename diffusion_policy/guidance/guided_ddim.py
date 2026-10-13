@@ -141,6 +141,7 @@ def guided_ddim_step(
     guidance_scale: float,
     guidance_slice: slice,
     eta: float = 0.0,
+    guidance_loss_fn=None,
 ) -> GuidedDDIMStepOutput:
     if scheduler.num_inference_steps is None:
         raise ValueError(
@@ -173,6 +174,7 @@ def guided_ddim_step(
     x0_base = x0_raw.clamp(-1.0, 1.0) if scheduler.config.clip_sample else x0_raw
     base_epsilon = (sample - sqrt_alpha_t * x0_base) / sqrt_beta_t
     _validate_guidance_reference(x0_raw, reference, guidance_slice)
+    loss_fn = _slice_mse if guidance_loss_fn is None else guidance_loss_fn
     # OpenAI-style score conditioning: freeze εθ, clip only the base x0,
     # re-derive its matching epsilon, then leave the guided x0 unclipped.
     if guidance_scale > 0:
@@ -180,7 +182,7 @@ def guided_ddim_step(
             raise ValueError(
                 "sample must require gradients when guidance_scale is positive"
             )
-        guidance_loss = _slice_mse(x0_raw, reference, guidance_slice).sum()
+        guidance_loss = loss_fn(x0_raw, reference, guidance_slice).sum()
         gradient = torch.autograd.grad(guidance_loss, sample)[0]
     else:
         gradient = torch.zeros_like(sample)
@@ -203,12 +205,12 @@ def guided_ddim_step(
         alpha_bar_t=alpha_t,
         alpha_bar_prev=alpha_prev,
         direction_coefficient=direction,
-        guidance_loss_before=_slice_mse(
+        guidance_loss_before=loss_fn(
             x0_raw,
             reference,
             guidance_slice,
         ).detach(),
-        guidance_loss_after=_slice_mse(
+        guidance_loss_after=loss_fn(
             guided_x0_raw,
             reference,
             guidance_slice,
@@ -226,6 +228,7 @@ def sample_guided_trajectory(
     guidance_scale: float,
     guidance_slice: slice,
     eta: float = 0.0,
+    guidance_loss_fn=None,
 ) -> GuidedDDIMSampleOutput:
     if num_inference_steps <= 0:
         raise ValueError(
@@ -256,6 +259,7 @@ def sample_guided_trajectory(
                     guidance_scale=guidance_scale,
                     guidance_slice=guidance_slice,
                     eta=eta,
+                    guidance_loss_fn=guidance_loss_fn,
                 )
         else:
             output = guided_ddim_step(
@@ -267,6 +271,7 @@ def sample_guided_trajectory(
                 guidance_scale=guidance_scale,
                 guidance_slice=guidance_slice,
                 eta=eta,
+                guidance_loss_fn=guidance_loss_fn,
             )
         outputs.append(output)
         trajectory = output.prev_sample.detach()

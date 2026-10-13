@@ -1,0 +1,1 @@
+44g mass-only intervention. Seeds50/58/63, ordinary1B and guide10k scale25, DDIM4/4 exec2, original real initial states, native xjz task. Cap400s. Physics mass set after native reset and read back; original inertia and cached mass used for external force amplitudes retained, keeping disturbance strength comparable. No global task bug fix. Record actual live camera frames.

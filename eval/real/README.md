@@ -74,3 +74,40 @@ action。需要临时跳过初始 pose 移动或 Enter 门控时，可分别设�
 
 启动脚本默认使用 `/home/frankagvl/anaconda3/envs/dexIL/bin/python`，无需依赖
 当前 shell 是否已经执行 `conda activate dexIL`；仍可通过 `MODEL_PYTHON` 覆盖。
+
+## 在线视觉 DP → SDEdit
+
+`eval/eval_dp_edit_obs66.sh` 使用在线视觉 DP 的 31 维动作窗口：机械臂的 9 维
+动作仍由视觉 DP 给出，22 维手部参考动作交给
+`diffusion_policy/SDEdit/reference_action_editor.py` 编辑。每个 edit 调用执行两步，
+读取新的手部状态后继续闭环。这个入口复用
+`eval/inference_dp_controller.py` 的相机、Franka、SharpA 执行。
+edit 执行路径不对手部目标做绝对关节角或单步变化截断，也不对 Franka 的
+末端位置目标、IK 关节增量和 IK 关节角做软件限幅。Franka/SharpA 的外部
+控制器及硬件自身行为不由此脚本控制。
+
+可选设置 `EDIT_INTERPOLATE_LARGE_ACTIONS=1`：若相邻下发目标中任一手指关节
+变化超过 `EDIT_INTERPOLATION_THRESHOLD_RAD`（默认 `0.12 rad`），无论超出
+多少都只插入一个手部线性中点。中点命令保持上一个机械臂目标，最后一条命令
+使用原始的机械臂和手部目标；每条命令后读取观察并
+更新历史。默认关闭（`EDIT_INTERPOLATE_LARGE_ACTIONS=0`）。插值会增加
+实际控制步数和耗时，不修改 SDEdit 的原始输出终点；它与 SharpA server 的
+`interpolate` 参数是两种不同机制。
+
+先设置 `DP_CKPT_PATH` 和 `CONTROLLER_CKPT_PATH`，然后只做离线模型检查：
+
+```bash
+CHECK_ONLY=1 ./eval/eval_dp_edit_obs66.sh
+```
+
+脚本默认就是 `CHECK_ONLY=1`，不会连接硬件。确认模型、动作窗口长度和参数后，
+可显式设置 `CHECK_ONLY=0 LIVE=1` 运行；默认 `MAX_CHUNKS=1`，即先执行一个
+两步 chunk。`EDIT_NOISE_RATIO` 默认 `0.15`、`DDIM_INFERENCE_STEPS` 默认 `4`、
+`FIXED_NOISE` 默认 `1`。脚本不读取离线 reference 文件，也不更改视觉 DP 的机械臂动作。
+
+`TRT_FUSED=1` 默认开启：视觉 DP 和 SDEdit 手部 UNet 均编译为 TensorRT FP16
+（batch 1），视觉 DP 使用预计算系数的 PyTorch DDIM 更新，SDEdit 使用针对
+非均匀编辑时间步预计算的 PyTorch DDIM 更新。这里的 fused 指预计算系数的
+PyTorch 循环，不是单个融合 CUDA kernel。首次启动需要编译；`MODEL_PYTHON`
+必须安装 `torch_tensorrt` 并使用 CUDA。设置 `TRT_FUSED=0` 可回到原 PyTorch
+推理路径。checkpoint 换了以后需要重新编译；当前脚本不缓存 TRT engine。
