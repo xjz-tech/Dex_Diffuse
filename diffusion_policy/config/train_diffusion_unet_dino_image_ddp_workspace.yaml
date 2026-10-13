@@ -1,0 +1,11 @@
+defaults:
+  - train_diffusion_unet_dino_image_workspace
+  - _self_
+
+name: train_diffusion_unet_dino_image_ddp
+_target_: diffusion_policy.workspace.train_diffusion_unet_image_ddp_workspace.TrainDiffusionUnetImageDDPWorkspace
+
+training:
+  # num_epochs is the total target, including epochs completed before resume.
+  distributed_timeout_seconds: 7200
+  resume_path: null

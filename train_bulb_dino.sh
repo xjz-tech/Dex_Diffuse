@@ -8,24 +8,25 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
-task_name="${task_name:-manipulate_bulb}"
-OUTPUT_DIR="${SCRIPT_DIR}/runs/${task_name}"
+task_name="${task_name:-manipulate_bulb_hori50_his4_demo225}"
+RUN_TIMESTAMP="$(date +%Y.%m.%d_%H.%M.%S)"
+OUTPUT_DIR="${SCRIPT_DIR}/runs/${RUN_TIMESTAMP}_${task_name}"
 
 PYTHON="${PYTHON:-/home/bighand/miniconda3/envs/dp/bin/python}"
-DATASET_PATH="${DATASET_PATH:-/mnt/work/dexIL/Dex_Diffuse/data/real_data/bulb_tac_80_dp_}"
+DATASET_PATH="${DATASET_PATH:-/mnt/work/dexIL/Dex_Diffuse/data/real_data/bulb_tac_261001_dp}"
 DINOV2_REPO_OR_DIR="$SCRIPT_DIR/assets/dinov2_assets/facebookresearch_dinov2_main"
 DINOV2_WEIGHTS="$SCRIPT_DIR/assets/dinov2_assets/dinov2_vits14_pretrain.pth"
 RELATIVE="${RELATIVE:-0}"
 LEARNING_RATE="${LEARNING_RATE:-1e-4}"
-HORIZON="${HORIZON:-16}"
-N_OBS_STEPS="${N_OBS_STEPS:-1}"
-N_ACTION_STEPS="${N_ACTION_STEPS:-8}"
-VALIDATION_RATIO="${VALIDATION_RATIO:-0.0}"
+HORIZON="${HORIZON:-64}"
+N_OBS_STEPS="${N_OBS_STEPS:-4}"
+N_ACTION_STEPS="${N_ACTION_STEPS:-32}"
+VALIDATION_RATIO="${VALIDATION_RATIO:-0.05}"
 WEIGHT_DECAY="${WEIGHT_DECAY:-1e-6}"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 export WANDB_MODE="${WANDB_MODE:-online}"
-export WANDB_DIR="${WANDB_DIR:-$SCRIPT_DIR/data/wandb}"
-export MPLCONFIGDIR="${MPLCONFIGDIR:-$SCRIPT_DIR/data/matplotlib}"
+export WANDB_DIR="${WANDB_DIR:-$SCRIPT_DIR/runs/wandb}"
+export MPLCONFIGDIR="${MPLCONFIGDIR:-$SCRIPT_DIR/runs/matplotlib}"
 export DINOV2_SOURCE=local
 export DINOV2_REPO_OR_DIR
 export DINOV2_WEIGHTS
@@ -78,8 +79,8 @@ exec "$PYTHON" train.py \
     optimizer.lr="$LEARNING_RATE" \
     optimizer.weight_decay="$WEIGHT_DECAY" \
     training.device=cuda:0 \
-    training.num_epochs=500 \
-    training.checkpoint_every=20 \
+    training.num_epochs=601 \
+    training.checkpoint_every=100 \
     training.rollout_every=50 \
     dataloader.batch_size=64 \
     dataloader.num_workers=16 \

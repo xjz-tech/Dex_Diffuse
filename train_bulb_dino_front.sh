@@ -12,7 +12,7 @@ task_name="${task_name:-manipulate_bulb}"
 OUTPUT_DIR="${SCRIPT_DIR}/runs/${task_name}"
 
 PYTHON="${PYTHON:-/home/bighand/miniconda3/envs/dp/bin/python}"
-DATASET_PATH="${DATASET_PATH:-/mnt/work/dexIL/Dex_Diffuse/data/real_data/bulb_tac_80_dp_}"
+DATASET_PATH="${DATASET_PATH:-/mnt/work/dexIL/Dex_Diffuse/data/real_data/realworld_bulb_sft_260909_dp}"
 DINOV2_REPO_OR_DIR="$SCRIPT_DIR/assets/dinov2_assets/facebookresearch_dinov2_main"
 DINOV2_WEIGHTS="$SCRIPT_DIR/assets/dinov2_assets/dinov2_vits14_pretrain.pth"
 RELATIVE="${RELATIVE:-0}"
@@ -24,8 +24,8 @@ VALIDATION_RATIO="${VALIDATION_RATIO:-0.0}"
 WEIGHT_DECAY="${WEIGHT_DECAY:-1e-6}"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 export WANDB_MODE="${WANDB_MODE:-online}"
-export WANDB_DIR="${WANDB_DIR:-$SCRIPT_DIR/data/wandb}"
-export MPLCONFIGDIR="${MPLCONFIGDIR:-$SCRIPT_DIR/data/matplotlib}"
+export WANDB_DIR="${WANDB_DIR:-$SCRIPT_DIR/runs/wandb}"
+export MPLCONFIGDIR="${MPLCONFIGDIR:-$SCRIPT_DIR/runs/matplotlib}"
 export DINOV2_SOURCE=local
 export DINOV2_REPO_OR_DIR
 export DINOV2_WEIGHTS

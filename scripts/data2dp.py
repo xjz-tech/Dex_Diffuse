@@ -48,8 +48,14 @@ from typing import Sequence
 import numpy as np
 
 
-DEFAULT_SRC = "/mnt/work/dexIL/Dex_Diffuse/data/real_data/bulb_tac_80"
-DEFAULT_OUT = "/mnt/work/dexIL/Dex_Diffuse/data/real_data/bulb_tac_80_dp_"
+DEFAULT_SRC = "/mnt/work/dexIL/Dex_Diffuse/data/real_data/bulb_tac_261001"
+DEFAULT_OUT = f"{DEFAULT_SRC}_dp_20"
+
+# 留空转换全部 episode；例如 [0, 3, 12] 只转换 episode_0、episode_3、episode_12。
+# 填原始文件夹的编号，不是 Zarr 中的轨迹序号；输出仍按编号升序排列。
+# bulb_tac_261001 的 5-shot 子集，属于原 10/20-shot：按 state/action 和双相机筛选，不使用 tactile。
+# 筛选记录：reports/bulb_tac_261001_fewshot/5shot/selection.json
+SELECTED_EPISODES: list[int] = [7, 38, 114, 128, 209]
 
 ARM_DIM = 9
 HAND_DIM = 22
@@ -156,6 +162,9 @@ def load_tactile_f6(episode_dir: str) -> np.ndarray:
 def list_episode_dirs(src: str, max_episodes: int | None = None) -> list[str]:
     if not osp.isdir(src):
         raise FileNotFoundError(f"source directory does not exist: {src}")
+    if any(type(index) is not int or index < 0 for index in SELECTED_EPISODES):
+        raise ValueError("SELECTED_EPISODES must contain non-negative integer episode IDs")
+    selected_ids = set(SELECTED_EPISODES)
 
     result = []
     for name in os.listdir(src):
@@ -167,6 +176,12 @@ def list_episode_dirs(src: str, max_episodes: int | None = None) -> list[str]:
         except ValueError:
             continue
         result.append((index, path))
+    if selected_ids:
+        missing_ids = selected_ids.difference(index for index, _ in result)
+        if missing_ids:
+            missing_names = ", ".join(f"episode_{index}" for index in sorted(missing_ids))
+            raise FileNotFoundError(f"selected episodes not found under {src}: {missing_names}")
+        result = [(index, path) for index, path in result if index in selected_ids]
     result.sort(key=lambda item: item[0])
     paths = [path for _, path in result]
     if max_episodes is not None:
@@ -506,7 +521,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--image-chunk", type=int, default=16)
     parser.add_argument("--compression-level", type=int, default=3, choices=range(0, 10))
     parser.add_argument(
-        "--max-episodes", type=int, default=None, help="convert only the first N episodes (testing)"
+        "--max-episodes", type=int, default=None,
+        help="convert only the first N episodes after SELECTED_EPISODES filtering (testing)"
     )
     parser.add_argument("--dry-run", action="store_true", help="validate inputs without writing")
     parser.add_argument("--overwrite", action="store_true", help="replace an existing output directory")
