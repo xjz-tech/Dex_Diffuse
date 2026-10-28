@@ -1057,6 +1057,7 @@ class DirectRobotEnv:
         rotate_wrist_camera_180: bool = True,
         show_camera_input: bool = False,
         camera_window: str = "Diffusion Policy direct robot camera input",
+        camera_key_callback=None,
         show_obs_viz: bool = False,
         obs_viz_window: str = "Diffusion Policy live obs",
         obs_viz_hz: float = 15.0,
@@ -1091,6 +1092,7 @@ class DirectRobotEnv:
         self.rotate_wrist_camera_180 = bool(rotate_wrist_camera_180)
         self.show_camera_input = bool(show_camera_input)
         self.camera_window = camera_window
+        self.camera_key_callback = camera_key_callback
         self.show_obs_viz = bool(show_obs_viz)
         self.obs_viz = None
         self.obs_viz_window = obs_viz_window
@@ -1181,7 +1183,9 @@ class DirectRobotEnv:
             front_bgr = cv2.cvtColor(front_rgb, cv2.COLOR_RGB2BGR)
             wrist_bgr = cv2.cvtColor(wrist_rgb, cv2.COLOR_RGB2BGR)
             cv2.imshow(self.camera_window, np.concatenate([front_bgr, wrist_bgr], axis=1))
-            cv2.waitKey(1)
+            key = cv2.waitKey(1)
+            if self.camera_key_callback is not None:
+                self.camera_key_callback(key)
 
         tcp_pose = self.franka.get_current_tcp_pose()
         hand_angles_real = self.hand.get_state()

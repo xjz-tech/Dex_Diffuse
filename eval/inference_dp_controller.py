@@ -335,7 +335,16 @@ def parse_args() -> argparse.Namespace:
         help="Controller calls reusing one DP proposal (default: 4)",
     )
     parser.add_argument("--guidance-scale", type=float, default=100.0)
+    parser.add_argument(
+        "--guidance-metric", choices=("joint", "fingertip"),
+        default=os.environ.get("GUIDANCE_METRIC", "joint"),
+        help="Guidance loss: normalized joint MSE or fingertip position MSE in m^2",
+    )
     parser.add_argument("--edit-noise-ratio", type=float, default=0.15)
+    parser.add_argument(
+        "--edit-on-key", action="store_true",
+        help="Execute original DP actions until E is pressed in the camera window, then enable edit.",
+    )
     parser.add_argument("--trt-fused", action="store_true", help="TensorRT FP16 UNets and precomputed DDIM updates")
     parser.add_argument("--edit-interpolate-large-actions", action="store_true")
     parser.add_argument("--edit-interpolation-threshold-rad", type=float, default=0.12)
@@ -401,6 +410,10 @@ def _validate_args(args: argparse.Namespace) -> torch.device:
         raise ValueError("guidance_scale must be non-negative")
     if args.method == "edit" and args.guidance_scale != 0.0:
         raise ValueError("edit mode requires guidance_scale=0")
+    if args.edit_on_key and args.method != "edit":
+        raise ValueError("--edit-on-key requires --method edit")
+    if args.edit_on_key and not (args.check_only or args.validate_only or args.show_camera_input):
+        raise ValueError("--edit-on-key requires --show-camera-input for keyboard events")
     if not np.isfinite(args.edit_noise_ratio) or args.edit_noise_ratio < 0.0:
         raise ValueError("edit_noise_ratio must be finite and non-negative")
     if not np.isfinite(args.edit_interpolation_threshold_rad) or args.edit_interpolation_threshold_rad <= 0.0:
@@ -691,6 +704,12 @@ def main(method: str | None = None) -> int:
             allow_salvage=not args.no_salvage,
         )
         controller.set_guidance_horizon(args.guidance_steps)
+        if args.guidance_metric == "fingertip":
+            from diffusion_policy.guidance.fingertip_fk import FingertipGuidanceLoss
+
+            controller.guidance_loss_fn = FingertipGuidanceLoss(
+                controller.policy.normalizer["action"], device=device,
+            )
         reference_steps = controller.reference_steps
     controller_windows = _controller_windows(
         action_steps, controller.execution_steps,
@@ -707,8 +726,8 @@ def main(method: str | None = None) -> int:
     )
     if editor is None:
         print(
-            "[guidance] scale=%.4f eta=%.4f ddim_steps=%d fixed_noise=%s"
-            % (controller.guidance_scale, controller.eta,
+            "[guidance] metric=%s scale=%.4f eta=%.4f ddim_steps=%d fixed_noise=%s"
+            % (args.guidance_metric, controller.guidance_scale, controller.eta,
                controller.inference_steps, controller.fixed_noise),
             flush=True,
         )
@@ -767,6 +786,15 @@ def main(method: str | None = None) -> int:
     # model-only checks above.
     import inference_dp as real_dp
 
+    edit_on_key = bool(getattr(args, "edit_on_key", False))
+    edit_active = editor is not None and not edit_on_key
+    edit_requested = False
+
+    def handle_camera_key(key):
+        nonlocal edit_requested
+        if key & 0xFF in (ord("e"), ord("E")):
+            edit_requested = True
+
     env = real_dp.DiffusionDirectRobotEnv(
         action_dim=ACTION_DIM,
         live=args.live,
@@ -783,8 +811,8 @@ def main(method: str | None = None) -> int:
         ik_damping=args.ik_damping,
         max_arm_xyz_step=args.max_arm_xyz_step,
         max_hand_step=args.max_hand_step,
-        disable_clamp=args.disable_clamp or args.method == "edit",
-        disable_ik_limits=args.method == "edit",
+        disable_clamp=args.disable_clamp or edit_active,
+        disable_ik_limits=edit_active,
         hand_interpolate=args.hand_interpolate,
         action_chunk_steps=1,
         hz=args.hz,
@@ -798,10 +826,19 @@ def main(method: str | None = None) -> int:
         wrist_resolution=args.wrist_resolution,
         rotate_wrist_camera_180=args.rotate_wrist_camera_180,
         show_camera_input=args.show_camera_input,
+        camera_key_callback=handle_camera_key if edit_on_key else None,
         stop_on_close=args.stop_on_close,
     )
 
     try:
+        if edit_on_key:
+            if not env.show_camera_input:
+                raise RuntimeError("Edit key activation requires a working OpenCV camera window")
+            print(
+                "[edit] original DP active; focus the camera window and press E "
+                "to enable edit at the next execution chunk (one-way switch)",
+                flush=True,
+            )
         first_raw_obs = env.reset()
         first_obs = real_dp.capture_obs(first_raw_obs, rgb_shapes)
         real_history = deque([first_obs] * n_obs_steps, maxlen=n_obs_steps)
@@ -838,40 +875,53 @@ def main(method: str | None = None) -> int:
             for controller_idx, (execute_slice, guide_slice) in enumerate(controller_windows):
                 if args.max_chunks and env.chunk_idx >= args.max_chunks:
                     break
+                if edit_requested and not edit_active:
+                    edit_active = True
+                    env.disable_clamp = True
+                    if env.ik_solver is not None:
+                        env.ik_solver.apply_joint_limits = False
+                    print(
+                        "[edit] E pressed; edit ENABLED from chunk %04d (dp=%04d)"
+                        % (env.chunk_idx, dp_idx),
+                        flush=True,
+                    )
                 # Replan from feedback after the previous execution chunk, while
                 # advancing BOTH the arm actions and hand guide in the cached DP.
                 hand_reference = absolute_dp_actions[guide_slice, ARM_DIM:]
                 started = time.perf_counter()
-                if editor is None:
+                original_dp_active = editor is not None and not edit_active
+                if original_dp_active:
+                    guided_actions = absolute_dp_actions[execute_slice].copy()
+                    metric = "original_dp (press E for edit)"
+                elif editor is None:
                     guided_hand, stats = controller.predict(
                         np.stack(controller_history), hand_reference,
                     )
+                    metric = "mse=%.6f->%.6f" % (stats.mse_before, stats.mse_after)
                 else:
                     guided_hand, stats = editor.predict(
                         np.stack(controller_history), hand_reference,
                         [args.seed] if controller.fixed_noise else None,
                     )
+                    metric = "edit_rmse_rad=%.6f" % stats["edit_rmse_rad"]
                 inference_seconds = time.perf_counter() - started
-                expected_hand = (1, controller.execution_steps, HAND_DIM)
-                if guided_hand.shape != expected_hand:
-                    raise RuntimeError(
-                        "controller returned shape %s, expected %s"
-                        % (guided_hand.shape, expected_hand)
+                if not original_dp_active:
+                    expected_hand = (1, controller.execution_steps, HAND_DIM)
+                    if guided_hand.shape != expected_hand:
+                        raise RuntimeError(
+                            "controller returned shape %s, expected %s"
+                            % (guided_hand.shape, expected_hand)
+                        )
+                    guided_actions = _replace_hand_actions(
+                        absolute_dp_actions, execute_slice, guided_hand
                     )
-                guided_actions = _replace_hand_actions(
-                    absolute_dp_actions, execute_slice, guided_hand
-                )
 
-                metric = (
-                    "edit_rmse_rad=%.6f" % stats["edit_rmse_rad"]
-                    if editor is not None else
-                    "mse=%.6f->%.6f" % (stats.mse_before, stats.mse_after)
-                )
                 print(
                     "[%s chunk %04d] dp=%04d controller=%d/%d proposal=%s "
                     "reference=[%d:%d] execute=[%d:%d] %s %s controller_s=%.3f"
                     % (
-                        args.method, env.chunk_idx, dp_idx,
+                        "dp" if original_dp_active else args.method,
+                        env.chunk_idx, dp_idx,
                         controller_idx + 1, len(controller_windows),
                         tuple(absolute_dp_actions.shape),
                         guide_slice.start, guide_slice.stop,
@@ -888,7 +938,7 @@ def main(method: str | None = None) -> int:
                         _interpolate_large_hand_action(
                             env.previous_action, action, args.edit_interpolation_threshold_rad,
                         )
-                        if args.method == "edit" and args.edit_interpolate_large_actions
+                        if edit_active and args.edit_interpolate_large_actions
                         else np.asarray(action)[None]
                     )
                     if len(commands) > 1:

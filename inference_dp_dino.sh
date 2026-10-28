@@ -12,9 +12,9 @@ INFERENCE_SCRIPT="${INFERENCE_SCRIPT:-${SCRIPT_DIR}/inference_dp.py}"
 ROBOT_INIT_SCRIPT="${ROBOT_INIT_SCRIPT:-${SCRIPT_DIR}/eval/real/robot_init.py}"
 
 ### Select the checkpoint here.
-CHECKPOINT_DIR="/media/frankagvl/U393/Dex_Diffuse/runs/0906_manip_bulb"
-# CHECKPOINT_DIR="/media/frankagvl/U393/Dex_Diffuse/runs/0905_rotate_bulb_20"
-CKPT_EPOCH="300"
+CHECKPOINT_DIR="/media/frankagvl/U393/Dex_Diffuse/runs/2026.10.12_23.22.54_manipulate_bulb_hori50_his4_demo225_ddp"
+# CHECKPOINT_DIR="/media/frankagvl/U393/Dex_Diffuse/runs/2026.10.11_02.31.35_manipulate_bulb_hori50_his4_demo225_few10"
+CKPT_EPOCH="100"
 
 if [[ ! "${CKPT_EPOCH}" =~ ^[0-9]+$ ]]; then
   echo "CKPT_EPOCH must be a non-negative integer, got: ${CKPT_EPOCH}" >&2
@@ -39,7 +39,7 @@ DINOV2_WEIGHTS="${DINOV2_WEIGHTS:-${SCRIPT_DIR}/assets/dinov2_assets/dinov2_vits
 DINOV2_SOURCE="${DINOV2_SOURCE:-local}"
 DEVICE="${DEVICE:-cuda:0}"
 NUM_INFERENCE_STEPS="${NUM_INFERENCE_STEPS:-16}"
-ACTION_CHUNK_STEPS="${ACTION_CHUNK_STEPS:-10}"
+ACTION_CHUNK_STEPS="${ACTION_CHUNK_STEPS:-16}"
 FRANKA_URDF="${FRANKA_URDF:-/home/frankagvl/workspace/dex_setup/simtoolreal2teleop/assets/urdf/fr3_sharpa_description/fr3.urdf}"
 FRANKA_HOST="${FRANKA_HOST:-172.16.0.10}"
 FRANKA_PORT="${FRANKA_PORT:-9090}"
@@ -119,6 +119,7 @@ echo "[hardware] Franka ${FRANKA_HOST}:${FRANKA_PORT} (joints server); SharpA ${
 echo "[cameras] front=${FRONT_SERIAL:-auto}; wrist=${WRIST_SERIAL:-auto}"
 echo "[mode] LIVE, no tactile: serial ${ACTION_CHUNK_STEPS}-step chunks at 30 Hz"
 echo "[schedule] infer -> execute all ${ACTION_CHUNK_STEPS} actions -> observe -> infer"
+echo "[record] front camera: 30 FPS ${CHECKPOINT_DIR}/${CKPT_EPOCH}_${ACTION_CHUNK_STEPS}_YYYYMMDD_HHMMSS.mp4; Ctrl+C stops and saves"
 
 exec "${PYTHON}" "${INFERENCE_SCRIPT}" \
   --checkpoint "${CKPT_PATH}" \
@@ -136,5 +137,8 @@ exec "${PYTHON}" "${INFERENCE_SCRIPT}" \
   --hand_port "${HAND_PORT}" \
   --front_serial "${FRONT_SERIAL}" \
   --wrist_serial "${WRIST_SERIAL}" \
+  --camera_fps 30 \
+  --record_front_dir "${CHECKPOINT_DIR}" \
+  --record_front_prefix "${CKPT_EPOCH}_${ACTION_CHUNK_STEPS}" \
   --show_camera_input \
   --stop_on_close

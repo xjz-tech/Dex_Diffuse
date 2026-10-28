@@ -11,6 +11,8 @@ EVAL_DIR = Path(__file__).resolve().parents[1] / "eval"
 sys.path.insert(0, str(EVAL_DIR))
 
 from inference_dp_controller import GuidedDDIMController, parse_args  # noqa: E402
+import inference_dp_controller as pipeline  # noqa: E402
+from diffusion_policy.guidance.fingertip_fk import FingertipGuidanceLoss  # noqa: E402
 
 
 def test_guidance_cli_defaults_use_segmentwise_ddim_scale_100(monkeypatch):
@@ -120,3 +122,49 @@ def test_set_guidance_horizon_shortens_reference_slice():
     controller.set_guidance_horizon(6)
     assert controller.reference_steps == 6
     assert controller.reference_slice == slice(3, 9)
+
+
+@pytest.mark.parametrize("metric", ["joint", "fingertip"])
+def test_real_guidance_check_routes_metric_without_connecting_hardware(monkeypatch, metric):
+    monkeypatch.setattr(sys, "argv", [
+        "inference_dp_controller.py", "--dp-checkpoint", "dp.ckpt",
+        "--controller-checkpoint", "hand.ckpt", "--guidance-metric", metric,
+        "--check-only",
+    ])
+    captured = {}
+
+    class FakeController:
+        def __init__(self, *args, **kwargs):
+            self.policy = SimpleNamespace(normalizer={
+                "action": SimpleNamespace(unnormalize=lambda value: value),
+            })
+            self.guidance_loss_fn = None
+            self.execution_steps = kwargs["execution_steps"]
+            self.guidance_scale = kwargs["guidance_scale"]
+            self.eta = kwargs["eta"]
+            self.inference_steps = kwargs["inference_steps"]
+            self.fixed_noise = kwargs["fixed_noise"]
+
+        def set_guidance_horizon(self, steps):
+            self.reference_steps = steps
+
+    def check(real_policy, controller, *args, **kwargs):
+        captured["controller"] = controller
+
+    monkeypatch.setattr(pipeline, "_validate_args", lambda _: torch.device("cpu"))
+    monkeypatch.setattr(pipeline, "_load_real_policy", lambda *args: (object(), object()))
+    monkeypatch.setattr(pipeline, "_real_policy_metadata", lambda *args: (4, 61, False, {}))
+    monkeypatch.setattr(pipeline, "GuidedDDIMController", FakeController)
+    monkeypatch.setattr(pipeline, "_run_check", check)
+    assert pipeline.main() == 0
+    loss_fn = captured["controller"].guidance_loss_fn
+    if metric == "joint":
+        assert loss_fn is None
+    else:
+        assert isinstance(loss_fn, FingertipGuidanceLoss)
+        predicted = torch.zeros(1, 12, 22, requires_grad=True)
+        reference = torch.full((1, 9, 22), 0.2)
+        gradient = torch.autograd.grad(loss_fn(predicted, reference, slice(3, 12)).sum(), predicted)[0]
+        assert torch.isfinite(gradient).all()
+        assert gradient[:, 3:].abs().sum() > 0
+        assert gradient[:, :3].count_nonzero() == 0

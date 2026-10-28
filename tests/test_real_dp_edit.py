@@ -216,3 +216,160 @@ def test_trt_fused_check_compiles_visual_and_hand_unets(monkeypatch):
         (hand, {"fp16": True, "max_batch": 1}),
         True,
     ]
+
+
+@pytest.mark.parametrize("activation_key,on_key,preview_available", [
+    (None, True, True), (ord("e"), True, True), (ord("E"), True, True),
+    (None, False, True), (None, True, False),
+])
+def test_online_edit_waits_for_key_and_switches_at_chunk_boundary(
+    monkeypatch, activation_key, on_key, preview_available,
+):
+    import inference_dp as real_dp
+    import diffusion_policy.SDEdit.reference_action_editor as edit_module
+    from policy_observation import compose_policy_observation, QPOS_TARGET_RESIDUAL_OBSERVATION
+
+    monkeypatch.setattr(sys, "argv", [
+        "inference_dp_controller.py", "--method", "edit", "--guidance-scale", "0",
+        "--dp-checkpoint", "dp.ckpt", "--controller-checkpoint", "hand.ckpt",
+        "--edit-on-key", "--show-camera-input", "--controller-calls-per-dp", "3",
+        "--max-chunks", "3",
+    ])
+    args = pipeline.parse_args()
+    args.edit_on_key = on_key
+    dp_actions = np.arange(13 * 31, dtype=np.float32).reshape(13, 31) / 100
+    issued = []
+    limits = []
+    editor_calls = []
+    environments = []
+
+    class FakeEnv:
+        def __init__(self, **kwargs):
+            self.show_camera_input = kwargs["show_camera_input"] and preview_available
+            self.callback = kwargs["camera_key_callback"]
+            self.disable_clamp = kwargs["disable_clamp"]
+            self.ik_solver = SimpleNamespace(apply_joint_limits=not kwargs["disable_ik_limits"])
+            self.previous_action = np.zeros(31)
+            self.chunk_idx = 0
+            self.closed = False
+            environments.append(self)
+
+        def reset(self):
+            return {
+                "/observe/vision/front/rgb": np.zeros((4, 6, 3), dtype=np.uint8),
+                "/observe/vision/wrist/rgb": np.zeros((4, 6, 3), dtype=np.uint8),
+                "/state/arm/eef_pose": np.zeros(9, dtype=np.float32),
+                "/state/hand/joint_angle": np.full(22, len(issued) / 10, dtype=np.float32),
+            }
+
+        def step_single(self, action, step_idx):
+            issued.append(action.copy())
+            limits.append((self.disable_clamp, self.ik_solver.apply_joint_limits))
+            self.previous_action = action.copy()
+            # The first E arrives halfway through a two-step chunk. Repeated E
+            # presses must leave edit enabled rather than toggle it off.
+            if self.callback is not None:
+                self.callback(activation_key if activation_key is not None else ord("x"))
+            return self.reset()
+
+        def close(self):
+            self.closed = True
+
+    class FakeEditor:
+        def __init__(self, *args, **kwargs):
+            self.controller = SimpleNamespace(
+                execution_steps=2, fixed_noise=True, spec={"n_obs_steps": 4},
+                compose_observation=lambda q, target: compose_policy_observation(
+                    q, target, QPOS_TARGET_RESIDUAL_OBSERVATION,
+                ),
+            )
+            self.future_steps = 9
+            self.actual_noise_ratio = 0.15
+            self.timesteps = (8, 5, 3, 0)
+
+        def predict(self, history, reference, seeds):
+            editor_calls.append((len(issued), history.copy(), reference.copy()))
+            return np.full((1, 2, 22), 0.75, dtype=np.float32), {"edit_rmse_rad": 0.1}
+
+    policy = SimpleNamespace(predict_action=lambda _: {"action": torch.from_numpy(dp_actions[None])})
+    monkeypatch.setattr(pipeline, "parse_args", lambda: args)
+    monkeypatch.setattr(pipeline, "_validate_args", lambda _: torch.device("cpu"))
+    monkeypatch.setattr(pipeline, "_load_real_policy", lambda *a: (object(), policy))
+    monkeypatch.setattr(pipeline, "_real_policy_metadata", lambda *a: (
+        4, 13, False, {"front_image": (3, 4, 6), "wrist_image": (3, 4, 6)},
+    ))
+    monkeypatch.setattr(edit_module, "ReferenceActionEditor", FakeEditor)
+    monkeypatch.setattr(real_dp, "DiffusionDirectRobotEnv", FakeEnv)
+    monkeypatch.setattr(pipeline.time, "sleep", lambda _: None)
+
+    if not preview_available:
+        with pytest.raises(RuntimeError, match="working OpenCV camera window"):
+            pipeline.main()
+        assert environments[0].closed
+        assert issued == editor_calls == []
+        return
+
+    assert pipeline.main() == 0
+    assert environments[0].closed
+    issued = np.stack(issued)
+    np.testing.assert_array_equal(issued[:, :9], dp_actions[:6, :9])
+    if not on_key:
+        np.testing.assert_array_equal(issued[:, 9:], 0.75)
+        assert limits == [(True, False)] * 6
+        assert [call[0] for call in editor_calls] == [0, 2, 4]
+    elif activation_key is None:
+        np.testing.assert_array_equal(issued, dp_actions[:6])
+        assert editor_calls == []
+        assert limits == [(False, True)] * 6
+    else:
+        np.testing.assert_array_equal(issued[:2], dp_actions[:2])
+        np.testing.assert_array_equal(issued[2:, 9:], 0.75)
+        assert limits == [(False, True)] * 2 + [(True, False)] * 4
+        assert [call[0] for call in editor_calls] == [2, 4]
+        # Warm the controller history with actual feedback and issued targets
+        # while executing raw DP, rather than restarting history at activation.
+        first_history = editor_calls[0][1]
+        np.testing.assert_allclose(first_history[-2:, :22], [[0.1] * 22, [0.2] * 22])
+        np.testing.assert_array_equal(first_history[-2:, 22:44], dp_actions[:2, 9:])
+        np.testing.assert_array_equal(editor_calls[0][2], dp_actions[2:11, 9:])
+
+
+def test_camera_preview_delivers_keyboard_events(monkeypatch):
+    import direct_robot_env as robot
+
+    arm, hand, cameras, callback = Mock(), Mock(), Mock(), Mock()
+    arm.get_current_tcp_pose.return_value = np.eye(4)
+    hand.get_state.return_value = np.zeros(22)
+    frame = SimpleNamespace(color_rgb=np.zeros((4, 6, 3), dtype=np.uint8))
+    cameras.read_pair.return_value = {"front": frame, "wrist": frame}
+    monkeypatch.setattr(robot, "FrankaArmController", lambda **kw: arm)
+    monkeypatch.setattr(robot, "SharpaWaveController", lambda **kw: hand)
+    monkeypatch.setattr(robot.RealSensePair, "start", lambda **kw: cameras)
+    for name in ("namedWindow", "resizeWindow", "imshow", "destroyWindow"):
+        monkeypatch.setattr(robot.cv2, name, Mock())
+    monkeypatch.setattr(robot.cv2, "waitKey", lambda _: ord("e"))
+
+    env = robot.DirectRobotEnv(use_tactile=False, show_camera_input=True, camera_key_callback=callback)
+    try:
+        env.reset()
+        callback.assert_called_once_with(ord("e"))
+    finally:
+        env.close()
+
+
+def test_edit_key_validation_requires_edit_and_a_preview(monkeypatch, tmp_path):
+    for name in ("dp.ckpt", "hand.ckpt"):
+        (tmp_path / name).touch()
+    monkeypatch.setattr(sys, "argv", [
+        "inference_dp_controller.py", "--dp-checkpoint", str(tmp_path / "dp.ckpt"),
+        "--controller-checkpoint", str(tmp_path / "hand.ckpt"), "--device", "cpu",
+        "--edit-on-key",
+    ])
+    args = pipeline.parse_args()
+    with pytest.raises(ValueError, match="requires --method edit"):
+        pipeline._validate_args(args)
+    args.method, args.guidance_scale = "edit", 0
+    with pytest.raises(ValueError, match="requires --show-camera-input"):
+        pipeline._validate_args(args)
+    args.check_only = True
+    assert pipeline._validate_args(args) == torch.device("cpu")

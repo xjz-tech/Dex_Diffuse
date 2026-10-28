@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 import time
 from collections import deque
 from pathlib import Path
@@ -206,6 +207,16 @@ def parse_args():
         action="store_false",
     )
     parser.add_argument("--show_camera_input", action="store_true")
+    parser.add_argument(
+        "--record_front_dir",
+        default=None,
+        help="Record full-resolution front RGB to a 30 FPS MP4 in this directory.",
+    )
+    parser.add_argument(
+        "--record_front_prefix",
+        default="front",
+        help="Video filename prefix, followed by _YYYYMMDD_HHMMSS.mp4.",
+    )
     parser.add_argument("--log_action_steps", action="store_true", default=True)
     parser.add_argument(
         "--no_log_action_steps", dest="log_action_steps", action="store_false"
@@ -326,7 +337,20 @@ def main():
         stop_on_close=args.stop_on_close,
     )
 
+    front_recording = None
     try:
+        if args.record_front_dir is not None:
+            from front_camera_recording import RecordingFrontCamera
+
+            front_recording = RecordingFrontCamera(
+                env.cameras.cameras["front"],
+                args.record_front_dir,
+                filename_prefix=args.record_front_prefix,
+                fps=30,
+                timeout_ms=args.camera_timeout_ms,
+            )
+            env.cameras.cameras["front"] = front_recording
+            front_recording.start()
         first_obs = capture_obs(env.reset(), rgb_shapes)
         obs_history = deque([first_obs] * n_obs_steps, maxlen=n_obs_steps)
         print(
@@ -388,8 +412,20 @@ def main():
                     f"{executed_steps} actions executed; starting next inference"
                 )
             env.chunk_idx += 1
+    except KeyboardInterrupt:
+        print("\n[exit] Ctrl+C received; stopping hardware and finalizing video", flush=True)
     finally:
-        env.close()
+        # A second Ctrl+C must not interrupt camera shutdown or MP4 finalization.
+        previous_sigint = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        try:
+            try:
+                env.close()
+            finally:
+                if front_recording is not None:
+                    front_recording.stop()
+                    front_recording.raise_if_failed()
+        finally:
+            signal.signal(signal.SIGINT, previous_sigint)
 
 
 if __name__ == "__main__":

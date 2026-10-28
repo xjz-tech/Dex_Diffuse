@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Real image DP -> repeated guided Sim-Hand DDIM / short closed-loop execution.
+# Real image DP -> guided or SDEdit Sim-Hand DDIM / short closed-loop execution.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,9 +12,9 @@ die() {
 
 # Default to the bulb-task DP checkpoint and the local 66-D simulation
 # controller. Both paths can still be overridden through environment variables.
-DP_CKPT_PATH="${DP_CKPT_PATH:-/media/frankagvl/U393/Dex_Diffuse/runs/0906_manip_bulb/epoch=0400-train_loss=0.0057.ckpt}"
+DP_CKPT_PATH="${DP_CKPT_PATH:-/media/frankagvl/U393/Dex_Diffuse/runs/2026.10.12_23.22.54_manipulate_bulb_hori50_his4_demo225_ddp/epoch=0200-train_loss=0.0030.ckpt}"
 # DP_CKPT_PATH="${DP_CKPT_PATH:-/media/frankagvl/U393/Dex_Diffuse/runs/0905_rotate_bulb_20/epoch=0300-train_loss=0.0145.ckpt}"
-CONTROLLER_CKPT_PATH="${CONTROLLER_CKPT_PATH:-/media/frankagvl/U393/Dex_Diffuse/runs/8_2_mixed.ckpt}"
+CONTROLLER_CKPT_PATH="${CONTROLLER_CKPT_PATH:-/media/frankagvl/U393/Dex_Diffuse/runs/1B_unet.ckpt}"
 # CONTROLLER_CKPT_PATH="${CONTROLLER_CKPT_PATH:-/media/frankagvl/U393/Dex_Diffuse/runs/obs_4-66.ckpt}"
 INFERENCE_SCRIPT="${INFERENCE_SCRIPT:-${SCRIPT_DIR}/inference_dp_controller.py}"
 
@@ -32,6 +32,12 @@ if [[ -z "${MODEL_PYTHON}" ]]; then
 fi
 
 DEVICE="${DEVICE:-cuda:0}"
+# EDIT_MODE=1 runs reference-initialized SDEdit with no gradient guidance.
+EDIT_MODE="${EDIT_MODE:-0}"
+# In edit mode, start with original DP actions and press E in the camera window
+# to enable edit. Set EDIT_ON_KEY=0 to enable edit immediately.
+EDIT_ON_KEY="${EDIT_ON_KEY:-1}"
+CONTROLLER_METHOD="guidance"
 DP_INFERENCE_STEPS="${DP_INFERENCE_STEPS:-16}"
 DDIM_INFERENCE_STEPS="${DDIM_INFERENCE_STEPS:-4}"
 # Actions executed per call; the checkpoint determines the output length limit.
@@ -41,6 +47,11 @@ CONTROLLER_ACTION_CHUNK_SIZE="${CONTROLLER_ACTION_CHUNK_SIZE:-${EXECUTION_STEPS:
 GUIDANCE_STEPS="${GUIDANCE_STEPS:-9}"
 CONTROLLER_CALLS_PER_DP="${CONTROLLER_CALLS_PER_DP:-4}"
 GUIDANCE_SCALE="${GUIDANCE_SCALE:-100}"
+if [[ "${EDIT_MODE}" == "1" ]]; then
+    CONTROLLER_METHOD="edit"
+    GUIDANCE_SCALE=0
+fi
+GUIDANCE_METRIC="${GUIDANCE_METRIC:-joint}"
 EDIT_NOISE_RATIO="${EDIT_NOISE_RATIO:-0.15}"
 TRT_FUSED="${TRT_FUSED:-0}"
 EDIT_INTERPOLATE_LARGE_ACTIONS="${EDIT_INTERPOLATE_LARGE_ACTIONS:-0}"
@@ -84,6 +95,9 @@ ROBOT_INIT_SCRIPT="${ROBOT_INIT_SCRIPT:-${SCRIPT_DIR}/real/robot_init.py}"
 [[ "${CHECK_ONLY}" =~ ^[01]$ ]] || die "CHECK_ONLY must be 0 or 1"
 [[ "${LIVE}" =~ ^[01]$ ]] || die "LIVE must be 0 or 1"
 [[ "${FIXED_NOISE}" =~ ^[01]$ ]] || die "FIXED_NOISE must be 0 or 1"
+[[ "${EDIT_MODE}" =~ ^[01]$ ]] || die "EDIT_MODE must be 0 or 1"
+[[ "${EDIT_ON_KEY}" =~ ^[01]$ ]] || die "EDIT_ON_KEY must be 0 or 1"
+[[ "${GUIDANCE_METRIC}" == "joint" || "${GUIDANCE_METRIC}" == "fingertip" ]] || die "GUIDANCE_METRIC must be joint or fingertip"
 [[ "${TRT_FUSED}" =~ ^[01]$ ]] || die "TRT_FUSED must be 0 or 1"
 [[ "${EDIT_INTERPOLATE_LARGE_ACTIONS}" =~ ^[01]$ ]] || die "EDIT_INTERPOLATE_LARGE_ACTIONS must be 0 or 1"
 [[ "${ALLOW_SALVAGE}" =~ ^[01]$ ]] || die "ALLOW_SALVAGE must be 0 or 1"
@@ -94,6 +108,9 @@ ROBOT_INIT_SCRIPT="${ROBOT_INIT_SCRIPT:-${SCRIPT_DIR}/real/robot_init.py}"
 [[ "${CONTROLLER_CALLS_PER_DP}" =~ ^[1-9][0-9]*$ ]] || die "CONTROLLER_CALLS_PER_DP must be a positive integer"
 if [[ "${CHECK_ONLY}" == "0" && "${LIVE}" != "1" ]]; then
     die "hardware evaluation requires LIVE=1 (or leave CHECK_ONLY=1 for a safe model check)"
+fi
+if [[ "${CHECK_ONLY}" == "0" && "${EDIT_MODE}" == "1" && "${EDIT_ON_KEY}" == "1" && "${SHOW_CAMERA_INPUT}" != "1" ]]; then
+    die "EDIT_ON_KEY=1 requires SHOW_CAMERA_INPUT=1; focus the camera window and press E"
 fi
 
 DP_PREFIX="$(cd -- "$(dirname -- "${MODEL_PYTHON}")/.." && pwd)"
@@ -121,6 +138,7 @@ fi
 
 ARGS=(
     "${INFERENCE_SCRIPT}"
+    --method "${CONTROLLER_METHOD}"
     --dp-checkpoint "${DP_CKPT_PATH}"
     --controller-checkpoint "${CONTROLLER_CKPT_PATH}"
     --device "${DEVICE}"
@@ -130,6 +148,7 @@ ARGS=(
     --guidance-steps "${GUIDANCE_STEPS}"
     --controller-calls-per-dp "${CONTROLLER_CALLS_PER_DP}"
     --guidance-scale "${GUIDANCE_SCALE}"
+    --guidance-metric "${GUIDANCE_METRIC}"
     --edit-noise-ratio "${EDIT_NOISE_RATIO}"
     --edit-interpolation-threshold-rad "${EDIT_INTERPOLATION_THRESHOLD_RAD}"
     --eta "${ETA}"
@@ -138,6 +157,9 @@ ARGS=(
     --max-chunks "${MAX_CHUNKS}"
     --hz "${HZ}"
 )
+if [[ "${EDIT_MODE}" == "1" && "${EDIT_ON_KEY}" == "1" ]]; then
+    ARGS+=(--edit-on-key)
+fi
 if [[ "${TRT_FUSED}" == "1" ]]; then
     ARGS+=(--trt-fused)
 fi
@@ -173,17 +195,20 @@ else
     fi
 fi
 
-if [[ "${EDIT_MODE:-0}" == "1" ]]; then
+if [[ "${EDIT_MODE}" == "1" ]]; then
     echo "[pipeline] Real DP -> ${CONTROLLER_CALLS_PER_DP} x (SDEdit Sim-Hand DDIM -> execute ${CONTROLLER_ACTION_CHUNK_SIZE} -> observe) -> replan DP"
 else
     echo "[pipeline] Real DP -> ${CONTROLLER_CALLS_PER_DP} x (guided Sim-Hand DDIM, ${GUIDANCE_STEPS}-step guide -> execute ${CONTROLLER_ACTION_CHUNK_SIZE} -> observe) -> replan DP"
 fi
 echo "[dp] ${DP_CKPT_PATH} (steps=${DP_INFERENCE_STEPS})"
 echo "[controller] ${CONTROLLER_CKPT_PATH} (DDIM steps=${DDIM_INFERENCE_STEPS})"
-if [[ "${EDIT_MODE:-0}" == "1" ]]; then
+if [[ "${EDIT_MODE}" == "1" ]]; then
     echo "[edit] noise_ratio=${EDIT_NOISE_RATIO} ddim_steps=${DDIM_INFERENCE_STEPS} exec=${CONTROLLER_ACTION_CHUNK_SIZE} fixed_noise=${FIXED_NOISE} trt_fused=${TRT_FUSED} interpolate_large_actions=${EDIT_INTERPOLATE_LARGE_ACTIONS} threshold_rad=${EDIT_INTERPOLATION_THRESHOLD_RAD}"
+    if [[ "${EDIT_ON_KEY}" == "1" ]]; then
+        echo "[edit] original DP runs first; focus the camera window and press E to enable edit"
+    fi
 else
-    echo "[guidance] scale=${GUIDANCE_SCALE} eta=${ETA} ddim_steps=${DDIM_INFERENCE_STEPS} guide_steps=${GUIDANCE_STEPS} exec=${CONTROLLER_ACTION_CHUNK_SIZE} fixed_noise=${FIXED_NOISE}"
+    echo "[guidance] metric=${GUIDANCE_METRIC} scale=${GUIDANCE_SCALE} eta=${ETA} ddim_steps=${DDIM_INFERENCE_STEPS} guide_steps=${GUIDANCE_STEPS} exec=${CONTROLLER_ACTION_CHUNK_SIZE} fixed_noise=${FIXED_NOISE}"
 fi
 
 if [[ "${CHECK_ONLY}" == "0" ]]; then

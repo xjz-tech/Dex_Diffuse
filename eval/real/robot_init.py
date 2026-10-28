@@ -15,6 +15,10 @@ DEFAULT_READY_JOINTS = np.asarray(
     [0.5205, -0.7496, 0.6738, -2.2985, 0.4486, 1.6307, -1.2555],
     dtype=np.float64,
 )
+DEFAULT_READY_JOINTS = np.asarray(
+    [0.692089, -0.787495, 0.615496, -2.26107, 0.455718, 1.58312, -1.13464],
+    dtype=np.float64,
+)
 ARM_INTERPOLATION_STEPS = 30
 ARM_INTERPOLATION_SECONDS = 3.0
 # 全零初始姿态：启用这一行时，注释掉下方记录姿态的整个赋值块。

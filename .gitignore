@@ -83,3 +83,8 @@ eval/record
 assets/
 /data
 tests/
+
+# Generated local experiment reports and real-world run logs
+/reports/
+/eval/real/latest_run*.txt
+/eval/real/latest_run*.jsonl
